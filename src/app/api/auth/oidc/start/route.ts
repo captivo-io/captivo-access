@@ -29,7 +29,7 @@ async function handler(req: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=sso", base));
   }
 
-  await setOidcState({ state, nonce, codeVerifier, returnTo });
+  await setOidcState({ state, nonce, codeVerifier, returnTo }, cfg.isPlatform);
 
   // Fixed origin for the platform provider, request host for a tenant's own.
   // See callbackOrigin() for why.
