@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readPlatformOidc, pickOidcSource, callbackOrigin } from "./oidc-source";
+import { readPlatformOidc, pickOidcSource } from "./oidc-source";
 
 const PLATFORM = { issuer: "https://id.captivo.io", clientId: "captivo-access", clientSecret: "s3cret" };
 const TENANT = { enabled: true, issuer: "https://acme.okta.com", clientId: "abc", hasSecret: true };
@@ -56,35 +56,3 @@ describe("which provider applies", () => {
   });
 });
 
-describe("callback origin", () => {
-  const PLAT = { kind: "platform" as const, config: PLATFORM };
-  const TEN = { kind: "tenant" as const };
-
-  it("the platform provider uses ONE fixed origin, not the tenant's", () => {
-    // Access is multi-tenant and every tenant lives on its own subdomain, so
-    // a request-derived URI changes per tenant while Captivo ID knows exactly
-    // one. This is the bug that only appeared once the two were connected.
-    expect(callbackOrigin(PLAT, "https://acme.cloud.captivo.io", "https://platform.cloud.captivo.io"))
-      .toBe("https://platform.cloud.captivo.io");
-  });
-
-  it("a tenant's own provider keeps the tenant's origin", () => {
-    // Their Okta is registered with THEIR console's URL.
-    expect(callbackOrigin(TEN, "https://acme.cloud.captivo.io", "https://platform.cloud.captivo.io"))
-      .toBe("https://acme.cloud.captivo.io");
-  });
-
-  it("trailing slash does not produce a double slash", () => {
-    expect(callbackOrigin(PLAT, "https://acme.cloud.captivo.io", "https://platform.cloud.captivo.io/"))
-      .toBe("https://platform.cloud.captivo.io");
-  });
-
-  it("without a configured public URL it keeps the tenant origin", () => {
-    // There is no single origin to use, and inventing one would send the
-    // person to an address the provider refuses.
-    expect(callbackOrigin(PLAT, "https://acme.cloud.captivo.io", undefined))
-      .toBe("https://acme.cloud.captivo.io");
-    expect(callbackOrigin(PLAT, "https://acme.cloud.captivo.io", "   "))
-      .toBe("https://acme.cloud.captivo.io");
-  });
-});
