@@ -681,7 +681,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
    the dark nav bar and the auth screens; only the colors change per surface. */
 .brand-lockup { display: inline-flex; align-items: center; gap: 10px; }
 .brand-word { font-family: var(--grotesk); font-weight: 600; letter-spacing: -.02em; font-size: 1.05rem; color: var(--fg); }
-.brand-access { font-family: var(--grotesk); font-weight: 600; font-size: .62rem; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); border: 1px solid #2E84F5; border-radius: 6px; padding: 2px 7px; }
+.brand-access { font-family: var(--grotesk); font-weight: 600; font-size: .62rem; letter-spacing: .15em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--accent); border-radius: 6px; padding: 2px 7px; }
 .tn-brand .brand-word { color: #fff; }
 .tn-brand .brand-access { color: var(--nav-fg-dim); }
 .auth-panel .brand-word { color: #fff; }

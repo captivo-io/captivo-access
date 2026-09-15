@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none" role="img" aria-label="Captivo Access">
-  <defs><linearGradient id="captivo-bg" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#16C7F0"/><stop offset="0.52" stop-color="#2E84F5"/><stop offset="1" stop-color="#7A5AF5"/></linearGradient></defs>
+  <defs><linearGradient id="captivo-bg" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2EE6C9"/><stop offset="0.52" stop-color="#12B5B0"/><stop offset="1" stop-color="#0B7D73"/></linearGradient></defs>
   <rect width="100" height="100" rx="26" fill="url(#captivo-bg)"/>
   <g transform="translate(19.7 21) scale(0.58)">
     <path d="M77.98 67.49 A33 33 0 1 1 77.98 32.51" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>

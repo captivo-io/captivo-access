@@ -6,9 +6,9 @@ export function BrandMark({ size = 26, className }: { size?: number; className?:
     <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className} aria-hidden="true">
       <defs>
         <linearGradient id="ca-orbit" x1="16" y1="12" x2="84" y2="88" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#16C7F0" />
-          <stop offset="0.52" stopColor="#2E84F5" />
-          <stop offset="1" stopColor="#7A5AF5" />
+          <stop offset="0" stopColor="#2EE6C9" />
+          <stop offset="0.52" stopColor="#12B5B0" />
+          <stop offset="1" stopColor="#0B7D73" />
         </linearGradient>
       </defs>
       <path d="M77.98 67.49 A33 33 0 1 1 77.98 32.51" stroke="url(#ca-orbit)" strokeWidth="7.5" strokeLinecap="round" />
