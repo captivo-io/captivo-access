@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { encrypt, decrypt } from "@/lib/crypto";
+import { readPlatformOidc, pickOidcSource } from "./oidc-source";
 
 
 export type OidcConfigView = {
@@ -23,6 +24,26 @@ export async function getOidcConfig(): Promise<OidcConfigView | null> {
     // unavailable, treat SSO as unconfigured so passkey login still works.
     return null;
   }
+
+  // The tenant's own provider wins; everyone else gets Captivo ID. See
+  // oidc-source.ts for why a DISABLED tenant row does not fall back.
+  const source = pickOidcSource(
+    c ? { enabled: c.enabled, issuer: c.issuer, clientId: c.clientId, hasSecret: c.clientSecret.length > 0 } : null,
+    readPlatformOidc(process.env),
+  );
+  if (source.kind === "none") return null;
+  if (source.kind === "platform") {
+    return {
+      enabled: true,
+      issuer: source.config.issuer,
+      clientId: source.config.clientId,
+      buttonLabel: "Captivo ile giriş yap",
+      hasSecret: true,
+      lastVerifiedAt: null,
+      lastVerifiedOk: null,
+      lastVerifiedDetail: null,
+    };
+  }
   if (!c) return null;
   return {
     enabled: c.enabled,
@@ -37,7 +58,18 @@ export async function getOidcConfig(): Promise<OidcConfigView | null> {
 }
 
 export async function getOidcSecret(): Promise<string | null> {
-  const c = await db.oidcConfig.findUnique({ where: { tenantId: currentTenantId() }, select: { clientSecret: true } });
+  const c = await db.oidcConfig.findUnique({
+    where: { tenantId: currentTenantId() },
+    select: { clientSecret: true, enabled: true, issuer: true, clientId: true },
+  });
+  // Same precedence as getOidcConfig -- the two MUST agree, or a login starts
+  // against one provider and exchanges its code against the other's secret.
+  const source = pickOidcSource(
+    c ? { enabled: c.enabled, issuer: c.issuer, clientId: c.clientId, hasSecret: c.clientSecret.length > 0 } : null,
+    readPlatformOidc(process.env),
+  );
+  if (source.kind === "platform") return source.config.clientSecret;
+  if (source.kind === "none") return null;
   if (!c || !c.clientSecret) return null;
   return decrypt(c.clientSecret);
 }
