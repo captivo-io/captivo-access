@@ -40,7 +40,10 @@ export async function getOidcConfig(): Promise<OidcConfigView | null> {
       enabled: true,
       issuer: source.config.issuer,
       clientId: source.config.clientId,
-      buttonLabel: "Captivo ile giriş yap",
+      // English, like the rest of this product. Captivo Access is
+      // deliberately single-language (no i18n); a hardcoded Turkish label here
+      // was the only Turkish string in the console.
+      buttonLabel: "Sign in with Captivo",
       hasSecret: true,
       lastVerifiedAt: null,
       lastVerifiedOk: null,
