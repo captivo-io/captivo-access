@@ -18,6 +18,8 @@
  * is a secret rotated per tenant.
  */
 
+import { isSelfHosted } from "@/lib/deployment-mode";
+
 export interface PlatformOidc {
   issuer: string;
   clientId: string;
@@ -44,6 +46,13 @@ export type OidcSource =
  * password.
  */
 export function readPlatformOidc(env: Record<string, string | undefined>): PlatformOidc | null {
+  // Never on a customer's own server. Captivo ID lives on the internet; a
+  // self-hosted console that depended on it would be locked out whenever that
+  // link was down, and permanently in an air-gapped network. Checked BEFORE the
+  // variables, so setting them by accident -- by copying the hosted compose
+  // file, say -- still changes nothing.
+  if (isSelfHosted(env)) return null;
+
   const issuer = env.CAPTIVO_ID_ISSUER?.trim();
   const clientId = env.CAPTIVO_ID_CLIENT_ID?.trim();
   const clientSecret = env.CAPTIVO_ID_CLIENT_SECRET?.trim();
