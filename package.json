@@ -26,8 +26,8 @@
     "asn1js": "^3.0.10",
     "guacamole-common-js": "^1.5.0",
     "jose": "^6",
-    "next": "^16.2.0",
-    "nodemailer": "^9.0.4",
+    "next": "^16.3.5",
+    "nodemailer": "^9.1.1",
     "otplib": "^13",
     "pg": "8.16.0",
     "pkijs": "^3.4.0",
@@ -57,9 +57,13 @@
   "pnpm": {
     "overrides": {
       "next>postcss": ">=8.5.18",
-      "next>sharp": ">=0.35.0",
+      "next>sharp": ">=0.35.4",
       "@prisma/dev>find-my-way": ">=9.7.0",
-      "@prisma/dev>valibot": ">=1.4.2"
+      "@prisma/dev>valibot": ">=1.4.2",
+      "postcss>nanoid": ">=3.3.18",
+      "prisma>mysql2": ">=3.22.0",
+      "ajv>fast-uri": ">=3.1.6",
+      "@prisma/config>deepmerge-ts": ">=8.0.0"
     }
   }
 }
