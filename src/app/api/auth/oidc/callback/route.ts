@@ -8,6 +8,7 @@ import { startSession } from "@/lib/auth/session";
 import { syncUserAtLogin } from "@/lib/directory/sync";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { managerBaseUrl } from "@/lib/url";
+import { callbackOrigin } from "@/lib/auth/oidc-source";
 import { withTenantRoute } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +50,13 @@ async function handler(req: NextRequest) {
   if (!secret) return fail(req, "sso", "no_client_secret_saved");
 
   // Exchange the code (PKCE + client_secret_post).
-  const redirectUri = `${managerBaseUrl(req)}/api/auth/oidc/callback`;
+  // MUST match the value the start route sent, byte for byte: the provider
+  // compares them and refuses the exchange otherwise.
+  const redirectUri = `${callbackOrigin(
+    cfg.isPlatform ? { kind: "platform", config: { issuer: cfg.issuer, clientId: cfg.clientId, clientSecret: "" } } : { kind: "tenant" },
+    managerBaseUrl(req),
+    process.env.MANAGER_PUBLIC_URL,
+  )}/api/auth/oidc/callback`;
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,

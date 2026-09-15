@@ -5,6 +5,8 @@ import { readPlatformOidc, pickOidcSource } from "./oidc-source";
 
 
 export type OidcConfigView = {
+  /** True when this is Captivo ID rather than the tenant's own provider. */
+  isPlatform: boolean;
   enabled: boolean;
   issuer: string;
   clientId: string;
@@ -34,6 +36,7 @@ export async function getOidcConfig(): Promise<OidcConfigView | null> {
   if (source.kind === "none") return null;
   if (source.kind === "platform") {
     return {
+      isPlatform: true,
       enabled: true,
       issuer: source.config.issuer,
       clientId: source.config.clientId,
@@ -46,6 +49,7 @@ export async function getOidcConfig(): Promise<OidcConfigView | null> {
   }
   if (!c) return null;
   return {
+    isPlatform: false,
     enabled: c.enabled,
     issuer: c.issuer,
     clientId: c.clientId,

@@ -4,6 +4,7 @@ import { discover, randomUrlSafe, codeChallengeS256 } from "@/lib/auth/oidc";
 import { setOidcState } from "@/lib/auth/oidc-state";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { managerBaseUrl } from "@/lib/url";
+import { callbackOrigin } from "@/lib/auth/oidc-source";
 import { withTenantRoute } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,13 @@ async function handler(req: NextRequest) {
 
   await setOidcState({ state, nonce, codeVerifier, returnTo });
 
-  const redirectUri = `${managerBaseUrl(req)}/api/auth/oidc/callback`;
+  // Fixed origin for the platform provider, request host for a tenant's own.
+  // See callbackOrigin() for why.
+  const redirectUri = `${callbackOrigin(
+    cfg.isPlatform ? { kind: "platform", config: { issuer: cfg.issuer, clientId: cfg.clientId, clientSecret: "" } } : { kind: "tenant" },
+    managerBaseUrl(req),
+    process.env.MANAGER_PUBLIC_URL,
+  )}/api/auth/oidc/callback`;
   const url = new URL(authorizationEndpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", cfg.clientId);
