@@ -6,6 +6,7 @@ import { consoleDomain } from "@/lib/tenant/console-domain";
 import { getPlatformConfig } from "@/lib/platform/config";
 import { createTenant, PlatformError } from "@/lib/platform/tenants";
 import { recordPlatformAction } from "@/lib/platform/audit";
+import { registerWithCaptivoId } from "@/lib/auth/captivo-id-register";
 import { sendMail } from "@/lib/email/mailer";
 import { normalizeEmail } from "@/lib/auth/email";
 import { normalizeDisplayName } from "@/lib/auth/display-name";
@@ -60,6 +61,11 @@ export async function completeSignup(token: string): Promise<{ ok: true; inviteU
   await withTenant(PLATFORM_TENANT_ID, () =>
     recordPlatformAction({ actor: { id: "signup", email: c.email }, action: "platform.tenant.signup", tenant: { id: result.tenant.id, slug: result.tenant.slug }, summary: `Self-service signup created trial tenant ${c.slug} for ${c.email}`, metadata: { trialDays: TRIAL_DAYS } }),
   );
+  // Best-effort: one Captivo account should reach both products, but the
+  // workspace above already exists and the customer is waiting on their
+  // invite link -- a problem registering with Captivo ID must never undo
+  // that. See registerWithCaptivoId for why failures only get logged.
+  await registerWithCaptivoId({ email: c.email, organizationName: c.name, name: c.adminName || c.name });
   return { ok: true, inviteUrl: result.inviteUrl };
 }
 
