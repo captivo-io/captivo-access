@@ -65,7 +65,13 @@ export async function registerWithCaptivoId(
         name: input.name,
         emailVerified: true,
       }),
-      signal: AbortSignal.timeout(10_000),
+      // Five seconds, not ten: Captivo ID runs on the same host, so a healthy
+      // call returns in milliseconds and anything slower is already a failure
+      // we will log and move past. The customer is waiting on their invite
+      // link while this runs, and this await must stay an await -- an
+      // unawaited promise can be killed when the response completes, which
+      // would skip the registration silently.
+      signal: AbortSignal.timeout(5_000),
     });
 
     if (res.ok) return;
