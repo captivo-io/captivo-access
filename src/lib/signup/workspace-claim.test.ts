@@ -30,7 +30,10 @@ describe("workspace claim", () => {
   });
 
   it("rejects malformed input without throwing", () => {
-    for (const bad of [undefined, "", "no-dot", "a.b", "...."]) {
+    // A valid token with an extra trailing segment must be rejected too:
+    // split(".") would otherwise still read the first two parts and verify.
+    const valid = signWorkspaceClaim(claim, SECRET);
+    for (const bad of [undefined, "", "no-dot", "a.b", "....", `${valid}.extra`]) {
       expect(readWorkspaceClaim(bad as string | undefined, SECRET)).toBeNull();
     }
   });

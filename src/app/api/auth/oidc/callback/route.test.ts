@@ -28,6 +28,12 @@ describe("OIDC callback: entitled identity with no account", () => {
   it("carries the organisation to the next step in a signed value", () => {
     // The next step trusts what it is handed. An unsigned cookie would let
     // anyone who reaches /workspace/new name an organisation and be believed.
-    expect(SRC).toMatch(/signWorkspaceClaim\(/);
+    // This also pins where the secret comes from: matching the bare function
+    // name would still pass if the call site signed with an attacker-
+    // controllable value instead of the real one, so the assertion ties the
+    // signing call to the CAPTIVO_ID_CLIENT_SECRET read that feeds it.
+    expect(SRC).toMatch(
+      /const secret = process\.env\.CAPTIVO_ID_CLIENT_SECRET[\s\S]{0,300}?signWorkspaceClaim\([\s\S]{0,300}?,\s*secret\s*,?\s*\)/,
+    );
   });
 });

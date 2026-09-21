@@ -31,7 +31,13 @@ export function signWorkspaceClaim(claim: Omit<WorkspaceClaim, "exp">, secret: s
 
 export function readWorkspaceClaim(token: string | undefined, secret: string, now = Date.now()): WorkspaceClaim | null {
   if (!token || !secret) return null;
-  const [payload, sig] = token.split(".");
+  // Exactly two segments: payload.sig, no more, no less. Without this check
+  // an extra trailing segment (payload.sig.garbage) would still verify --
+  // split() only reads the first two -- which is looser than "reject
+  // anything malformed" even though it isn't otherwise exploitable.
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
   if (!payload || !sig) return null;
   const want = Buffer.from(mac(payload, secret));
   const got = Buffer.from(sig);
