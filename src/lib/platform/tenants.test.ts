@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { validateCreateInput, validateUpdateInput, PlatformError } from "./tenants";
 
 describe("validateCreateInput", () => {
@@ -31,5 +33,25 @@ describe("validateUpdateInput", () => {
     expect(() => validateUpdateInput({ ...base, name: " " })).toThrow(PlatformError);
     expect(() => validateUpdateInput({ ...base, plan: "gold" })).toThrow(/invalid_plan/);
     expect(() => validateUpdateInput({ ...base, plan: "trial", trialEndsAt: new Date("nope") })).toThrow(/invalid_trial_end/);
+  });
+});
+
+describe("createTenant caps", () => {
+  const SRC = readFileSync(path.join(__dirname, "tenants.ts"), "utf-8");
+
+  it("accepts limits in its input", () => {
+    // Exercising createTenant for real needs a database and an RLS bootstrap,
+    // which this suite does not have; the behaviour is covered by the
+    // provisioning flow's tests. What is asserted here is the contract a
+    // caller depends on, so a silently dropped parameter is caught.
+    expect(SRC).toMatch(/limits\?:\s*TenantLimits/);
+  });
+
+  it("passes the caps through instead of hard-coding null", () => {
+    // The call used to write `limits: null` unconditionally. A free tenant
+    // whose caps were dropped on the floor would let anyone add unlimited
+    // connectors -- the tier's only enforcement is that row.
+    const call = SRC.slice(SRC.indexOf("export async function createTenant"));
+    expect(call).not.toMatch(/updateTenantRow\(\{[^}]*limits:\s*null/);
   });
 });

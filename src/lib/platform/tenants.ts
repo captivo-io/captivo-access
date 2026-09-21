@@ -116,7 +116,7 @@ export async function setTenantStatus(id: string, status: "ACTIVE" | "SUSPENDED"
   await base.$executeRawUnsafe(`SELECT platform_set_tenant_status($1, $2)`, id, status);
 }
 
-export async function createTenant(input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; trialDays?: number }) {
+export async function createTenant(input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; trialDays?: number; limits?: TenantLimits }) {
   validateCreateInput(input);
   const id = crypto.randomUUID();
   const name = input.name.trim();
@@ -145,9 +145,12 @@ export async function createTenant(input: { name: string; slug: string; adminEma
   // 3. Plan / trial + the platform's defaults for new tenants (Settings →
   // New tenant defaults), written as the tenant's own PlatformSettings row.
   const plan = isPlan(input.plan) ? input.plan : "standard";
-  if (plan !== "standard") {
+  const limits = input.limits ?? null;
+  // Written whenever the plan is not the default OR caps were supplied: a
+  // standard tenant with caps used to fall through this branch and lose them.
+  if (plan !== "standard" || limits) {
     const trialEndsAt = plan === "trial" ? new Date(Date.now() + (input.trialDays ?? 14) * 24 * 3600 * 1000) : null;
-    await updateTenantRow({ id, name, plan, trialEndsAt, limits: null, capabilities: null, notes: null });
+    await updateTenantRow({ id, name, plan, trialEndsAt, limits, capabilities: null, notes: null });
   }
   const defaults = newTenantDefaultsFrom(await getPlatformConfig());
   if (defaults) {
