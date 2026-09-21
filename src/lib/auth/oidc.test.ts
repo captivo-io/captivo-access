@@ -104,7 +104,7 @@ describe("accessGrant", () => {
     // could send anything; this must fail closed rather than crash the callback.
     expect(accessGrant(base(undefined))).toBeNull();
     expect(accessGrant(base({}))).toBeNull();
-    expect(accessGrant(base({ grants: "hayir" }))).toBeNull();
+    expect(accessGrant(base({ grants: "not-an-array" }))).toBeNull();
     expect(accessGrant(base({ grants: [null, 7, "x"] }))).toBeNull();
   });
 

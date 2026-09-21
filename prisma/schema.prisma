@@ -27,6 +27,10 @@ model Tenant {
   limits       Json? // { maxUsers?, maxSites?, maxConnectors?, maxRecordingRetentionDays? } — null/absent = unlimited
   capabilities Json? // { recording?, isolated?, gateway?, vault? } booleans — absent = deployment default
   notes        String? // internal operator notes (never shown to the tenant)
+  /// The Captivo ID organisation this workspace was provisioned for. Unique so
+  /// one organisation can never hold two free-tier workspaces; null on every
+  /// tenant an operator created by hand.
+  captivoOrgId String?   @unique
   updatedAt    DateTime  @default(now()) @updatedAt
   supportHandoffs SupportHandoff[]
 

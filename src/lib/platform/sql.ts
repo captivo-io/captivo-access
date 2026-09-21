@@ -60,6 +60,22 @@ export async function updateTenantRow(input: { id: string; name: string; plan: s
     input.id, input.name, input.plan, input.trialEndsAt, input.limits === null ? null : JSON.stringify(input.limits), input.capabilities === null ? null : JSON.stringify(input.capabilities), input.notes,
   );
 }
+/**
+ * The slug of the workspace already provisioned for a Captivo ID organisation,
+ * or null when that organisation has none.
+ *
+ * Owner-defined function rather than a Prisma query: the caller is scoped to
+ * the platform tenant, and the RLS policy on "Tenant" would hide every other
+ * tenant's row from it.
+ */
+export async function tenantSlugByOrg(organizationId: string): Promise<string | null> {
+  const rows = await base.$queryRawUnsafe<{ platform_tenant_slug_by_org: string | null }[]>(
+    `SELECT platform_tenant_slug_by_org($1)`,
+    organizationId,
+  );
+  return rows[0]?.platform_tenant_slug_by_org ?? null;
+}
+
 export async function softDeleteTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_delete_tenant($1)`, id); }
 export async function restoreTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_restore_tenant($1)`, id); }
 export async function purgeTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_purge_tenant($1)`, id); }

@@ -24,28 +24,55 @@ function service(env: ServiceEnv): { issuer: string; secret: string } | null {
   return { issuer, secret };
 }
 
-/** The organisation's ACCESS tier and caps, or null when there are none. */
+/** What the centre said about an organisation's ACCESS entitlement. */
+export interface AccessEntitlement {
+  plan: string | null;
+  limits: Record<string, number> | null;
+  /** ISO 8601, or null when the entitlement does not lapse. */
+  expiresAt: string | null;
+}
+
+/**
+ * The outcome of asking the centre, as three cases rather than one nullable
+ * answer.
+ *
+ * "The centre says this organisation has no ACCESS entitlement" and "the centre
+ * did not answer" are opposite facts: the first is a decision the caller may
+ * act on, the second is an absence of one. Collapsing them into null told
+ * someone who had just presented a valid grant that their organisation was not
+ * entitled -- wrong, and nothing they could act on.
+ */
+export type EntitlementLookup =
+  | ({ status: "ok" } & AccessEntitlement)
+  | { status: "none" }
+  | { status: "unavailable"; reason: "not_configured" | "unreachable" | "bad_response" };
+
+/** Ask the centre for the organisation's ACCESS tier, caps and expiry. */
 export async function fetchAccessEntitlement(
   organizationId: string,
   env: ServiceEnv = process.env as ServiceEnv,
-): Promise<{ plan: string | null; limits: Record<string, number> | null } | null> {
+): Promise<EntitlementLookup> {
   const svc = service(env);
-  if (!svc) return null;
+  if (!svc) return { status: "unavailable", reason: "not_configured" };
   try {
     const res = await fetch(`${svc.issuer}/api/entitlements?org=${encodeURIComponent(organizationId)}`, {
       headers: { "X-Captivo-Service": svc.secret },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    // A non-2xx is the centre failing to answer, not the centre saying "no":
+    // a 500 or a 401 from a rotated secret says nothing about the entitlement.
+    if (!res.ok) return { status: "unavailable", reason: "bad_response" };
     const body = (await res.json()) as { entitlements?: Array<Record<string, unknown>> };
     const row = (body.entitlements ?? []).find((e) => e.product === "ACCESS");
-    if (!row) return null;
+    if (!row) return { status: "none" };
     return {
+      status: "ok",
       plan: typeof row.plan === "string" ? row.plan : null,
       limits: row.limits && typeof row.limits === "object" ? (row.limits as Record<string, number>) : null,
+      expiresAt: typeof row.expiresAt === "string" ? row.expiresAt : null,
     };
   } catch {
-    return null;
+    return { status: "unavailable", reason: "unreachable" };
   }
 }
 

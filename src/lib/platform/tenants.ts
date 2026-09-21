@@ -116,20 +116,33 @@ export async function setTenantStatus(id: string, status: "ACTIVE" | "SUSPENDED"
   await base.$executeRawUnsafe(`SELECT platform_set_tenant_status($1, $2)`, id, status);
 }
 
-export async function createTenant(input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; trialDays?: number; limits?: TenantLimits }) {
+export async function createTenant(input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; trialDays?: number; limits?: TenantLimits; captivoOrgId?: string }) {
   validateCreateInput(input);
   const id = crypto.randomUUID();
   const name = input.name.trim();
   const slug = input.slug;
 
   // 1. Create the Tenant row via the RLS-bypass function (unscoped, as owner-defined).
+  // captivoOrgId goes in with the INSERT rather than in a follow-up UPDATE, so
+  // the unique index refuses a second workspace for the same Captivo ID
+  // organisation before any invite or settings row exists to clean up.
   try {
-    await base.$queryRawUnsafe(`SELECT platform_create_tenant($1, $2, $3)`, id, slug, name);
+    await base.$queryRawUnsafe(`SELECT platform_create_tenant($1, $2, $3, $4::text)`, id, slug, name, input.captivoOrgId ?? null);
   } catch (e) {
     // A genuine unique-violation on slug/id → a friendly conflict. Everything
     // else (DB outage, pool exhaustion, a grant regression, ...) propagates
     // unchanged — it must never be masked as "slug taken".
-    if (isUniqueViolation(e)) throw new PlatformError("slug_taken", (e as Error).message);
+    // Two unique columns can raise 23505 here: the slug the person chose and
+    // the Captivo ID organisation (the race backstop behind the caller's own
+    // "already provisioned" check). Telling someone the slug is taken when it
+    // is not would send them renaming their console forever, so the constraint
+    // is read off the driver's message when it is there; when it is not, this
+    // falls back to the slug reading, which is what it always did.
+    if (isUniqueViolation(e)) {
+      const message = (e as Error).message;
+      if (input.captivoOrgId && /captivoOrgId/i.test(message)) throw new PlatformError("org_taken", message);
+      throw new PlatformError("slug_taken", message);
+    }
     throw e;
   }
 

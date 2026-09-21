@@ -118,10 +118,14 @@ async function handler(req: NextRequest) {
   });
   // Third branch: an identity Captivo ID says is entitled to Access but that
   // has no user and no invite anywhere yet -- the case the free tier creates.
+  // `!invite` is part of the condition, not just the comment: a platform
+  // operator who was invited to the console AND holds an ACCESS grant was
+  // being redirected to workspace creation on every sign-in and could never
+  // accept their invite. A live invite always wins.
   // Offered ONLY on the platform host: a grant says what the organisation
   // bought, not that this person belongs to the tenant whose console they
   // happen to be standing on.
-  if (currentTenantId() === PLATFORM_TENANT_ID) {
+  if (!invite && currentTenantId() === PLATFORM_TENANT_ID) {
     const grant = accessGrant(claims);
     if (grant) {
       const secret = process.env.CAPTIVO_ID_CLIENT_SECRET ?? "";
@@ -130,8 +134,13 @@ async function handler(req: NextRequest) {
         secret,
       );
       const res = NextResponse.redirect(new URL("/workspace/new", managerBaseUrl(req)));
+      // Path "/" and not "/workspace": RFC 6265 path-matching would send a
+      // "/workspace" cookie to /workspace/new but NOT to /api/workspace/create,
+      // so the page rendered and the submit behind it answered 401 forever.
+      // The endpoint clears it at the same path -- a mismatched clear leaves
+      // the cookie behind.
       res.cookies.set("captivo_workspace", token, {
-        httpOnly: true, secure: true, sameSite: "lax", path: "/workspace", maxAge: 15 * 60,
+        httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 15 * 60,
       });
       return res;
     }

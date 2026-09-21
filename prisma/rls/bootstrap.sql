@@ -99,12 +99,30 @@ GRANT EXECUTE ON FUNCTION resolve_tenant_by_hostname(text) TO app;
 -- so a platform admin — whose session is RLS-scoped to the reserved 'platform'
 -- tenant — can manage OTHER tenants. Authorization is app-level
 -- (requirePlatformAdmin); these do the RLS-bypass mechanics only.
-CREATE OR REPLACE FUNCTION platform_create_tenant(p_id text, p_slug text, p_name text)
+-- p_captivo_org is the Captivo ID organisation a self-service workspace was
+-- provisioned for (NULL for tenants an operator creates by hand). It is written
+-- in the same statement as the row so a second workspace for the same
+-- organisation cannot slip between a check and an update: the unique index on
+-- "Tenant"."captivoOrgId" is what actually decides.
+-- The 3-argument version is dropped rather than replaced -- adding a parameter
+-- changes the signature, and leaving both in place would make every 3-argument
+-- call ambiguous.
+DROP FUNCTION IF EXISTS platform_create_tenant(text, text, text);
+CREATE OR REPLACE FUNCTION platform_create_tenant(p_id text, p_slug text, p_name text, p_captivo_org text DEFAULT NULL)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  INSERT INTO "Tenant"(id, slug, name, status) VALUES (p_id, p_slug, p_name, 'ACTIVE');
+  INSERT INTO "Tenant"(id, slug, name, status, "captivoOrgId")
+  VALUES (p_id, p_slug, p_name, 'ACTIVE', p_captivo_org);
   RETURN p_id;
 END $$;
+
+-- The slug of the workspace already provisioned for a Captivo ID organisation,
+-- or NULL. Soft-deleted tenants are INCLUDED on purpose: the unique index still
+-- holds their organisation id, so hiding them here would only turn a clear
+-- refusal into a unique-violation the caller cannot explain.
+CREATE OR REPLACE FUNCTION platform_tenant_slug_by_org(p_org text)
+RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+  SELECT slug FROM "Tenant" WHERE "captivoOrgId" = p_org $$;
 
 DROP FUNCTION IF EXISTS platform_list_tenants();
 CREATE OR REPLACE FUNCTION platform_list_tenants()
@@ -131,13 +149,15 @@ BEGIN
   UPDATE "Tenant" SET status = p_status WHERE id = p_id;
 END $$;
 
-REVOKE ALL ON FUNCTION platform_create_tenant(text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION platform_create_tenant(text, text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION platform_tenant_slug_by_org(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform_list_tenants() FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform_set_tenant_status(text, text) FROM PUBLIC;
 
 SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app') AS have_role \gset
 \if :have_role
-GRANT EXECUTE ON FUNCTION platform_create_tenant(text, text, text) TO app;
+GRANT EXECUTE ON FUNCTION platform_create_tenant(text, text, text, text) TO app;
+GRANT EXECUTE ON FUNCTION platform_tenant_slug_by_org(text) TO app;
 GRANT EXECUTE ON FUNCTION platform_list_tenants() TO app;
 GRANT EXECUTE ON FUNCTION platform_set_tenant_status(text, text) TO app;
 \endif

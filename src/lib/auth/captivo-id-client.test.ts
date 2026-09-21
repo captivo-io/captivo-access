@@ -20,7 +20,21 @@ describe("fetchAccessEntitlement", () => {
       { product: "PORTAL", plan: null, limits: null, expiresAt: null },
       { product: "ACCESS", plan: "free", limits: { maxConnectors: 1, maxSites: 5 }, expiresAt: null },
     ] });
-    expect(await fetchAccessEntitlement("org_1", env)).toEqual({ plan: "free", limits: { maxConnectors: 1, maxSites: 5 } });
+    expect(await fetchAccessEntitlement("org_1", env)).toEqual({
+      status: "ok", plan: "free", limits: { maxConnectors: 1, maxSites: 5 }, expiresAt: null,
+    });
+  });
+
+  it("carries the expiry through instead of discarding it", async () => {
+    // Read off the wire and then dropped, an expired entitlement provisioned a
+    // workspace exactly like a live one. The caller cannot refuse what it is
+    // never told.
+    mockFetch(200, { entitlements: [
+      { product: "ACCESS", plan: "free", limits: null, expiresAt: "2026-01-31T00:00:00.000Z" },
+    ] });
+    expect(await fetchAccessEntitlement("org_1", env)).toEqual({
+      status: "ok", plan: "free", limits: null, expiresAt: "2026-01-31T00:00:00.000Z",
+    });
   });
 
   it("sends the service secret and the organisation", async () => {
@@ -32,21 +46,29 @@ describe("fetchAccessEntitlement", () => {
     expect((init.headers as Record<string, string>)["X-Captivo-Service"]).toBe(env.CAPTIVO_ID_SERVICE_SECRET);
   });
 
-  it("returns null when the organisation has no ACCESS entitlement", async () => {
+  it("reports a genuine absence of entitlement as \"none\"", async () => {
     mockFetch(200, { entitlements: [{ product: "PORTAL", plan: null, limits: null, expiresAt: null }] });
-    expect(await fetchAccessEntitlement("org_1", env)).toBeNull();
+    expect(await fetchAccessEntitlement("org_1", env)).toEqual({ status: "none" });
   });
 
-  it("returns null when the centre is unreachable, without throwing", async () => {
-    // A workspace must not be created against guessed caps, but a network
-    // blip must not surface as a stack trace to the person signing in.
+  it("reports an unreachable centre as unavailable, NOT as an absence of entitlement", async () => {
+    // These are opposite facts. Answering "none" here told someone who had
+    // just presented a valid grant that their organisation was not entitled.
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
-    expect(await fetchAccessEntitlement("org_1", env)).toBeNull();
+    expect(await fetchAccessEntitlement("org_1", env)).toEqual({ status: "unavailable", reason: "unreachable" });
   });
 
-  it("returns null when the service is not configured", async () => {
+  it("reports a non-2xx answer as unavailable", async () => {
+    // A 500, or a 401 from a rotated service secret, says nothing at all about
+    // the organisation's entitlement.
+    mockFetch(500, {});
+    expect(await fetchAccessEntitlement("org_1", env)).toEqual({ status: "unavailable", reason: "bad_response" });
+  });
+
+  it("reports an unconfigured service as unavailable without calling out", async () => {
     const f = mockFetch(200, { entitlements: [] });
-    expect(await fetchAccessEntitlement("org_1", { CAPTIVO_ID_ISSUER: "https://id.captivo.io" })).toBeNull();
+    expect(await fetchAccessEntitlement("org_1", { CAPTIVO_ID_ISSUER: "https://id.captivo.io" }))
+      .toEqual({ status: "unavailable", reason: "not_configured" });
     expect(f).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { NextRequest } from "next/server";
@@ -9,8 +9,7 @@ const SRC = readFileSync(path.join(__dirname, "route.ts"), "utf-8");
 // withTenantRoute is stripped to a pass-through (its own tenant-resolution
 // behaviour is exercised elsewhere), and the host/claim decisions are put
 // under the test's control instead of the real tenant scope and cookie
-// secret. `provisionEntitledWorkspace` and `createTenant` are never reached
-// by either case, so they are left real (nothing here calls them).
+// secret. `createTenant` is never reached by any case here.
 vi.mock("@/lib/tenant/request", () => ({ withTenantRoute: (h: unknown) => h }));
 vi.mock("@/lib/tenant/context", async () => {
   const actual = await vi.importActual<typeof import("@/lib/tenant/context")>("@/lib/tenant/context");
@@ -27,16 +26,18 @@ vi.mock("@/lib/signup/entitled-flow", async () => {
 
 import { POST } from "./route";
 import { currentTenantId } from "@/lib/tenant/context";
-import { readWorkspaceClaim } from "@/lib/signup/workspace-claim";
+// signWorkspaceClaim comes through the partial mock untouched (the factory
+// spreads the real module), so the token below is the real thing.
+import { readWorkspaceClaim, signWorkspaceClaim } from "@/lib/signup/workspace-claim";
 import { provisionEntitledWorkspace } from "@/lib/signup/entitled-flow";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
 
 // NextRequest, not a plain Request: the handler reads the claim off
 // `req.cookies`, which only NextRequest parses from the `Cookie` header.
-function req(body: unknown) {
+function req(body: unknown, cookie?: string) {
   return new NextRequest("http://x/api/workspace/create", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     body: JSON.stringify(body),
   });
 }
@@ -97,5 +98,88 @@ describe("workspace create endpoint", () => {
       expect(await res.json()).toEqual({ error: "unauthorized" });
       expect(provisionEntitledWorkspace).not.toHaveBeenCalled();
     });
+  });
+});
+
+// The claim check is the only thing standing between this route and "anyone
+// who can POST creates a workspace", and until now every test here handed it
+// a canned answer. These drive it with a REAL signed cookie instead, so the
+// route, the cookie jar and the verifier are exercised together.
+describe("the handoff cookie the callback issued", () => {
+  const SECRET = "test-workspace-claim-secret";
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.stubEnv("CAPTIVO_ID_CLIENT_SECRET", SECRET);
+    (currentTenantId as ReturnType<typeof vi.fn>).mockReturnValue(PLATFORM_TENANT_ID);
+    // Not injected: the real verifier runs against the real token below.
+    const real = await vi.importActual<typeof import("@/lib/signup/workspace-claim")>("@/lib/signup/workspace-claim");
+    (readWorkspaceClaim as ReturnType<typeof vi.fn>).mockImplementation(real.readWorkspaceClaim);
+    (provisionEntitledWorkspace as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true, inviteUrl: "https://acme.cloud.captivo.io/invite/tok", linked: true,
+    });
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("gets past the claim check and provisions for the organisation it names", async () => {
+    const token = signWorkspaceClaim({ org: "org_1", orgName: "Acme", email: "a@b.co" }, SECRET);
+
+    const res = await POST(req({ slug: "acme" }, `captivo_workspace=${token}`) as never);
+
+    // 201, not the 401 the endpoint answered for as long as the cookie was
+    // scoped to a path that never reached it.
+    expect(res.status).toBe(201);
+    expect(provisionEntitledWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: "org_1", adminEmail: "a@b.co" }),
+      expect.anything(),
+    );
+  });
+
+  it("is cleared at a path that covers this endpoint, not just the page", async () => {
+    // Clearing at "/workspace" while the cookie lives at "/" leaves a spent
+    // handoff in the jar for its full 15 minutes.
+    const token = signWorkspaceClaim({ org: "org_1", orgName: "Acme", email: "a@b.co" }, SECRET);
+
+    const res = await POST(req({ slug: "acme" }, `captivo_workspace=${token}`) as never);
+
+    // Read off the wire (Set-Cookie) rather than through a helper, so what is
+    // asserted is what the browser is actually told.
+    const cleared = res.headers.getSetCookie().find((c) => c.startsWith("captivo_workspace="));
+    expect(cleared, "the spent handoff is not cleared at all").toBeDefined();
+    expect(cleared).toMatch(/^captivo_workspace=;/);
+    expect(cleared).toMatch(/Max-Age=0/i);
+    expect(cleared).toMatch(/;\s*Path=\/(?:;|$)/i);
+  });
+
+  it("refuses a token signed with a different secret", async () => {
+    const forged = signWorkspaceClaim({ org: "org_1", orgName: "Acme", email: "a@b.co" }, "some-other-secret");
+
+    const res = await POST(req({ slug: "acme" }, `captivo_workspace=${forged}`) as never);
+
+    expect(res.status).toBe(401);
+    expect(provisionEntitledWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe("slug refusals name their own cause", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (currentTenantId as ReturnType<typeof vi.fn>).mockReturnValue(PLATFORM_TENANT_ID);
+    (readWorkspaceClaim as ReturnType<typeof vi.fn>).mockReturnValue({
+      org: "org_1", orgName: "Acme", email: "a@b.co", exp: Date.now() + 60_000,
+    });
+  });
+
+  it("tells a reserved slug apart from a malformed one", async () => {
+    // "admin" is perfectly well-formed, so answering invalid_slug ("use
+    // lowercase letters, digits and hyphens only") sent the person hunting
+    // for a typo that was not there.
+    const reserved = await POST(req({ slug: "admin" }) as never);
+    expect(reserved.status).toBe(400);
+    expect(await reserved.json()).toEqual({ error: "reserved_slug" });
+
+    const malformed = await POST(req({ slug: "Not A Slug" }) as never);
+    expect(await malformed.json()).toEqual({ error: "invalid_slug" });
   });
 });
