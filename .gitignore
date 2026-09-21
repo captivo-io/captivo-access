@@ -37,3 +37,6 @@ docs/compliance/
 
 # Internal strategy docs (wedge / positioning — keep private)
 docs/strategy/
+
+# Local git worktrees used during development.
+.wt/
