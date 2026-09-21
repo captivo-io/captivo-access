@@ -58,10 +58,12 @@ export function checkClaims(
  * than a crashed callback, because the callback is the only way in.
  *
  * An organisation id and a usable name are both required: the name becomes the
- * workspace's name and seeds its slug, and a workspace nobody can identify is
- * worse than no workspace.
+ * workspace's name and seeds its slug. Grants missing either are skipped;
+ * a person with access to multiple organisations should still get the first
+ * usable one even if one grant is malformed.
  */
 export function accessGrant(claims: IdClaims): { org: string; orgName: string; role: string } | null {
+  if (!claims || typeof claims !== "object") return null;
   const grants = claims.captivo?.grants;
   if (!Array.isArray(grants)) return null;
   for (const g of grants) {
@@ -71,7 +73,7 @@ export function accessGrant(claims: IdClaims): { org: string; orgName: string; r
     const org = typeof rec.org === "string" ? rec.org.trim() : "";
     const orgName = typeof rec.orgName === "string" ? rec.orgName.trim() : "";
     const role = typeof rec.role === "string" ? rec.role : "";
-    if (!org || !orgName) return null;
+    if (!org || !orgName) continue;
     return { org, orgName, role };
   }
   return null;

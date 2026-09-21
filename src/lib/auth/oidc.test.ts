@@ -107,4 +107,24 @@ describe("accessGrant", () => {
     expect(accessGrant(base({ grants: "hayir" }))).toBeNull();
     expect(accessGrant(base({ grants: [null, 7, "x"] }))).toBeNull();
   });
+
+  it("never throws on a null or undefined claims object", () => {
+    // The callback is the only way in; an exception there locks out everyone.
+    // This is unreachable today (claims comes from jwtVerify().payload) but
+    // defensive to guard anyway.
+    expect(accessGrant(null as unknown as IdClaims)).toBeNull();
+    expect(accessGrant(undefined as unknown as IdClaims)).toBeNull();
+  });
+
+  it("skips an unusable grant and returns a valid one from the same person", () => {
+    // A person with access to two organisations should get the first usable
+    // one, even if one organisation's grant is malformed.
+    const g = accessGrant(base({
+      grants: [
+        { org: "o1", orgName: "", product: "ACCESS", role: "OWNER" },
+        { org: "o2", orgName: "Acme Corp", product: "ACCESS", role: "ADMIN" },
+      ],
+    }));
+    expect(g).toEqual({ org: "o2", orgName: "Acme Corp", role: "ADMIN" });
+  });
 });
