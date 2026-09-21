@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { db } from "@/lib/db";
 import { getOidcConfig, getOidcSecret } from "@/lib/auth/oidc-config";
-import { discover, checkClaims, type IdClaims } from "@/lib/auth/oidc";
+import { discover, checkClaims, accessGrant, type IdClaims } from "@/lib/auth/oidc";
 import { readOidcState, clearOidcState } from "@/lib/auth/oidc-state";
 import { startSession } from "@/lib/auth/session";
 import { syncUserAtLogin } from "@/lib/directory/sync";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { managerBaseUrl } from "@/lib/url";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { signWorkspaceClaim } from "@/lib/signup/workspace-claim";
+import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
+import { currentTenantId } from "@/lib/tenant/context";
 
 export const dynamic = "force-dynamic";
 
@@ -113,6 +116,27 @@ async function handler(req: NextRequest) {
   const invite = await db.invite.findFirst({
     where: { email: { equals: email, mode: "insensitive" }, usedAt: null, expiresAt: { gt: new Date() } },
   });
+  // Third branch: an identity Captivo ID says is entitled to Access but that
+  // has no user and no invite anywhere yet -- the case the free tier creates.
+  // Offered ONLY on the platform host: a grant says what the organisation
+  // bought, not that this person belongs to the tenant whose console they
+  // happen to be standing on.
+  if (currentTenantId() === PLATFORM_TENANT_ID) {
+    const grant = accessGrant(claims);
+    if (grant) {
+      const secret = process.env.CAPTIVO_ID_CLIENT_SECRET ?? "";
+      const token = signWorkspaceClaim(
+        { org: grant.org, orgName: grant.orgName, email, name: claims.name },
+        secret,
+      );
+      const res = NextResponse.redirect(new URL("/workspace/new", managerBaseUrl(req)));
+      res.cookies.set("captivo_workspace", token, {
+        httpOnly: true, secure: true, sameSite: "lax", path: "/workspace", maxAge: 15 * 60,
+      });
+      return res;
+    }
+  }
+
   if (!invite) return fail(req, "no_account");
 
   // Atomically consume the invite; a race (or a passkey enrollment in flight)
