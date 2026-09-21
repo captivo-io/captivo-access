@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { parseLimits, parseCapabilities, limitsForStorage, withinLimit, trialState, formatBytes, isPlan } from "./tenant-shape";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { parseLimits, parseCapabilities, limitsForStorage, withinLimit, trialState, formatBytes, isPlan, PLANS } from "./tenant-shape";
 
 describe("parseLimits", () => {
   it("keeps positive integers, coerces numeric strings, drops junk", () => {
@@ -42,5 +44,34 @@ describe("withinLimit / trialState / formatBytes / isPlan", () => {
   it("isPlan", () => {
     expect(isPlan("trial")).toBe(true);
     expect(isPlan("gold")).toBe(false);
+  });
+});
+
+describe("free plan", () => {
+  it("is an accepted plan", () => {
+    expect(isPlan("free")).toBe(true);
+    expect(PLANS).toContain("free");
+  });
+
+  it("has no trial state, so nothing can call it expired", () => {
+    // The free tier is open-ended. trialState is what the console and the ops
+    // job read to decide a tenant's standing; anything other than "none" here
+    // would eventually present a free workspace as an expiring one.
+    expect(trialState("free", null)).toBe("none");
+    expect(trialState("free", new Date("2000-01-01"))).toBe("none");
+  });
+
+  it("is excluded by the ops job's SQL, not merely by a null date", () => {
+    // The suspension candidates come from a Postgres function, so no unit test
+    // exercises the real predicate. Reading the source is the only way to
+    // notice if someone widens it. Two independent reasons keep free out: the
+    // plan filter and the null trialEndsAt -- assert the plan filter, because
+    // that is the one a later edit could remove without thinking about free.
+    const sql = readFileSync(path.join(__dirname, "..", "..", "..", "prisma", "rls", "bootstrap.sql"), "utf-8");
+    const fnStart = sql.indexOf("platform_expired_trials");
+    const bodyStart = sql.indexOf("$$", fnStart);
+    const bodyEnd = sql.indexOf("$$", bodyStart + 2);
+    const body = sql.slice(bodyStart, bodyEnd);
+    expect(body).toContain("plan = 'trial'");
   });
 });

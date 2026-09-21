@@ -1,7 +1,10 @@
 // Pure parsing/validation of the JSON-shaped Tenant fields (limits, capabilities)
 // and the plan/trial fields. No DB — unit-tested.
 
-export const PLANS = ["trial", "standard", "enterprise"] as const;
+// "free": the complimentary tier a new organisation receives from Captivo ID.
+// Open-ended on purpose -- it carries no trialEndsAt, so the ops job that
+// suspends expired trials never selects it (prisma/rls/bootstrap.sql).
+export const PLANS = ["trial", "standard", "enterprise", "free"] as const;
 export type Plan = (typeof PLANS)[number];
 
 export const LIMIT_KEYS = ["maxUsers", "maxSites", "maxConnectors", "maxRecordingRetentionDays"] as const;
