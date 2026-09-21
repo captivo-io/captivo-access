@@ -17,6 +17,10 @@ const eslintConfig = defineConfig([
     ".claude/**",
     // Prisma-generated client.
     "src/generated/**",
+    // Local git worktrees: each holds a full copy of the source, so linting
+    // the repo root otherwise reports thousands of problems from files that
+    // are not this checkout's -- which made `pnpm lint` useless here.
+    ".wt/**",
   ]),
   {
     // We intentionally enforce ONLY rules-of-hooks (the misplaced-hook class of
