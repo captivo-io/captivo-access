@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeIssuer, codeChallengeS256, checkClaims } from "./oidc";
+import { normalizeIssuer, codeChallengeS256, checkClaims, accessGrant, type IdClaims } from "./oidc";
 
 describe("normalizeIssuer", () => {
   it("strips a single trailing slash", () => {
@@ -61,5 +61,50 @@ describe("checkClaims", () => {
     const slash = { issuer: "https://x.us.auth0.com/", clientId: "client-123", nonce: "n-abc" };
     expect(checkClaims({ ...good, iss: "https://x.us.auth0.com/" }, slash).ok).toBe(true);
     expect(checkClaims({ ...good, iss: "https://x.us.auth0.com" }, slash).ok).toBe(false);
+  });
+});
+
+describe("accessGrant", () => {
+  const base = (captivo: unknown): IdClaims =>
+    ({ iss: "https://id.captivo.io", aud: "captivo-access", email: "a@b.co", captivo } as IdClaims);
+
+  it("returns the ACCESS grant with its organisation", () => {
+    const g = accessGrant(base({ grants: [{ org: "o1", orgName: "Acme", product: "ACCESS", role: "OWNER" }] }));
+    expect(g).toEqual({ org: "o1", orgName: "Acme", role: "OWNER" });
+  });
+
+  it("ignores a grant for another product", () => {
+    // A Portal-only customer must not be handed an Access workspace.
+    expect(accessGrant(base({ grants: [{ org: "o1", orgName: "Acme", product: "PORTAL", role: "OWNER" }] }))).toBeNull();
+  });
+
+  it("picks the ACCESS grant out of several", () => {
+    const g = accessGrant(base({
+      grants: [
+        { org: "o1", orgName: "Acme", product: "PORTAL", role: "OWNER" },
+        { org: "o1", orgName: "Acme", product: "ACCESS", role: "ADMIN" },
+      ],
+    }));
+    expect(g?.role).toBe("ADMIN");
+  });
+
+  it("refuses a grant with no usable organisation name", () => {
+    // The name becomes the workspace's name and seeds its slug; an empty one
+    // would produce a workspace nobody can identify.
+    expect(accessGrant(base({ grants: [{ org: "o1", orgName: "", product: "ACCESS", role: "OWNER" }] }))).toBeNull();
+    expect(accessGrant(base({ grants: [{ org: "o1", product: "ACCESS", role: "OWNER" }] }))).toBeNull();
+  });
+
+  it("refuses a grant with no organisation id", () => {
+    expect(accessGrant(base({ grants: [{ orgName: "Acme", product: "ACCESS", role: "OWNER" }] }))).toBeNull();
+  });
+
+  it("survives a missing or malformed claim without throwing", () => {
+    // The claim is attacker-influenced only in the sense that a broken issuer
+    // could send anything; this must fail closed rather than crash the callback.
+    expect(accessGrant(base(undefined))).toBeNull();
+    expect(accessGrant(base({}))).toBeNull();
+    expect(accessGrant(base({ grants: "hayir" }))).toBeNull();
+    expect(accessGrant(base({ grants: [null, 7, "x"] }))).toBeNull();
   });
 });

@@ -20,6 +20,14 @@ export type IdClaims = {
   email?: string;
   email_verified?: boolean;
   name?: string;
+  /**
+   * Grants issued by Captivo ID: which organisations this person may open,
+   * for which product. Optional because a tenant may point its console at its
+   * own identity provider, which knows nothing about Captivo products.
+   */
+  captivo?: {
+    grants?: unknown;
+  };
 };
 
 // Claim checks that do NOT need network I/O. Signature + exp/nbf are verified by
@@ -39,6 +47,34 @@ export function checkClaims(
   const email = claims.email?.trim().toLowerCase();
   if (!email) return { ok: false, reason: "email" };
   return { ok: true, email };
+}
+
+/**
+ * The ACCESS grant in a Captivo ID token, or null.
+ *
+ * Fails closed on anything unexpected. The claim arrives from a verified
+ * token, so this is not a trust boundary in itself -- but a misconfigured or
+ * upgraded issuer sending a different shape must produce "no grant" rather
+ * than a crashed callback, because the callback is the only way in.
+ *
+ * An organisation id and a usable name are both required: the name becomes the
+ * workspace's name and seeds its slug, and a workspace nobody can identify is
+ * worse than no workspace.
+ */
+export function accessGrant(claims: IdClaims): { org: string; orgName: string; role: string } | null {
+  const grants = claims.captivo?.grants;
+  if (!Array.isArray(grants)) return null;
+  for (const g of grants) {
+    if (!g || typeof g !== "object") continue;
+    const rec = g as Record<string, unknown>;
+    if (rec.product !== "ACCESS") continue;
+    const org = typeof rec.org === "string" ? rec.org.trim() : "";
+    const orgName = typeof rec.orgName === "string" ? rec.orgName.trim() : "";
+    const role = typeof rec.role === "string" ? rec.role : "";
+    if (!org || !orgName) return null;
+    return { org, orgName, role };
+  }
+  return null;
 }
 
 type Discovery = { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string; userinfo_endpoint?: string };
