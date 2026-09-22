@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOidcConfig } from "@/lib/auth/oidc-config";
-import { discover, randomUrlSafe, codeChallengeS256 } from "@/lib/auth/oidc";
+import { discover, randomUrlSafe, codeChallengeS256, authorizationScope } from "@/lib/auth/oidc";
 import { setOidcState } from "@/lib/auth/oidc-state";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { managerBaseUrl } from "@/lib/url";
@@ -20,9 +20,12 @@ async function handler(req: NextRequest) {
   const nonce = randomUrlSafe();
   const codeVerifier = randomUrlSafe(64);
 
-  let authorizationEndpoint: string;
+  // The whole discovery document, not just the endpoint: `scopes_supported`
+  // decides whether this issuer is asked for the captivo scope (see
+  // authorizationScope).
+  let disc: Awaited<ReturnType<typeof discover>>;
   try {
-    authorizationEndpoint = (await discover(cfg.issuer)).authorization_endpoint;
+    disc = await discover(cfg.issuer);
   } catch (e) {
     console.error(`[oidc] start failed (sso): discover_failed: ${e instanceof Error ? e.message : String(e)}`);
     return NextResponse.redirect(new URL("/login?error=sso", base));
@@ -31,11 +34,11 @@ async function handler(req: NextRequest) {
   await setOidcState({ state, nonce, codeVerifier, returnTo });
 
   const redirectUri = `${managerBaseUrl(req)}/api/auth/oidc/callback`;
-  const url = new URL(authorizationEndpoint);
+  const url = new URL(disc.authorization_endpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", cfg.clientId);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", "openid email profile");
+  url.searchParams.set("scope", authorizationScope(disc.scopes_supported));
   url.searchParams.set("state", state);
   url.searchParams.set("nonce", nonce);
   url.searchParams.set("code_challenge", codeChallengeS256(codeVerifier));

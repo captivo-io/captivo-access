@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeIssuer, codeChallengeS256, checkClaims, accessGrant, type IdClaims } from "./oidc";
+import { normalizeIssuer, codeChallengeS256, checkClaims, accessGrant, authorizationScope, type IdClaims } from "./oidc";
 
 describe("normalizeIssuer", () => {
   it("strips a single trailing slash", () => {
@@ -126,5 +126,34 @@ describe("accessGrant", () => {
       ],
     }));
     expect(g).toEqual({ org: "o2", orgName: "Acme Corp", role: "ADMIN" });
+  });
+});
+
+describe("authorizationScope", () => {
+  it("asks for the captivo scope when the issuer advertises it", () => {
+    const scope = authorizationScope(["openid", "email", "profile", "offline_access", "captivo"]);
+    expect(scope.split(" ")).toContain("captivo");
+  });
+
+  it("omits the captivo scope when the issuer does not advertise it", () => {
+    // A tenant pointing its console at Keycloak/Entra/Auth0: asking for an
+    // unknown scope is answered with invalid_scope and kills the whole login.
+    const scope = authorizationScope(["openid", "email", "profile"]);
+    expect(scope.split(" ")).not.toContain("captivo");
+    expect(scope).toBe("openid email profile");
+  });
+
+  it("omits it when the issuer states no scopes at all", () => {
+    // scopes_supported is only RECOMMENDED by the discovery spec.
+    expect(authorizationScope(undefined).split(" ")).not.toContain("captivo");
+    expect(authorizationScope("captivo").split(" ")).not.toContain("captivo");
+    expect(authorizationScope({ captivo: true }).split(" ")).not.toContain("captivo");
+  });
+
+  it("always asks for the three scopes every login needs", () => {
+    for (const advertised of [["openid", "email", "profile", "captivo"], ["openid"], undefined]) {
+      const scope = authorizationScope(advertised).split(" ");
+      expect(scope).toEqual(expect.arrayContaining(["openid", "email", "profile"]));
+    }
   });
 });
