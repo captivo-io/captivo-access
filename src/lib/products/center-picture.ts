@@ -65,10 +65,15 @@ export const getCenterPicture = cache(async (): Promise<CenterEntitlements | nul
     // centre owed us an answer -- say which case this was.
     //
     // The silent behaviour is unchanged; only the trace is new.
+    //
+    // "Unconfigured" is deliberately NOT among the causes listed: the gate
+    // above returned already in that case, so naming it here would send the
+    // first person reading this line to check settings that cannot be the
+    // problem.
     if (!picture) {
       console.warn(
         `[captivo-id] centre returned nothing for organisation ${tenant.captivoOrgId}` +
-          " -- unconfigured, unreachable or a bad response; the product switcher will not render",
+          " -- unreachable, refused, or an unusable body; the product switcher will not render",
       );
     }
     return picture;
