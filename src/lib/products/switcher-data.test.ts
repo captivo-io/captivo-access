@@ -40,4 +40,21 @@ describe("getProductMenu", () => {
     const portal = (await getProductMenu()).find((m) => m.product === "PORTAL");
     expect(portal?.href).toBe("https://app.captivo.io");
   });
+
+  it("prefers the bridge's own console address over the built-in Portal one", async () => {
+    // The constant above is a fallback, not the destination. When the centre
+    // knows where this organisation's Portal actually lives, that address has
+    // to win -- otherwise someone with their own Portal host is sent to the
+    // generic one, which looks like a working link and is not theirs.
+    vi.mocked(getCenterPicture).mockResolvedValue({
+      entitlements: [
+        { product: "PORTAL", plan: null, limits: null, expiresAt: null },
+        { product: "ACCESS", plan: "free", limits: null, expiresAt: null },
+      ],
+      links: [{ product: "PORTAL", tenantId: "t_1", consoleOrigin: "https://acme.portal.example.test" }],
+    } as never);
+    const portal = (await getProductMenu()).find((m) => m.product === "PORTAL");
+    expect(portal?.href).toBe("https://acme.portal.example.test");
+    expect(portal?.state).toBe("open");
+  });
 });

@@ -5,6 +5,12 @@ import type { CenterEntitlements } from "@/lib/auth/captivo-id-client";
 const NOW = new Date("2026-09-22T12:00:00Z");
 const HREFS = { portal: "https://app.captivo.io", accessSetup: "https://platform.cloud.captivo.io" };
 
+// A bridge address must never equal the fallback it is meant to beat. When the
+// two match, "the bridge's address wins" and "the fallback is used" produce the
+// same menu, and every assertion about that rule passes either way -- which is
+// exactly how this suite once stayed green with the rule deleted.
+const BRIDGED_PORTAL = "https://portal.example.test";
+
 const ent = (product: string, expiresAt: string | null = null) => ({
   product, plan: "free", limits: null, expiresAt,
 });
@@ -24,10 +30,11 @@ describe("productMenu", () => {
     // Access console hosts are per tenant; Portal's one host serves every
     // tenant, so only the bridge can say where the other product lives.
     const menu = productMenu(
-      data([ent("PORTAL"), ent("ACCESS")], [link("PORTAL", "https://app.captivo.io")]),
+      data([ent("PORTAL"), ent("ACCESS")], [link("PORTAL", BRIDGED_PORTAL)]),
       "ACCESS", HREFS, NOW,
     );
-    expect(menu[0]).toEqual({ product: "PORTAL", state: "open", href: "https://app.captivo.io" });
+    expect(menu[0]).toEqual({ product: "PORTAL", state: "open", href: BRIDGED_PORTAL });
+    expect(menu[0].href).not.toBe(HREFS.portal);
   });
 
   it("offers setup for an entitled product that is not set up", () => {
@@ -83,9 +90,9 @@ describe("productMenu", () => {
     // An entitlement can lapse while someone is signed in. The surviving item
     // is a real destination and must not be collapsed away.
     const menu = productMenu(
-      data([ent("PORTAL")], [link("PORTAL", "https://app.captivo.io")]), "ACCESS", HREFS, NOW,
+      data([ent("PORTAL")], [link("PORTAL", BRIDGED_PORTAL)]), "ACCESS", HREFS, NOW,
     );
-    expect(menu).toEqual([{ product: "PORTAL", state: "open", href: "https://app.captivo.io" }]);
+    expect(menu).toEqual([{ product: "PORTAL", state: "open", href: BRIDGED_PORTAL }]);
   });
 
   it("does not let one product's bridge mark another as set up", () => {
