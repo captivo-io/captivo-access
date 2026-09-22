@@ -54,10 +54,14 @@ describe("productMenu", () => {
   });
 
   it("leaves out an expired entitlement", () => {
+    // Expire the product the viewer is ON, not the other one: with only one
+    // other item left, the menu still renders (it is not a collapse case),
+    // so the assertion below is provably about the expiry rule and nothing
+    // else -- an empty array would have been true for the wrong reason.
     const menu = productMenu(
-      data([ent("PORTAL", "2026-09-01T00:00:00.000Z"), ent("ACCESS")]), "ACCESS", HREFS, NOW,
+      data([ent("ACCESS", "2026-09-01T00:00:00.000Z"), ent("PORTAL")]), "ACCESS", HREFS, NOW,
     );
-    expect(menu.some((m) => m.product === "PORTAL")).toBe(false);
+    expect(menu).toEqual([{ product: "PORTAL", state: "setup", href: HREFS.portal }]);
   });
 
   it("keeps an entitlement that expires in the future", () => {
@@ -68,9 +72,11 @@ describe("productMenu", () => {
   });
 
   it("treats an unparseable expiry as expired", () => {
-    // Unknown is not valid.
-    const menu = productMenu(data([ent("PORTAL", "not-a-date"), ent("ACCESS")]), "ACCESS", HREFS, NOW);
-    expect(menu.some((m) => m.product === "PORTAL")).toBe(false);
+    // Unknown is not valid. As above, expire the viewer's own product so the
+    // surviving menu is non-empty and the assertion is about absence, not
+    // about the collapse rule getting there first.
+    const menu = productMenu(data([ent("ACCESS", "not-a-date"), ent("PORTAL")]), "ACCESS", HREFS, NOW);
+    expect(menu).toEqual([{ product: "PORTAL", state: "setup", href: HREFS.portal }]);
   });
 
   it("still shows the way out when your own entitlement has lapsed", () => {
@@ -92,5 +98,19 @@ describe("productMenu", () => {
     // page loads.
     const menu = productMenu(data([ent("ACCESS"), ent("PORTAL")]), "ACCESS", HREFS, NOW);
     expect(menu.map((m) => m.product)).toEqual(["PORTAL", "ACCESS"]);
+  });
+
+  it("looks from Portal's side too: marks it current and offers Access setup", () => {
+    // Every other case in this file passes current: "ACCESS". That leaves
+    // `product === current` exercised only against the ACCESS row, and
+    // hrefs.accessSetup never read at all -- both gaps the Portal suite does
+    // not have. Looking from Portal's side closes them: it asserts the full
+    // shape of both items, so a broken `current` comparison or a collapsed
+    // fallback ternary both show up here.
+    const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "PORTAL", HREFS, NOW);
+    expect(menu).toEqual([
+      { product: "PORTAL", state: "current", href: "" },
+      { product: "ACCESS", state: "setup", href: HREFS.accessSetup },
+    ]);
   });
 });
