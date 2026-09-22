@@ -100,3 +100,65 @@ export async function reportTenantLink(
     return false;
   }
 }
+
+/**
+ * Everything the centre knows about an organisation: what it is entitled to,
+ * and which products it already has a tenant for.
+ *
+ * Separate from `fetchAccessEntitlement`, which answers one narrower question
+ * for the signup flow with a three-state contract. This one is for the product
+ * switcher and answers with a picture or nothing.
+ *
+ * Returns null when the read as a whole fails -- unconfigured, unreachable,
+ * refused, or a body that is not the shape we asked for. A body that arrives
+ * intact but carries unusable ROWS is not one of those: those rows are dropped
+ * and the rest is returned.
+ */
+export interface CenterEntitlements {
+  entitlements: Array<{
+    product: string;
+    plan: string | null;
+    limits: Record<string, number> | null;
+    expiresAt: string | null;
+  }>;
+  links: Array<{ product: string; tenantId: string; consoleOrigin: string | null }>;
+}
+
+/**
+ * A wire row is only usable if it names its product.
+ *
+ * `CenterEntitlements` describes what we ASKED for, not what arrived. A body of
+ * `{"entitlements":[null]}` satisfies `Array.isArray` and then kills the first
+ * consumer that reads `.product` off that null -- and that consumer renders in
+ * the console's layout, so one bad row would cost the whole console. This is
+ * the boundary where that gets settled, so everything downstream (a pure
+ * function shared with the Portal repository, among others) keeps the right to
+ * expect clean data.
+ */
+function isKeyedRow(row: unknown): row is { product: string } {
+  return typeof row === "object" && row !== null && typeof (row as { product?: unknown }).product === "string";
+}
+
+export async function fetchCenterPicture(
+  organizationId: string,
+  timeoutMs = TIMEOUT_MS,
+  env: ServiceEnv = process.env as ServiceEnv,
+): Promise<CenterEntitlements | null> {
+  const svc = service(env);
+  if (!svc) return null;
+  try {
+    const res = await fetch(`${svc.issuer}/api/entitlements?org=${encodeURIComponent(organizationId)}`, {
+      headers: { "X-Captivo-Service": svc.secret },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as Partial<CenterEntitlements>;
+    if (!Array.isArray(body.entitlements)) return null;
+    return {
+      entitlements: body.entitlements.filter(isKeyedRow) as CenterEntitlements["entitlements"],
+      links: (Array.isArray(body.links) ? body.links : []).filter(isKeyedRow) as CenterEntitlements["links"],
+    };
+  } catch {
+    return null;
+  }
+}
