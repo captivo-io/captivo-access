@@ -79,6 +79,27 @@ export async function tenantSlugByOrg(organizationId: string): Promise<string | 
 export async function softDeleteTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_delete_tenant($1)`, id); }
 export async function restoreTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_restore_tenant($1)`, id); }
 export async function purgeTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_purge_tenant($1)`, id); }
+
+/**
+ * Undo a tenant that was created moments ago and could not be finished.
+ *
+ * ONE TRANSACTION, and that is the whole point. Purge refuses a row that was
+ * not soft-deleted first, so the rollback is necessarily two calls -- and a
+ * rollback that got halfway would leave the tenant invisible to every
+ * resolver while still holding its slug in the unique index, so the person
+ * could not even retry at the address they just chose. Either both happen or
+ * neither does, and "neither" is the state we were already in.
+ *
+ * For provisioning rollback only. An established tenant is soft-deleted and
+ * purged separately, on purpose: the gap between the two is what makes a
+ * mistaken deletion recoverable.
+ */
+export async function rollbackCreatedTenantRow(id: string): Promise<void> {
+  await base.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SELECT platform_delete_tenant($1)`, id);
+    await tx.$executeRawUnsafe(`SELECT platform_purge_tenant($1)`, id);
+  });
+}
 export async function purgeCandidates(days: number): Promise<string[]> {
   const rows = await base.$queryRawUnsafe<{ platform_purge_candidates: string }[]>(`SELECT platform_purge_candidates($1::int)`, days);
   return rows.map((r) => r.platform_purge_candidates);
