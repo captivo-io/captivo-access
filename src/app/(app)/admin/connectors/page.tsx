@@ -9,6 +9,8 @@ import { AddConnectorButton } from "./add-connector-button";
 import { ConnectorsTable, type ConnectorRow } from "./connectors-table";
 import { DeletePairingButton } from "./delete-pairing-button";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { planUsage } from "@/lib/platform/plan-usage";
+import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Connectors" };
@@ -30,6 +32,14 @@ async function AdminConnectorsPageImpl() {
     orderBy: { createdAt: "desc" },
   });
   const now = Date.now();
+
+  // Counted the same way assertWithinLimit counts it (api/admin/connectors):
+  // a revoked connector does not occupy an allowance, so showing it here would
+  // disagree with the gate that actually refuses the next one.
+  const connectorUsage = await planUsage(
+    "maxConnectors",
+    await db.connector.count({ where: { status: { not: "REVOKED" } } }),
+  );
 
   const mgr = managerVersion();
   const managerUrl = process.env.MANAGER_PUBLIC_URL?.replace(/\/+$/, "") || "https://manager.<your-access-domain>";
@@ -53,6 +63,7 @@ async function AdminConnectorsPageImpl() {
             A connector is a small agent you run inside a customer&apos;s network. Pair one here, then add
             resources to expose specific internal upstreams through it.
           </p>
+          <PlanUsageNote usage={connectorUsage} noun="connectors" />
         </div>
         <div className="row-actions">
           <AddConnectorButton />

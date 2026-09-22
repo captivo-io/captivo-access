@@ -8,6 +8,8 @@ import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { resolvedKeystrokeLoggingMode, resolvedRecordingMode } from "@/lib/settings/platform";
 import { AddSiteButton } from "./add-site-button";
+import { planUsage } from "@/lib/platform/plan-usage";
+import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
 import { SitesView, type SiteRow } from "./sites-view";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -69,6 +71,11 @@ async function AdminSitesPageImpl() {
     probedAgo: s.probedAt ? timeAgo(s.probedAt) : null,
   }));
 
+  // sites is already the full list for this tenant, so its length IS the count
+  // assertWithinLimit uses (api/admin/sites counts every row) -- no second
+  // query, and no chance of the two disagreeing.
+  const siteUsage = await planUsage("maxSites", sites.length);
+
   return (
     <main>
       <div className="page-head">
@@ -79,6 +86,7 @@ async function AdminSitesPageImpl() {
             URL. Use &quot;Test connection&quot; to verify a live round trip through the connector&apos;s
             tunnel.
           </p>
+          <PlanUsageNote usage={siteUsage} noun="resources" />
         </div>
         {connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}
       </div>

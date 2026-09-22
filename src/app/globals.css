@@ -1013,3 +1013,18 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .scp-item:disabled { cursor: default; opacity: 0.75; }
 .scp-item-label { font: 600 14px/1.2 sans-serif; }
 .scp-item-sub { font: 12px/1.2 sans-serif; color: #94a3b8; margin-top: 2px; }
+
+/* The allowance line under a page title (Connectors, Resources). Quiet at
+   rest; only the at-cap variant raises its voice, because that is the only
+   state where the next click fails. */
+.plan-usage {
+  margin-top: .35rem;
+  font-size: .8125rem;
+  color: var(--muted);
+}
+.plan-usage-at-cap {
+  /* The repo's own warn token, which is redefined for the dark theme -- a
+     literal amber here would have been unreadable on the dark ground. */
+  color: var(--warn);
+  font-weight: 500;
+}
