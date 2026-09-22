@@ -146,12 +146,27 @@ async function handler(req: NextRequest) {
     }
   }
 
-  if (!invite) return fail(req, "no_account");
+  if (!invite) {
+    // The reason matters more here than anywhere else in this handler: the
+    // three ways to reach this line look identical from the browser, and the
+    // first live occurrence -- an entitled person whose token carried no
+    // grants because the authorization request never asked for the captivo
+    // scope -- took hours to tell apart from "genuinely not invited". No
+    // email is logged: the tenant and the shape of the miss are enough.
+    const onPlatform = currentTenantId() === PLATFORM_TENANT_ID;
+    return fail(
+      req,
+      "no_account",
+      onPlatform
+        ? "no user, no invite, and no ACCESS grant in the token (is the captivo scope requested and released?)"
+        : `no user and no invite on tenant ${currentTenantId()}`,
+    );
+  }
 
   // Atomically consume the invite; a race (or a passkey enrollment in flight)
   // that already used it makes updateMany match 0 rows → bail.
   const consumed = await db.invite.updateMany({ where: { id: invite.id, usedAt: null }, data: { usedAt: new Date() } });
-  if (consumed.count === 0) return fail(req, "no_account");
+  if (consumed.count === 0) return fail(req, "no_account", "invite_already_consumed");
 
   let created;
   try {

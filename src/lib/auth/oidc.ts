@@ -79,7 +79,44 @@ export function accessGrant(claims: IdClaims): { org: string; orgName: string; r
   return null;
 }
 
-type Discovery = { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string; userinfo_endpoint?: string };
+/**
+ * The scope Captivo ID exposes its grant claim under.
+ *
+ * WITHOUT IT THE TOKEN CARRIES NO GRANTS. An OpenID provider releases a claim
+ * only when the scope that maps to it was requested, so a login that asks for
+ * `openid email profile` receives a perfectly valid token with no `captivo`
+ * claim in it -- and every downstream check that reads grants then answers
+ * "none". That is not a hypothetical: the free-tier sign-up path here reads
+ * the ACCESS grant to decide whether to offer workspace creation, and without
+ * this scope it fell through to `no_account` for people who were entitled.
+ */
+export const CAPTIVO_SCOPE = "captivo";
+
+/** Requested on every login, whoever the identity provider is. */
+const BASE_SCOPES = ["openid", "email", "profile"];
+
+/**
+ * The scope string for an authorization request, given what the IdP advertises.
+ *
+ * ASKED FOR ONLY WHEN THE IdP ADVERTISES IT. `captivo` is not a standard
+ * scope, and a tenant pointing its console at Keycloak, Entra or Auth0 has an
+ * issuer that has never heard of it -- several answer an unknown scope with
+ * `invalid_scope` and refuse the whole request, which would turn a working
+ * self-hosted login into a dead one. Discovery already states the answer in
+ * `scopes_supported`, so the request adapts to the issuer instead of the
+ * deployment having to be configured to match it.
+ *
+ * A missing or malformed `scopes_supported` yields the base scopes: the field
+ * is only RECOMMENDED by the discovery spec, and "the IdP did not say" must
+ * mean "do not ask for the non-standard thing".
+ */
+export function authorizationScope(scopesSupported: unknown): string {
+  const supported = Array.isArray(scopesSupported) ? scopesSupported : [];
+  const scopes = supported.includes(CAPTIVO_SCOPE) ? [...BASE_SCOPES, CAPTIVO_SCOPE] : BASE_SCOPES;
+  return scopes.join(" ");
+}
+
+type Discovery = { issuer: string; authorization_endpoint: string; token_endpoint: string; jwks_uri: string; userinfo_endpoint?: string; scopes_supported?: unknown };
 const discoveryCache = new Map<string, { at: number; doc: Discovery }>();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
