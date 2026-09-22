@@ -291,7 +291,7 @@ CREATE OR REPLACE FUNCTION platform_update_tenant(p_id text, p_name text, p_plan
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF p_id IN ('platform', 'default') THEN RAISE EXCEPTION 'reserved tenant'; END IF;
-  IF p_plan NOT IN ('trial', 'standard', 'enterprise') THEN RAISE EXCEPTION 'invalid plan: %', p_plan; END IF;
+  IF p_plan NOT IN ('trial', 'standard', 'enterprise', 'free') THEN RAISE EXCEPTION 'invalid plan: %', p_plan; END IF;
   UPDATE "Tenant" SET name = p_name, plan = p_plan, "trialEndsAt" = p_trial_ends, limits = p_limits,
                       capabilities = p_capabilities, notes = p_notes, "updatedAt" = now()
   WHERE id = p_id;
