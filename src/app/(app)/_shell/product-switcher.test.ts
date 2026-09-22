@@ -21,10 +21,17 @@ describe("the switcher is wired into the console", () => {
     //
     // Asserting the call merely APPEARS in the file cannot see that move, so
     // this reads the implementation's body and asserts it is in there.
-    const body = LAYOUT.slice(
-      LAYOUT.indexOf("async function AppLayoutImpl"),
-      LAYOUT.indexOf("export default async function AppLayout"),
-    );
+    // Both anchors are literal text in another file. If either is renamed,
+    // indexOf answers -1, slice(start, -1) hands back nearly the whole file,
+    // and this guard passes while guarding nothing -- which is the same class
+    // of silent pass it was written to close. So assert they were found first:
+    // a rename then fails here loudly and gets a new anchor.
+    const start = LAYOUT.indexOf("async function AppLayoutImpl");
+    const end = LAYOUT.indexOf("export default async function AppLayout");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const body = LAYOUT.slice(start, end);
     expect(body).toContain("getProductMenu()");
   });
 
