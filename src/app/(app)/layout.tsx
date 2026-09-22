@@ -10,6 +10,7 @@ import { getUpdateCheckConfig } from "@/lib/updates/update-check-config";
 import { managerVersion } from "@/lib/version";
 import { isUpdateAvailable } from "@/lib/updates/semver";
 import { buildNavModel } from "@/lib/nav/model";
+import { getProductMenu } from "@/lib/products/switcher-data";
 import { resolvedDisplayTimezone } from "@/lib/settings/timezone";
 import { TopNav } from "./_shell/topnav";
 import { TimezoneProvider } from "./_shell/timezone-context";
@@ -44,6 +45,11 @@ async function AppLayoutImpl({ children }: { children: React.ReactNode }) {
   const staleCheck = !!upd?.enabled && (upd.lastCheckedAt == null || Date.now() - upd.lastCheckedAt.getTime() > DAY_MS);
 
   const model = buildNavModel(user.role, { pending, unread });
+  // Awaited here rather than behind a <Suspense> boundary because the nav is a
+  // client component and this arrives as a prop, so it has to resolve before
+  // the nav renders. What protects the page is that the lookup is bounded
+  // below a second and cannot throw -- see lib/products/center-picture.ts.
+  const products = await getProductMenu();
 
   return (
     <TimezoneProvider tz={tz}>
@@ -55,6 +61,7 @@ async function AppLayoutImpl({ children }: { children: React.ReactNode }) {
         userName={user.name}
         roleLabel={ROLE_LABELS[user.role] ?? user.role}
         showLive={showRead}
+        products={products}
       />
       <PlatformAnnouncement />
       {support && <SupportBanner expiresAt={support.expiresAt.toISOString()} actorEmail={support.actorEmail} reason={support.reason} />}

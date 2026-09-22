@@ -24,6 +24,19 @@ function service(env: ServiceEnv): { issuer: string; secret: string } | null {
   return { issuer, secret };
 }
 
+/**
+ * Whether this installation has a route to the centre at all.
+ *
+ * This is `service()` itself, not a second copy of its rule: a caller that
+ * needs to know BEFORE it starts doing work asks here, and the gate that
+ * decides whether a request may go out stays the only one of its kind. Two
+ * gates guarding the same thing drift, and the one that drifts is the one
+ * left open.
+ */
+export function isCentreConfigured(env: ServiceEnv = process.env as ServiceEnv): boolean {
+  return service(env) !== null;
+}
+
 /** What the centre said about an organisation's ACCESS entitlement. */
 export interface AccessEntitlement {
   plan: string | null;
@@ -98,5 +111,88 @@ export async function reportTenantLink(
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Everything the centre knows about an organisation: what it is entitled to,
+ * and which products it already has a tenant for.
+ *
+ * Separate from `fetchAccessEntitlement`, which answers one narrower question
+ * for the signup flow with a three-state contract. This one is for the product
+ * switcher and answers with a picture or nothing.
+ *
+ * Returns null when the read as a whole fails -- unconfigured, unreachable,
+ * refused, or a body that is not the shape we asked for. A body that arrives
+ * intact but carries unusable ROWS is not one of those: those rows are dropped
+ * and the rest is returned.
+ */
+export interface CenterEntitlements {
+  entitlements: Array<{
+    product: string;
+    plan: string | null;
+    limits: Record<string, number> | null;
+    expiresAt: string | null;
+  }>;
+  links: Array<{ product: string; tenantId: string; consoleOrigin: string | null }>;
+}
+
+/**
+ * A wire row is only usable if it names its product.
+ *
+ * `CenterEntitlements` describes what we ASKED for, not what arrived. A body of
+ * `{"entitlements":[null]}` satisfies `Array.isArray` and then kills the first
+ * consumer that reads `.product` off that null -- and that consumer renders in
+ * the console's layout, so one bad row would cost the whole console. This is
+ * the boundary where that gets settled, so everything downstream (a pure
+ * function shared with the Portal repository, among others) keeps the right to
+ * expect clean data.
+ */
+function isKeyedRow(row: unknown): row is { product: string } {
+  return typeof row === "object" && row !== null && typeof (row as { product?: unknown }).product === "string";
+}
+
+/**
+ * A bridge row whose address is safe to put in an href.
+ *
+ * `isKeyedRow` finishes only half of "the wire is not the type" for links.
+ * `consoleOrigin` is read straight into a menu item's href, so a row like
+ * `{product:"PORTAL", consoleOrigin: 42}` passes that filter and renders as
+ * `href="42"` -- a relative navigation to a path nobody meant.
+ *
+ * The row is NOT dropped. That the organisation has a tenant for this product
+ * is a real fact, and every consumer already knows what a bridge with a null
+ * origin means (fall back to the plain product address). Only the address is
+ * unusable, so only the address is reduced.
+ */
+function withUsableOrigin(row: { product: string }): CenterEntitlements["links"][number] {
+  const origin = (row as { consoleOrigin?: unknown }).consoleOrigin;
+  return {
+    ...(row as CenterEntitlements["links"][number]),
+    consoleOrigin: typeof origin === "string" ? origin : null,
+  };
+}
+
+export async function fetchCenterPicture(
+  organizationId: string,
+  timeoutMs = TIMEOUT_MS,
+  env: ServiceEnv = process.env as ServiceEnv,
+): Promise<CenterEntitlements | null> {
+  const svc = service(env);
+  if (!svc) return null;
+  try {
+    const res = await fetch(`${svc.issuer}/api/entitlements?org=${encodeURIComponent(organizationId)}`, {
+      headers: { "X-Captivo-Service": svc.secret },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as Partial<CenterEntitlements>;
+    if (!Array.isArray(body.entitlements)) return null;
+    return {
+      entitlements: body.entitlements.filter(isKeyedRow) as CenterEntitlements["entitlements"],
+      links: (Array.isArray(body.links) ? body.links : []).filter(isKeyedRow).map(withUsableOrigin),
+    };
+  } catch {
+    return null;
   }
 }

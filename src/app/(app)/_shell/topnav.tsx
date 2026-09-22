@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { Role } from "@/generated/prisma/enums";
 import type { SearchRecord } from "@/lib/search";
 import type { NavModel, NavGroup } from "@/lib/nav/model";
+import type { ProductMenuItem } from "@/lib/products/product-menu";
 import { BrandMark } from "@/components/brand";
 import { NavIcon } from "./nav-icons";
 import { CommandPalette } from "./command-palette";
@@ -14,8 +15,15 @@ import { LogoutButton } from "../logout-button";
 import { TimezoneLabel } from "./effective-timezone";
 import { LivePill } from "./live-pill";
 
-export function TopNav({ model, records, role, userName, roleLabel, showLive }: {
+/** Brand names, not copy: never translated, never a message key. */
+const PRODUCT_NAMES: Record<string, string> = {
+  PORTAL: "Captivo Portal",
+  ACCESS: "Captivo Access",
+};
+
+export function TopNav({ model, records, role, userName, roleLabel, showLive, products }: {
   model: NavModel; records: SearchRecord[]; role: Role; userName: string; roleLabel: string; showLive: boolean;
+  products: ProductMenuItem[];
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState<string | null>(null); // open dropdown label | "account" | null
@@ -97,6 +105,46 @@ export function TopNav({ model, records, role, userName, roleLabel, showLive }: 
             open={open === "notifications"}
             onToggle={() => setOpen((v) => (v === "notifications" ? null : "notifications"))}
           />
+        )}
+        {/*
+          The neighbouring group triggers carry aria-haspopup="menu" and this one
+          deliberately does not, nor does its panel carry role="menu". Those
+          values promise the ARIA menu pattern -- arrow-key navigation and a
+          roving tabindex -- which none of the nav implements. Claiming it tells
+          a screen-reader user to press keys that do nothing, which is worse than
+          saying less: aria-expanded already carries the state, and the items are
+          real links in ordinary tab order.
+
+          This is a considered difference, not an oversight. Bringing the
+          neighbours in line is the right cleanup; copying their overclaim here
+          would have been the wrong direction.
+        */}
+        {products.length > 0 && (
+          <div className="tn-menuwrap">
+            <button
+              className="tn-link tn-trigger"
+              aria-expanded={open === "products"}
+              onClick={() => setOpen((v) => (v === "products" ? null : "products"))}
+            >
+              Products <span className="tn-caret" aria-hidden="true">▾</span>
+            </button>
+            {open === "products" && (
+              <div className="tn-menu tn-menu-right">
+                {products.map((p) =>
+                  p.state === "current" ? (
+                    <div key={p.product} className="tn-menuitem" aria-current="true">
+                      {PRODUCT_NAMES[p.product]} <span className="tn-badge">You are here</span>
+                    </div>
+                  ) : (
+                    <a key={p.product} href={p.href} className="tn-menuitem" onClick={() => setOpen(null)}>
+                      {PRODUCT_NAMES[p.product]}
+                      {p.state === "setup" && <span className="tn-badge">Needs setup</span>}
+                    </a>
+                  ),
+                )}
+              </div>
+            )}
+          </div>
         )}
         <ThemeSwitcher />
         <div className="tn-menuwrap tn-account">

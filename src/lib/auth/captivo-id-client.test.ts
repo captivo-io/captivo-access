@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchAccessEntitlement, reportTenantLink } from "./captivo-id-client";
+import { fetchAccessEntitlement, reportTenantLink, fetchCenterPicture, isCentreConfigured } from "./captivo-id-client";
 
 const env = {
   CAPTIVO_ID_ISSUER: "https://id.captivo.io",
@@ -95,5 +95,92 @@ describe("reportTenantLink", () => {
   it("reports failure when the centre is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
     expect(await reportTenantLink({ organizationId: "org_1", tenantId: "t_1", consoleOrigin: "https://acme.cloud.captivo.io" }, env)).toBe(false);
+  });
+});
+
+describe("isCentreConfigured", () => {
+  it("reports configured only when both the issuer and the secret are present", () => {
+    // Exported so a caller can decide ORDER -- skip work that a missing centre
+    // makes pointless -- without restating the rule. It must therefore agree
+    // with the gate the request itself passes through, case for case.
+    expect(isCentreConfigured({})).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_ISSUER: "https://id.captivo.io" })).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_SERVICE_SECRET: "s3cret" })).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_ISSUER: "  ", CAPTIVO_ID_SERVICE_SECRET: "s3cret" })).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_ISSUER: "https://id.captivo.io", CAPTIVO_ID_SERVICE_SECRET: "s3cret" })).toBe(true);
+  });
+});
+
+describe("fetchCenterPicture", () => {
+  // `env` and `mockFetch` are the file's own; `afterEach` there already calls
+  // vi.unstubAllGlobals(), so nothing here needs its own teardown.
+
+  it("returns both products and their bridges", async () => {
+    mockFetch(200, {
+      entitlements: [
+        { product: "PORTAL", plan: null, limits: null, expiresAt: null },
+        { product: "ACCESS", plan: "free", limits: { maxSites: 5 }, expiresAt: null },
+      ],
+      links: [{ product: "ACCESS", tenantId: "t_1", consoleOrigin: "https://acme.cloud.captivo.io" }],
+    });
+    const out = await fetchCenterPicture("org_1", 900, env);
+    expect(out?.entitlements.map((e) => e.product)).toEqual(["PORTAL", "ACCESS"]);
+    expect(out?.links).toEqual([{ product: "ACCESS", tenantId: "t_1", consoleOrigin: "https://acme.cloud.captivo.io" }]);
+  });
+
+  it("drops unusable rows instead of failing the whole read", async () => {
+    // The wire is not the type. A row that is not an object with a string
+    // `product` kills the first consumer that reads `.product` off it, and that
+    // consumer renders in the console's layout -- so one bad row would cost the
+    // whole console. One bad row must also not cost the products that are fine.
+    mockFetch(200, {
+      entitlements: [null, "ACCESS", { product: 42 }, { product: "PORTAL", plan: null, limits: null, expiresAt: null }],
+      links: [null, { product: "ACCESS", tenantId: "t_1", consoleOrigin: null }],
+    });
+    const out = await fetchCenterPicture("org_1", 900, env);
+    expect(out?.entitlements.map((e) => e.product)).toEqual(["PORTAL"]);
+    expect(out?.links).toEqual([{ product: "ACCESS", tenantId: "t_1", consoleOrigin: null }]);
+  });
+
+  it("keeps a bridge whose console origin is not an address, but without the address", async () => {
+    // consoleOrigin is read straight into a menu item's href, so a number there
+    // renders as href="42" -- a relative navigation nobody meant. The bridge
+    // itself is still a fact worth keeping: a null origin already means "use
+    // the plain product address", which is the right answer here too.
+    mockFetch(200, {
+      entitlements: [{ product: "PORTAL", plan: null, limits: null, expiresAt: null }],
+      links: [
+        { product: "PORTAL", tenantId: "t_1", consoleOrigin: 42 },
+        { product: "ACCESS", tenantId: "t_2", consoleOrigin: { href: "https://acme.example" } },
+      ],
+    });
+    const out = await fetchCenterPicture("org_1", 900, env);
+    expect(out?.links.map((l) => l.product)).toEqual(["PORTAL", "ACCESS"]);
+    expect(out?.links.map((l) => l.consoleOrigin)).toEqual([null, null]);
+  });
+
+  it("returns null when the centre is not configured", async () => {
+    // A self-hosted installation has no route to the centre and must not try.
+    const spy = mockFetch(200, { entitlements: [], links: [] });
+    expect(await fetchCenterPicture("org_1", 900, {})).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a non-2xx, a body that is not an object, and a thrown fetch", async () => {
+    // "The centre did not answer" and "the centre says nothing is entitled" are
+    // opposite facts; only the first may be null here.
+    mockFetch(500, {});
+    expect(await fetchCenterPicture("org_1", 900, env)).toBeNull();
+    mockFetch(200, "hello");
+    expect(await fetchCenterPicture("org_1", 900, env)).toBeNull();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
+    expect(await fetchCenterPicture("org_1", 900, env)).toBeNull();
+  });
+
+  it("carries the caller's deadline to the request", async () => {
+    const spy = mockFetch(200, { entitlements: [], links: [] });
+    await fetchCenterPicture("org_1", 900, env);
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 });
