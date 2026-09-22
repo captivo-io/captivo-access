@@ -5,6 +5,7 @@
 // visible to the tenant: the support user in Users, the start/end in its admin
 // chain, and a banner while the session is live.
 import { cookies } from "next/headers";
+import { clientIp } from "@/lib/request-ip";
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { sha256, generateToken } from "@/lib/auth/tokens";
@@ -45,7 +46,10 @@ export async function startSupportSession(token: string, req: NextRequest): Prom
   const session = await db.session.create({
     data: {
       userId, tokenHash: sha256(sessionToken), expiresAt: new Date(Date.now() + SUPPORT_SESSION_MS),
-      userAgent: req.headers.get("user-agent") ?? null, ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+      // clientIp, not the first X-Forwarded-For hop: this row is the record of
+      // a support session on a customer tenant, so its origin must not be a
+      // value the caller chose.
+      userAgent: req.headers.get("user-agent") ?? null, ip: clientIp(req.headers) ?? null,
     },
   });
   const consumed = await db.supportHandoff.updateMany({ where: { id: h.id, usedAt: null }, data: { usedAt: new Date(), sessionId: session.id } });

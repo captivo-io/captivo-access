@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { clientIp } from "@/lib/request-ip";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { generateToken, sha256 } from "./tokens";
@@ -82,7 +83,9 @@ export async function sessionCookieMaxAgeSeconds(): Promise<number> {
 export async function startSession(userId: string, req: NextRequest): Promise<void> {
   const meta = {
     userAgent: req.headers.get("user-agent") ?? undefined,
-    ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined,
+    // The FIRST X-Forwarded-For hop is whatever the caller typed; clientIp
+    // reads the one our own proxy wrote (see lib/request-ip.ts).
+    ip: clientIp(req.headers),
   };
   const token = await createSession(userId, meta);
   (await cookies()).set(SESSION_COOKIE, token, {
