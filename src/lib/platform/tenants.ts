@@ -4,7 +4,7 @@ import { createInvite } from "@/lib/auth/invite";
 import { isValidTenantSlug } from "@/lib/tenant/constants";
 import { consoleDomain } from "@/lib/tenant/console-domain";
 import { isPlan, parseLimits, parseCapabilities, type Plan, type TenantLimits, type TenantCapabilities } from "@/lib/platform/tenant-shape";
-import { updateTenantRow, softDeleteTenantRow, restoreTenantRow, purgeTenantRow } from "@/lib/platform/sql";
+import { updateTenantRow, softDeleteTenantRow, restoreTenantRow, purgeTenantRow, rollbackCreatedTenantRow } from "@/lib/platform/sql";
 import { savePlatformSettings, getPlatformSettings } from "@/lib/settings/platform";
 import { getPlatformConfig, newTenantDefaultsFrom } from "@/lib/platform/config";
 
@@ -146,31 +146,57 @@ export async function createTenant(input: { name: string; slug: string; adminEma
     throw e;
   }
 
-  // 2. Provision the first admin: an invite IN THE NEW TENANT, via the existing
-  // invite machinery under the new tenant's scope (the insert trigger stamps
-  // tenantId; RLS WITH CHECK passes). createdById is null (system-provisioned).
-  const { token } = await withTenant(id, () =>
-    // The admin's name when the operator knows it; otherwise the email stands in
-    // and the invitee is asked for their name at enrollment.
-    createInvite({ email: input.adminEmail, name: input.adminName?.trim() || input.adminEmail, role: "ADMIN", createdById: null }),
-  );
+  // EVERYTHING BELOW RUNS AFTER THE TENANT ROW EXISTS, so a failure here is
+  // not "nothing happened" -- it is a workspace that is reachable and wrong.
+  // That is not a hypothetical: a plan name the database did not recognise
+  // threw out of step 3 and left a live tenant on the default plan with none
+  // of its caps, no way to sign in (the caller never got as far as telling
+  // the centre where the console lives) and an invite nobody was ever shown.
+  // The half-made workspace also held the slug, so retrying at the same
+  // address answered "already in use".
+  //
+  // So the row is taken back and the original error is rethrown, leaving the
+  // caller exactly where it would have been had the insert itself failed.
+  let token: string;
+  try {
+    // 2. Provision the first admin: an invite IN THE NEW TENANT, via the existing
+    // invite machinery under the new tenant's scope (the insert trigger stamps
+    // tenantId; RLS WITH CHECK passes). createdById is null (system-provisioned).
+    ({ token } = await withTenant(id, () =>
+      // The admin's name when the operator knows it; otherwise the email stands in
+      // and the invitee is asked for their name at enrollment.
+      createInvite({ email: input.adminEmail, name: input.adminName?.trim() || input.adminEmail, role: "ADMIN", createdById: null }),
+    ));
 
-  // 3. Plan / trial + the platform's defaults for new tenants (Settings →
-  // New tenant defaults), written as the tenant's own PlatformSettings row.
-  const plan = isPlan(input.plan) ? input.plan : "standard";
-  const limits = input.limits ?? null;
-  // Written whenever the plan is not the default OR caps were supplied: a
-  // standard tenant with caps used to fall through this branch and lose them.
-  if (plan !== "standard" || limits) {
-    const trialEndsAt = plan === "trial" ? new Date(Date.now() + (input.trialDays ?? 14) * 24 * 3600 * 1000) : null;
-    await updateTenantRow({ id, name, plan, trialEndsAt, limits, capabilities: null, notes: null });
-  }
-  const defaults = newTenantDefaultsFrom(await getPlatformConfig());
-  if (defaults) {
-    await withTenant(id, async () => {
-      const current = await getPlatformSettings();
-      await savePlatformSettings({ ...current, ...defaults });
-    });
+    // 3. Plan / trial + the platform's defaults for new tenants (Settings →
+    // New tenant defaults), written as the tenant's own PlatformSettings row.
+    const plan = isPlan(input.plan) ? input.plan : "standard";
+    const limits = input.limits ?? null;
+    // Written whenever the plan is not the default OR caps were supplied: a
+    // standard tenant with caps used to fall through this branch and lose them.
+    if (plan !== "standard" || limits) {
+      const trialEndsAt = plan === "trial" ? new Date(Date.now() + (input.trialDays ?? 14) * 24 * 3600 * 1000) : null;
+      await updateTenantRow({ id, name, plan, trialEndsAt, limits, capabilities: null, notes: null });
+    }
+    const defaults = newTenantDefaultsFrom(await getPlatformConfig());
+    if (defaults) {
+      await withTenant(id, async () => {
+        const current = await getPlatformSettings();
+        await savePlatformSettings({ ...current, ...defaults });
+      });
+    }
+  } catch (e) {
+    // Best effort, and deliberately silent about its own failure: if the
+    // database is the thing that is broken, the rollback will not work either,
+    // and reporting THAT error would hide the one that says what went wrong.
+    // Failing to undo leaves the state this code has always left -- no worse
+    // than before, and the log says so.
+    try {
+      await rollbackCreatedTenantRow(id);
+    } catch (undoError) {
+      console.error(`[platform] could not roll back half-created tenant ${id}:`, undoError);
+    }
+    throw e;
   }
 
   // The first admin accepts the invite at the tenant's own console host,
