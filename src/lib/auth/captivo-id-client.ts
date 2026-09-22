@@ -24,6 +24,19 @@ function service(env: ServiceEnv): { issuer: string; secret: string } | null {
   return { issuer, secret };
 }
 
+/**
+ * Whether this installation has a route to the centre at all.
+ *
+ * This is `service()` itself, not a second copy of its rule: a caller that
+ * needs to know BEFORE it starts doing work asks here, and the gate that
+ * decides whether a request may go out stays the only one of its kind. Two
+ * gates guarding the same thing drift, and the one that drifts is the one
+ * left open.
+ */
+export function isCentreConfigured(env: ServiceEnv = process.env as ServiceEnv): boolean {
+  return service(env) !== null;
+}
+
 /** What the centre said about an organisation's ACCESS entitlement. */
 export interface AccessEntitlement {
   plan: string | null;

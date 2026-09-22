@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchAccessEntitlement, reportTenantLink, fetchCenterPicture } from "./captivo-id-client";
+import { fetchAccessEntitlement, reportTenantLink, fetchCenterPicture, isCentreConfigured } from "./captivo-id-client";
 
 const env = {
   CAPTIVO_ID_ISSUER: "https://id.captivo.io",
@@ -95,6 +95,19 @@ describe("reportTenantLink", () => {
   it("reports failure when the centre is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNREFUSED"); }));
     expect(await reportTenantLink({ organizationId: "org_1", tenantId: "t_1", consoleOrigin: "https://acme.cloud.captivo.io" }, env)).toBe(false);
+  });
+});
+
+describe("isCentreConfigured", () => {
+  it("reports configured only when both the issuer and the secret are present", () => {
+    // Exported so a caller can decide ORDER -- skip work that a missing centre
+    // makes pointless -- without restating the rule. It must therefore agree
+    // with the gate the request itself passes through, case for case.
+    expect(isCentreConfigured({})).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_ISSUER: "https://id.captivo.io" })).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_SERVICE_SECRET: "s3cret" })).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_ISSUER: "  ", CAPTIVO_ID_SERVICE_SECRET: "s3cret" })).toBe(false);
+    expect(isCentreConfigured({ CAPTIVO_ID_ISSUER: "https://id.captivo.io", CAPTIVO_ID_SERVICE_SECRET: "s3cret" })).toBe(true);
   });
 });
 

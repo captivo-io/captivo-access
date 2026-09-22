@@ -4,11 +4,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({ db: { tenant: { findUnique: vi.fn() } } }));
 vi.mock("@/lib/tenant/context", () => ({ currentTenantId: vi.fn(() => "t_1") }));
-vi.mock("@/lib/auth/captivo-id-client", () => ({ fetchCenterPicture: vi.fn() }));
+vi.mock("@/lib/auth/captivo-id-client", () => ({
+  fetchCenterPicture: vi.fn(),
+  isCentreConfigured: vi.fn(() => true),
+}));
 
 import { getCenterPicture } from "./center-picture";
 import { db } from "@/lib/db";
-import { fetchCenterPicture } from "@/lib/auth/captivo-id-client";
+import { fetchCenterPicture, isCentreConfigured } from "@/lib/auth/captivo-id-client";
 
 const PICTURE = { entitlements: [{ product: "ACCESS", plan: "free", limits: null, expiresAt: null }], links: [] };
 
@@ -16,6 +19,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.tenant.findUnique).mockResolvedValue({ captivoOrgId: "org_1" } as never);
   vi.mocked(fetchCenterPicture).mockResolvedValue(PICTURE as never);
+  vi.mocked(isCentreConfigured).mockReturnValue(true);
 });
 
 describe("getCenterPicture", () => {
@@ -38,6 +42,17 @@ describe("getCenterPicture", () => {
     // blank every page, not one.
     vi.mocked(db.tenant.findUnique).mockRejectedValueOnce(new Error("db down"));
     await expect(getCenterPicture()).resolves.toBeNull();
+  });
+
+  it("queries nothing at all when there is no centre to ask", async () => {
+    // Self-hosted. The answer is fixed by configuration, so the tenant lookup
+    // cannot change it -- and this accessor runs in the layout of every console
+    // page, so ordering the gate after the query buys a database round trip per
+    // render in exchange for nothing.
+    vi.mocked(isCentreConfigured).mockReturnValue(false);
+    await expect(getCenterPicture()).resolves.toBeNull();
+    expect(db.tenant.findUnique).not.toHaveBeenCalled();
+    expect(fetchCenterPicture).not.toHaveBeenCalled();
   });
 
   it("leaves a trace naming the organisation when the centre answers nothing", async () => {

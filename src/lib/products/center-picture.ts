@@ -1,7 +1,11 @@
 import { cache } from "react";
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
-import { fetchCenterPicture, type CenterEntitlements } from "@/lib/auth/captivo-id-client";
+import {
+  fetchCenterPicture,
+  isCentreConfigured,
+  type CenterEntitlements,
+} from "@/lib/auth/captivo-id-client";
 
 /**
  * A wedged centre -- accepting connections, never answering -- must not add a
@@ -28,15 +32,22 @@ const CENTER_TIMEOUT_MS = 900;
  * and a second consumer inside the same render would otherwise pay a second
  * timeout when the centre is wedged.
  *
- * The self-hosted gate is NOT written here. `fetchCenterPicture` returns null
- * when `CAPTIVO_ID_ISSUER`/`CAPTIVO_ID_SERVICE_SECRET` are unset, which is
- * exactly the self-hosted case, and two gates guarding the same thing drift --
- * the one that drifts is the one left open.
+ * The self-hosted gate is not REWRITTEN here: `isCentreConfigured` is the
+ * centre client's own gate, exported, so there is still exactly one rule about
+ * when a request may go out -- two gates guarding the same thing drift, and the
+ * one that drifts is the one left open. What is decided here is only the ORDER.
+ * Asking it first means a self-hosted console does not pay a tenant lookup on
+ * every page render to learn something env already settled.
  *
  * Every failure path returns null, INCLUDING a thrown one: this is awaited from
  * the console layout, where an escaping exception blanks every page.
  */
 export const getCenterPicture = cache(async (): Promise<CenterEntitlements | null> => {
+  // Before the query, not after: on a self-hosted installation the centre is
+  // never configured, so no answer this lookup could give would change the
+  // outcome -- and the console's layout renders on every page.
+  if (!isCentreConfigured()) return null;
+
   try {
     const tenant = await db.tenant.findUnique({
       where: { id: currentTenantId() },
