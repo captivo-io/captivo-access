@@ -71,10 +71,10 @@ function isLive(expiresAt: string | null | undefined, now: Date): boolean {
  * Access's setup address) -- either way it is a valid destination, not a
  * missing one.
  *
- * THIS FUNCTION IS DUPLICATED IN THE CAPTIVO ACCESS REPOSITORY. The two copies
- * must give the same answer, and the two suites must cover the same CASES --
- * not the same text: that repository is English-only, so its test names read
- * differently on purpose. There is no shared package between the two, so
+ * THIS FUNCTION IS DUPLICATED ACROSS THE TWO CAPTIVO REPOSITORIES, Portal and
+ * Access. The two copies must give the same answer, and the two suites must
+ * cover the same CASES -- not the same text: the Access repository is
+ * English-only, so its test names read differently on purpose. There is no shared package between the two, so
  * covering the same cases is the whole defence against drift. If you change a
  * rule here, change it there.
  */
