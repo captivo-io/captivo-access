@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({ db: { tenant: { findUnique: vi.fn() } } }));
@@ -46,5 +48,22 @@ describe("getCenterPicture", () => {
     const [, bound] = vi.mocked(fetchCenterPicture).mock.calls[0] as [string, number];
     expect(bound).toBeGreaterThan(0);
     expect(bound).toBeLessThan(1000);
+  });
+});
+
+describe("the accessor is memoised per request", () => {
+  it("keeps the React cache wrapper (source check, not behaviour)", () => {
+    // Deliberately a source assertion. React's `cache` only memoises inside a
+    // request scope, and under vitest there is none: a cached function called
+    // twice here runs its body twice, measured. So the property cannot be
+    // observed at this level, and a test that called the accessor twice and
+    // expected one lookup would fail on correct code.
+    //
+    // What this does catch is the regression that matters: someone unwrapping
+    // the accessor. Without the wrapper every consumer in one render pays its
+    // own database lookup and its own centre call -- and its own timeout when
+    // the centre is wedged.
+    const SRC = readFileSync(path.join(__dirname, "center-picture.ts"), "utf-8");
+    expect(SRC).toMatch(/export const getCenterPicture = cache\(/);
   });
 });
