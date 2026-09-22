@@ -46,7 +46,21 @@ export const getCenterPicture = cache(async (): Promise<CenterEntitlements | nul
     // centre -- every self-hosted one, and any cloud tenant created by hand.
     if (!tenant?.captivoOrgId) return null;
 
-    return await fetchCenterPicture(tenant.captivoOrgId, CENTER_TIMEOUT_MS);
+    const picture = await fetchCenterPicture(tenant.captivoOrgId, CENTER_TIMEOUT_MS);
+    // `fetchCenterPicture` swallows its own failures and answers null, so a
+    // misconfigured, refusing or wedged centre leaves no trace anywhere: the
+    // menu simply does not render, which to an operator is indistinguishable
+    // from the feature never having shipped. The organisation existed, so the
+    // centre owed us an answer -- say which case this was.
+    //
+    // The silent behaviour is unchanged; only the trace is new.
+    if (!picture) {
+      console.warn(
+        `[captivo-id] centre returned nothing for organisation ${tenant.captivoOrgId}` +
+          " -- unconfigured, unreachable or a bad response; the product switcher will not render",
+      );
+    }
+    return picture;
   } catch (err) {
     console.warn("[captivo-id] centre lookup failed:", err);
     return null;

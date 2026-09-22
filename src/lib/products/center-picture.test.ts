@@ -40,6 +40,29 @@ describe("getCenterPicture", () => {
     await expect(getCenterPicture()).resolves.toBeNull();
   });
 
+  it("leaves a trace naming the organisation when the centre answers nothing", async () => {
+    // A dead centre is otherwise completely silent: no log, no metric, no
+    // symptom beyond a missing menu. That looks exactly like "not entitled",
+    // and an operator cannot tell the two apart without this line.
+    vi.mocked(fetchCenterPicture).mockResolvedValue(null as never);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(getCenterPicture()).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("org_1");
+    warn.mockRestore();
+  });
+
+  it("stays quiet when the tenant has no organisation at all", async () => {
+    // Not a fault: a self-hosted or hand-made workspace was never provisioned
+    // through the centre. Warning here would fire on every page load of every
+    // such installation and bury the line above.
+    vi.mocked(db.tenant.findUnique).mockResolvedValue({ captivoOrgId: null } as never);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(getCenterPicture()).resolves.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("bounds the centre call below a second", async () => {
     // A wedged centre -- accepting connections, never answering -- must not add
     // a visible pause to every console page.
