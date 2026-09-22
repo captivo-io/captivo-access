@@ -34,6 +34,28 @@ export interface ProductMenuItem {
 /** Fixed, so the menu does not reorder itself between page loads. */
 const ORDER: ProductCode[] = ["PORTAL", "ACCESS"];
 
+/**
+ * Where a product's console picks up an existing Captivo ID session.
+ *
+ * The switcher means "take me to the other product AS ME". Aimed at a
+ * console's front page it does not do that: an arrival with no session there
+ * is handed a login form and has to press a second button to ask for the
+ * thing they already asked for. Aimed at the session door, the centre
+ * recognises them and they never see a form.
+ *
+ * ACCESS ONLY, AND THAT IS NOT AN OVERSIGHT. Portal authenticates through
+ * Auth.js, which has no sign-in entry a link can use: fetching
+ * /api/auth/signin/captivo-id answers a redirect to /login (measured, not
+ * assumed), so pointing the link there would swap one login page for
+ * another. Portal keeps its bare origin until it grows a door of its own.
+ */
+export const ACCESS_SSO_ENTRY = "/api/auth/oidc/start";
+
+const SSO_ENTRY: Record<ProductCode, string> = {
+  PORTAL: "",
+  ACCESS: ACCESS_SSO_ENTRY,
+};
+
 function isLive(expiresAt: string | null | undefined, now: Date): boolean {
   if (!expiresAt) return true;
   const at = new Date(expiresAt).getTime();
@@ -71,6 +93,10 @@ function isLive(expiresAt: string | null | undefined, now: Date): boolean {
  * Access's setup address) -- either way it is a valid destination, not a
  * missing one.
  *
+ * ADDRESSES POINT AT THE SESSION DOOR, NOT THE FRONT PAGE, where the product
+ * has one -- see SSO_ENTRY. `state` is unaffected: whether a product is set
+ * up is a fact about the bridge, not about which URL we send the person to.
+ *
  * THIS FUNCTION IS DUPLICATED ACROSS THE TWO CAPTIVO REPOSITORIES, Portal and
  * Access. The two copies must give the same answer, and the two suites must
  * cover the same CASES -- not the same text: the Access repository is
@@ -100,10 +126,15 @@ export function productMenu(
     // link at the wrong product.
     const bridge = data.links.find((l) => l.product === product);
     const fallback = product === "PORTAL" ? hrefs.portal : hrefs.accessSetup;
+    // Defensive, not decorative: both sources are meant to be bare origins,
+    // but a stored one that ever arrives as "https://x/" would otherwise
+    // produce "https://x//api/auth/oidc/start", and a doubled slash is a
+    // different path to a router than the one the route is registered at.
+    const origin = (bridge?.consoleOrigin ?? fallback).replace(/\/+$/, "");
     items.push({
       product,
       state: bridge ? "open" : "setup",
-      href: bridge?.consoleOrigin ?? fallback,
+      href: origin + SSO_ENTRY[product],
     });
   }
 

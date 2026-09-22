@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { productMenu } from "./product-menu";
+import { productMenu, ACCESS_SSO_ENTRY } from "./product-menu";
 import type { CenterEntitlements } from "@/lib/auth/captivo-id-client";
 
 const NOW = new Date("2026-09-22T12:00:00Z");
@@ -10,6 +10,7 @@ const HREFS = { portal: "https://app.captivo.io", accessSetup: "https://platform
 // same menu, and every assertion about that rule passes either way -- which is
 // exactly how this suite once stayed green with the rule deleted.
 const BRIDGED_PORTAL = "https://portal.example.test";
+const ACME = "https://acme.cloud.captivo.io";
 
 const ent = (product: string, expiresAt: string | null = null) => ({
   product, plan: "free", limits: null, expiresAt,
@@ -114,10 +115,10 @@ describe("productMenu", () => {
     // pass the whole file while sending every Access customer to the generic
     // setup page instead of their own console.
     const menu = productMenu(
-      data([ent("PORTAL"), ent("ACCESS")], [link("ACCESS", "https://acme.cloud.captivo.io")]),
+      data([ent("PORTAL"), ent("ACCESS")], [link("ACCESS", ACME)]),
       "PORTAL", HREFS, NOW,
     );
-    expect(menu[1]).toEqual({ product: "ACCESS", state: "open", href: "https://acme.cloud.captivo.io" });
+    expect(menu[1]).toEqual({ product: "ACCESS", state: "open", href: ACME + ACCESS_SSO_ENTRY });
   });
 
   it("looks from Portal's side too: marks it current and offers Access setup", () => {
@@ -130,7 +131,42 @@ describe("productMenu", () => {
     const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "PORTAL", HREFS, NOW);
     expect(menu).toEqual([
       { product: "PORTAL", state: "current", href: "" },
-      { product: "ACCESS", state: "setup", href: HREFS.accessSetup },
+      { product: "ACCESS", state: "setup", href: HREFS.accessSetup + ACCESS_SSO_ENTRY },
     ]);
+  });
+  it("sends the Access link to the session door, NOT to the console's front page", () => {
+    // The person is signed in already; landing them on a login form turns
+    // "take me there as me" into a second button press. True for a set-up
+    // console (bridge address) and for the setup address alike.
+    const opened = productMenu(
+      data([ent("PORTAL"), ent("ACCESS")], [link("ACCESS", ACME)]), "PORTAL", HREFS, NOW,
+    );
+    expect(opened[1].href).toBe(ACME + "/api/auth/oidc/start");
+
+    const notSetUp = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "PORTAL", HREFS, NOW);
+    expect(notSetUp[1].href).toBe(HREFS.accessSetup + "/api/auth/oidc/start");
+  });
+
+  it("leaves the Portal link as a bare address", () => {
+    // Auth.js has no sign-in entry a link can use: /api/auth/signin/captivo-id
+    // answers a redirect to /login (measured), so pointing there would swap
+    // one login page for another.
+    const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "ACCESS", HREFS, NOW);
+    expect(menu[0].href).toBe(HREFS.portal);
+    expect(menu[0].href).not.toContain("/api/");
+  });
+
+  it("does not produce a doubled slash from a trailing slash", () => {
+    const menu = productMenu(
+      data([ent("PORTAL"), ent("ACCESS")], [link("ACCESS", ACME + "/")]), "PORTAL", HREFS, NOW,
+    );
+    expect(menu[1].href).toBe(ACME + "/api/auth/oidc/start");
+    expect(menu[1].href).not.toContain("//api");
+  });
+
+  it("does not let the session door change whether a product is set up", () => {
+    // Address and state are separate facts: no bridge still means SETUP.
+    const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "PORTAL", HREFS, NOW);
+    expect(menu[1].state).toBe("setup");
   });
 });
