@@ -73,7 +73,7 @@ export function UpdatesForm({
       </div>
 
       <p className="cell-sub">
-        This manager: <strong>v{currentVersion}</strong>
+        Captivo Access: <strong>v{currentVersion}</strong>
         {latestVersion && <> · latest: <strong>v{latestVersion}</strong></>}
         {lastCheckedAt && <> · last checked <LocalTime iso={lastCheckedAt} /> {lastCheckOk === false ? "(failed)" : ""}</>}
       </p>
