@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { hasAnyUser } from "@/lib/auth/bootstrap";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { getOidcConfig } from "@/lib/auth/oidc-config";
+import { resolveSetupRole } from "@/lib/auth/setup-role";
 import { LoginForm } from "./login-form";
 import { AuthShell } from "@/components/auth-shell";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -18,7 +19,15 @@ async function LoginPageImpl({
   if (await getCurrentUser()) redirect("/");
   // First-run: with no users yet, there is nothing to log in to — send the
   // operator to the first-admin setup wizard instead of a dead-end login page.
-  if (!(await hasAnyUser())) redirect("/setup");
+  //
+  // ONLY WHERE FIRST-RUN IS ALLOWED. On a cloud tenant console it is not:
+  // tenant admins arrive by invitation, and the registration endpoints refuse
+  // a tenant host outright. Redirecting there anyway made a freshly
+  // provisioned workspace unreachable — its console has an invited admin but
+  // no user yet, so /login bounced to a wizard whose form can never succeed,
+  // and the SSO button that WOULD have let the invited admin in was on the
+  // page nobody could reach.
+  if (!(await hasAnyUser()) && resolveSetupRole().allowed) redirect("/setup");
 
   const sp = await searchParams;
   const returnTo = safeReturnTo(typeof sp.returnTo === "string" ? sp.returnTo : null);
