@@ -107,6 +107,19 @@ describe("productMenu", () => {
     expect(menu.map((m) => m.product)).toEqual(["PORTAL", "ACCESS"]);
   });
 
+  it("reads a bridge's own address on the ACCESS row too, not just on Portal's", () => {
+    // The mirror's whole point is per-tenant Access consoles, and every other
+    // case here leaves ACCESS as `current`, which carries no address at all.
+    // Without this, a change that read the bridge only on the PORTAL row would
+    // pass the whole file while sending every Access customer to the generic
+    // setup page instead of their own console.
+    const menu = productMenu(
+      data([ent("PORTAL"), ent("ACCESS")], [link("ACCESS", "https://acme.cloud.captivo.io")]),
+      "PORTAL", HREFS, NOW,
+    );
+    expect(menu[1]).toEqual({ product: "ACCESS", state: "open", href: "https://acme.cloud.captivo.io" });
+  });
+
   it("looks from Portal's side too: marks it current and offers Access setup", () => {
     // Every other case in this file passes current: "ACCESS". That leaves
     // `product === current` exercised only against the ACCESS row, and
