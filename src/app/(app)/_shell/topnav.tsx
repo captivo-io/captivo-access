@@ -106,6 +106,19 @@ export function TopNav({ model, records, role, userName, roleLabel, showLive, pr
             onToggle={() => setOpen((v) => (v === "notifications" ? null : "notifications"))}
           />
         )}
+        {/*
+          The neighbouring group triggers carry aria-haspopup="menu" and this one
+          deliberately does not, nor does its panel carry role="menu". Those
+          values promise the ARIA menu pattern -- arrow-key navigation and a
+          roving tabindex -- which none of the nav implements. Claiming it tells
+          a screen-reader user to press keys that do nothing, which is worse than
+          saying less: aria-expanded already carries the state, and the items are
+          real links in ordinary tab order.
+
+          This is a considered difference, not an oversight. Bringing the
+          neighbours in line is the right cleanup; copying their overclaim here
+          would have been the wrong direction.
+        */}
         {products.length > 0 && (
           <div className="tn-menuwrap">
             <button
