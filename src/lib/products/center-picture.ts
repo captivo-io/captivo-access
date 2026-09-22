@@ -12,6 +12,12 @@ import { fetchCenterPicture, type CenterEntitlements } from "@/lib/auth/captivo-
  *
  * Giving up early is cheap because the failure is silent by design: the
  * switcher does not render, and the next page load tries again.
+ *
+ * WHAT THIS DOES NOT BOUND: the tenant lookup that runs before it. A slow
+ * database still delays this accessor, and no deadline here would change that
+ * -- but it is the same exposure every other await in the console layout
+ * already has, whereas a wedged centre is a dependency the console did not
+ * have until this feature, which is why that one is bounded.
  */
 const CENTER_TIMEOUT_MS = 900;
 
