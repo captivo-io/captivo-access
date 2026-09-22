@@ -142,6 +142,23 @@ describe("fetchCenterPicture", () => {
     expect(out?.links).toEqual([{ product: "ACCESS", tenantId: "t_1", consoleOrigin: null }]);
   });
 
+  it("keeps a bridge whose console origin is not an address, but without the address", async () => {
+    // consoleOrigin is read straight into a menu item's href, so a number there
+    // renders as href="42" -- a relative navigation nobody meant. The bridge
+    // itself is still a fact worth keeping: a null origin already means "use
+    // the plain product address", which is the right answer here too.
+    mockFetch(200, {
+      entitlements: [{ product: "PORTAL", plan: null, limits: null, expiresAt: null }],
+      links: [
+        { product: "PORTAL", tenantId: "t_1", consoleOrigin: 42 },
+        { product: "ACCESS", tenantId: "t_2", consoleOrigin: { href: "https://acme.example" } },
+      ],
+    });
+    const out = await fetchCenterPicture("org_1", 900, env);
+    expect(out?.links.map((l) => l.product)).toEqual(["PORTAL", "ACCESS"]);
+    expect(out?.links.map((l) => l.consoleOrigin)).toEqual([null, null]);
+  });
+
   it("returns null when the centre is not configured", async () => {
     // A self-hosted installation has no route to the centre and must not try.
     const spy = mockFetch(200, { entitlements: [], links: [] });

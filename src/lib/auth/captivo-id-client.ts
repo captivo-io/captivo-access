@@ -152,6 +152,27 @@ function isKeyedRow(row: unknown): row is { product: string } {
   return typeof row === "object" && row !== null && typeof (row as { product?: unknown }).product === "string";
 }
 
+/**
+ * A bridge row whose address is safe to put in an href.
+ *
+ * `isKeyedRow` finishes only half of "the wire is not the type" for links.
+ * `consoleOrigin` is read straight into a menu item's href, so a row like
+ * `{product:"PORTAL", consoleOrigin: 42}` passes that filter and renders as
+ * `href="42"` -- a relative navigation to a path nobody meant.
+ *
+ * The row is NOT dropped. That the organisation has a tenant for this product
+ * is a real fact, and every consumer already knows what a bridge with a null
+ * origin means (fall back to the plain product address). Only the address is
+ * unusable, so only the address is reduced.
+ */
+function withUsableOrigin(row: { product: string }): CenterEntitlements["links"][number] {
+  const origin = (row as { consoleOrigin?: unknown }).consoleOrigin;
+  return {
+    ...(row as CenterEntitlements["links"][number]),
+    consoleOrigin: typeof origin === "string" ? origin : null,
+  };
+}
+
 export async function fetchCenterPicture(
   organizationId: string,
   timeoutMs = TIMEOUT_MS,
@@ -169,7 +190,7 @@ export async function fetchCenterPicture(
     if (!Array.isArray(body.entitlements)) return null;
     return {
       entitlements: body.entitlements.filter(isKeyedRow) as CenterEntitlements["entitlements"],
-      links: (Array.isArray(body.links) ? body.links : []).filter(isKeyedRow) as CenterEntitlements["links"],
+      links: (Array.isArray(body.links) ? body.links : []).filter(isKeyedRow).map(withUsableOrigin),
     };
   } catch {
     return null;
