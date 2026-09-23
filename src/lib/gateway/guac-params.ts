@@ -10,7 +10,22 @@ export interface GuacParams {
   blockDownload?: boolean;
   sftpRoot?: string;
   rdpSecurity?: string;
+  // RDP: audio playback to the vendor (guacd default on) and print-to-PDF (jobs
+  // arrive as downloads); SSH: terminal look.
+  disableAudio?: boolean;
+  enablePrinting?: boolean;
+  terminalFontSize?: number;
+  terminalColorScheme?: string;
+  terminalScrollback?: number;
 }
+
+export const TERMINAL_COLOR_SCHEMES: { value: string; label: string }[] = [
+  { value: "", label: "Default (gray on black)" },
+  { value: "gray-black", label: "Gray on black" },
+  { value: "black-white", label: "Black on white" },
+  { value: "green-black", label: "Green on black" },
+  { value: "white-black", label: "White on black" },
+];
 
 export const KEYBOARD_LAYOUTS: { value: string; label: string }[] = [
   { value: "", label: "Default (US English)" },
@@ -35,7 +50,8 @@ export const KEYBOARD_LAYOUTS: { value: string; label: string }[] = [
 const LAYOUTS = new Set(KEYBOARD_LAYOUTS.map((l) => l.value).filter(Boolean));
 const DEPTHS = new Set([8, 16, 24]);
 const RDP_SECURITY = new Set(["any", "nla", "tls", "rdp"]);
-const BOOL_KEYS = ["enableWallpaper", "enableTheming", "enableFontSmoothing", "enableFullWindowDrag", "enableFileTransfer", "blockUpload", "blockDownload"] as const;
+const BOOL_KEYS = ["enableWallpaper", "enableTheming", "enableFontSmoothing", "enableFullWindowDrag", "enableFileTransfer", "blockUpload", "blockDownload", "disableAudio", "enablePrinting"] as const;
+const SCHEMES = new Set(TERMINAL_COLOR_SCHEMES.map((c) => c.value).filter(Boolean));
 
 // Coerce untrusted JSON into GuacParams, keeping ONLY curated keys with valid values.
 export function parseGuacParams(input: unknown): GuacParams {
@@ -51,6 +67,11 @@ export function parseGuacParams(input: unknown): GuacParams {
     if (v.startsWith("/") && v.length <= 1024 && !/[\x00-\x1f]/.test(v)) out.sftpRoot = v;
   }
   if (typeof o.rdpSecurity === "string" && RDP_SECURITY.has(o.rdpSecurity)) out.rdpSecurity = o.rdpSecurity;
+  const fs = typeof o.terminalFontSize === "string" && o.terminalFontSize.trim() ? Number(o.terminalFontSize) : o.terminalFontSize;
+  if (typeof fs === "number" && Number.isInteger(fs) && fs >= 8 && fs <= 32) out.terminalFontSize = fs;
+  if (typeof o.terminalColorScheme === "string" && SCHEMES.has(o.terminalColorScheme)) out.terminalColorScheme = o.terminalColorScheme;
+  const sb = typeof o.terminalScrollback === "string" && o.terminalScrollback.trim() ? Number(o.terminalScrollback) : o.terminalScrollback;
+  if (typeof sb === "number" && Number.isInteger(sb) && sb >= 100 && sb <= 100000) out.terminalScrollback = sb;
   return out;
 }
 
@@ -68,6 +89,11 @@ export function resolveGuacParams(resource: GuacParams, policy: GuacParams): Gua
     blockDownload: resource.blockDownload ?? policy.blockDownload,
     sftpRoot: resource.sftpRoot ?? policy.sftpRoot,
     rdpSecurity: resource.rdpSecurity ?? policy.rdpSecurity,
+    disableAudio: resource.disableAudio ?? policy.disableAudio,
+    enablePrinting: resource.enablePrinting ?? policy.enablePrinting,
+    terminalFontSize: resource.terminalFontSize ?? policy.terminalFontSize,
+    terminalColorScheme: resource.terminalColorScheme ?? policy.terminalColorScheme,
+    terminalScrollback: resource.terminalScrollback ?? policy.terminalScrollback,
   };
 }
 
@@ -92,6 +118,16 @@ export function toGuacArgs(p: GuacParams, clipboardMode: string, protocol: "RDP"
   if (clipboardMode === "no_copy" || clipboardMode === "none") a["disable-copy"] = "true";
   if (clipboardMode === "no_paste" || clipboardMode === "none") a["disable-paste"] = "true";
   if (protocol === "RDP" && p.rdpSecurity) a["security"] = p.rdpSecurity;
+  if (protocol === "RDP" && p.disableAudio) a["disable-audio"] = "true";
+  if (protocol === "RDP" && p.enablePrinting) {
+    a["enable-printing"] = "true";
+    a["printer-name"] = "Captivo Printer";
+  }
+  if (protocol === "SSH") {
+    if (p.terminalFontSize) a["font-size"] = String(p.terminalFontSize);
+    if (p.terminalColorScheme) a["color-scheme"] = p.terminalColorScheme;
+    if (p.terminalScrollback) a["scrollback"] = String(p.terminalScrollback);
+  }
   if (p.enableFileTransfer) {
     if (protocol === "RDP") {
       a["enable-drive"] = "true";

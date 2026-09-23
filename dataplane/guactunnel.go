@@ -83,7 +83,11 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		return
 	}
 	_, _ = guac.Write(encodeInstruction("size", qInt(r, "w", 1280, 640, 5120), qInt(r, "h", 800, 480, 2880), qInt(r, "dpi", 96, 72, 240)))
-	_, _ = guac.Write(encodeInstruction("audio"))
+	// Advertise the raw PCM types guacamole-common-js can play, so RDP audio (and
+	// any other protocol that emits sound) reaches the vendor's browser. guacd only
+	// sends audio when the client lists a type; the per-resource "disable-audio"
+	// param still switches it off server-side.
+	_, _ = guac.Write(encodeInstruction("audio", "audio/L8", "audio/L16"))
 	_, _ = guac.Write(encodeInstruction("video"))
 	_, _ = guac.Write(encodeInstruction("image"))
 	sessionID := newSessionID()

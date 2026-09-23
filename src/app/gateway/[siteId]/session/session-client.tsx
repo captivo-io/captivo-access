@@ -35,6 +35,19 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const dragDepth = useRef(0);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [isFs, setIsFs] = useState(false);
+  // Remote audio (RDP): guacamole-common-js plays it through one shared
+  // AudioContext; muting = suspending that context. Browsers gate audio on a
+  // user gesture, so the context is (re)started on the first click.
+  const [soundOn, setSoundOn] = useState(true);
+  const soundOnRef = useRef(true);
+  const audioCtx = () => { try { return guacRef.current?.AudioContextFactory?.getAudioContext?.() ?? null; } catch { return null; } };
+  const toggleSound = () => {
+    const next = !soundOnRef.current;
+    soundOnRef.current = next; setSoundOn(next);
+    const ctx = audioCtx();
+    if (ctx) { if (next) ctx.resume?.().catch(() => {}); else ctx.suspend?.().catch(() => {}); }
+    setToast(next ? "Sound on" : "Sound muted", "info");
+  };
   useEffect(() => {
     const onFs = () => setIsFs(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFs);
@@ -282,6 +295,9 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       keyboardRef.current = keyboard;
       keyHandlersRef.current = { kd, ku };
 
+      // First user gesture unlocks audio playback (autoplay policy); respect mute.
+      const unlock = () => { const ctx = audioCtx(); if (ctx && soundOnRef.current) ctx.resume?.().catch(() => {}); };
+      el.addEventListener("mousedown", unlock, { once: true, capture: true });
       const mouse = new Guacamole.Mouse(el);
       const send = (state: any) => client.sendMouseState(state);
       mouse.onmousedown = send;
@@ -383,13 +399,19 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
             quick={[
               { key: "fs", icon: "fullscreen", label: isFs ? "Exit full screen" : "Full screen", active: isFs, onClick: toggleFs },
               { key: "clip", icon: "clipboard", label: "Clipboard", onClick: () => setClipboardOpen(true) },
-              { key: "kbd", icon: "keyboard", label: "Keyboard", onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click() },
+              ...(protocol === "RDP"
+                ? [{ key: "snd", icon: (soundOn ? "sound" : "mute") as "sound" | "mute", label: soundOn ? "Sound on" : "Muted", active: soundOn, onClick: toggleSound }]
+                : [{ key: "kbd", icon: "keyboard" as const, label: "Keyboard", onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click() }]),
             ]}
             sections={[
               { title: "Session", items: [
                 { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: `${caps.allowCopyOut ? "Copy out allowed" : "Copy out blocked"} · ${caps.allowPasteIn ? "paste in allowed" : "paste in blocked"}${autoSyncBlocked && caps.allowPasteIn ? " · Ctrl+V pastes" : ""}`, tone: caps.allowCopyOut && caps.allowPasteIn ? "ok" : "warn", onClick: () => setClipboardOpen(true), chevron: true },
                 { key: "files", icon: canUpload ? "upload" : "block", label: "File transfer", sub: canUpload ? "Enabled — drop files anywhere on the screen to upload; downloads open here" : "Disabled for this resource by policy", tone: canUpload ? "ok" : "muted" },
                 { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
+                ...(protocol === "RDP" ? [
+                  { key: "print", icon: "printer" as const, label: "Printing", sub: "If enabled by policy, print to \"Captivo Printer\" — the PDF arrives as a download", tone: "muted" as const },
+                  { key: "kbd2", icon: "keyboard" as const, label: "On-screen keyboard", sub: "For touch devices and special keys", tone: "muted" as const, onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click(), chevron: true },
+                ] : []),
               ] },
               { title: "Help", items: [
                 { key: "tips", icon: "info", label: "Shortcuts", sub: protocol === "SSH" ? "Ctrl+V pastes · right-click pastes in the terminal · Ctrl+Alt+Shift opens the clipboard panel" : "Ctrl+V pastes · Ctrl+Alt+Shift opens the clipboard panel", tone: "muted" },
