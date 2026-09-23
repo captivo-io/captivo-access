@@ -21,8 +21,10 @@ const PRODUCT_NAMES: Record<string, string> = {
   ACCESS: "Captivo Access",
 };
 
-export function TopNav({ model, records, role, userName, roleLabel, showLive, products }: {
+export function TopNav({ model, records, role, userName, roleLabel, showLive, products, accountUrl }: {
   model: NavModel; records: SearchRecord[]; role: Role; userName: string; roleLabel: string; showLive: boolean;
+  /** The Captivo account page, or null where there is no centre (self-hosted). */
+  accountUrl?: string | null;
   products: ProductMenuItem[];
 }) {
   const pathname = usePathname();
@@ -157,6 +159,15 @@ export function TopNav({ model, records, role, userName, roleLabel, showLive, pr
               <Link href="/access" role="menuitem" className="tn-menuitem">My access</Link>
               <Link href="/settings/passkeys" role="menuitem" className="tn-menuitem">Settings</Link>
               <Link href="/settings/preferences" role="menuitem" className="tn-menuitem">Preferences</Link>
+              {/* Leaves this host, so a plain anchor rather than next/link --
+                  and only when there is a centre to leave for. The account
+                  page existed for two days with nothing anywhere linking to
+                  it: the person who built it could not find it either. */}
+              {accountUrl && (
+                <a href={accountUrl} role="menuitem" className="tn-menuitem" target="_blank" rel="noopener noreferrer">
+                  Captivo account ↗
+                </a>
+              )}
               <div className="tn-menu-foot"><LogoutButton /></div>
             </div>
           )}

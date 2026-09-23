@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
 import { requireUser } from "@/lib/current-user";
 import { isPlatformAdmin } from "@/lib/platform/auth";
 import { can, ROLE_LABELS } from "@/lib/auth/roles";
@@ -62,6 +63,7 @@ async function AppLayoutImpl({ children }: { children: React.ReactNode }) {
         roleLabel={ROLE_LABELS[user.role] ?? user.role}
         showLive={showRead}
         products={products}
+        accountUrl={captivoAccountUrl()}
       />
       <PlatformAnnouncement />
       {support && <SupportBanner expiresAt={support.expiresAt.toISOString()} actorEmail={support.actorEmail} reason={support.reason} />}

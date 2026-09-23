@@ -37,6 +37,22 @@ export function isCentreConfigured(env: ServiceEnv = process.env as ServiceEnv):
   return service(env) !== null;
 }
 
+/**
+ * The person's Captivo account page, or null when there is no centre.
+ *
+ * Null on a self-hosted installation and on any deployment that has not been
+ * given the centre's address: there is no such page to send anyone to, and a
+ * dead link in a menu is worse than a missing one.
+ *
+ * Derived from the configured issuer rather than written out, so a staging
+ * deployment pointing at a staging centre links to the right one.
+ */
+export function captivoAccountUrl(env: ServiceEnv = process.env as ServiceEnv): string | null {
+  const svc = service(env);
+  // English path: this console is English-only, and the page answers both.
+  return svc ? `${svc.issuer}/account` : null;
+}
+
 /** What the centre said about an organisation's ACCESS entitlement. */
 export interface AccessEntitlement {
   plan: string | null;
