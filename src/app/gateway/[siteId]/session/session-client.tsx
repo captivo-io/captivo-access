@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { clipboardCaps } from "@/lib/gateway/clipboard-caps";
 import { createClipboardBridge, type ClipboardBridge } from "./clipboard";
+import { pasteKeySequence, isBrowserPasteKey, KEYSYM, type GatewayProtocol } from "@/lib/gateway/paste-keys";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionControlPanel } from "./session-control-panel";
@@ -10,7 +11,7 @@ import { SessionControlPanel } from "./session-control-panel";
 // Fullscreen HTML5 session: embeds guacamole-common-js and points it at the
 // data-plane guac-tunnel (same origin, fronted by nginx). The server drives the
 // guacd handshake + credential injection; this only renders + sends input.
-export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { siteId: string; siteName: string; recorded: boolean; clipboardMode: string }) {
+export function GatewaySession({ siteId, siteName, recorded, clipboardMode, protocol = "RDP" }: { siteId: string; siteName: string; recorded: boolean; clipboardMode: string; protocol?: GatewayProtocol }) {
   const caps = clipboardCaps(clipboardMode);
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +29,25 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
   const [clipboardOpen, setClipboardOpen] = useState(false);
   const [canUpload, setCanUpload] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [autoSyncBlocked, setAutoSyncBlocked] = useState(false);
+  // Modifier state as forwarded to the remote, so the Ctrl+V intercept and the
+  // replayed paste chord never double-press Ctrl.
+  const modsRef = useRef({ ctrl: false, alt: false, shift: false, insert: false });
+
+  // Press `keys` in order and release in reverse on the remote.
+  const sendChord = (keys: number[]) => {
+    const c = clientRef.current;
+    if (!c) return;
+    for (const k of keys) c.sendKeyEvent(1, k);
+    for (const k of [...keys].reverse()) c.sendKeyEvent(0, k);
+  };
+  // Push text into guacd's clipboard and make the remote paste it now.
+  const pasteIntoSession = (text: string): boolean => {
+    const r = clipRef.current?.pushLocal(text);
+    if (r === "blocked") return false;
+    sendChord(pasteKeySequence(protocol, modsRef.current.ctrl));
+    return true;
+  };
 
   useEffect(() => {
     if (!toast) return;
@@ -98,7 +118,13 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const fs = fsRef.current, G = guacRef.current;
-    if (!fs || !G || !e.dataTransfer?.files?.length) return;
+    if (!e.dataTransfer?.files?.length || !G) return;
+    if (!fs) {
+      // guacd only exposes a filesystem when file transfer is enabled for the
+      // resource (SFTP for SSH, a mapped drive for RDP) — never fail silently.
+      setToast("File transfer is not enabled for this resource — ask your admin to turn it on.");
+      return;
+    }
     for (const file of Array.from(e.dataTransfer.files)) {
       setToast(`Uploading ${file.name}…`);
       // Read the whole file, then stream it with ArrayBufferWriter (which chunks +
@@ -128,6 +154,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
     let keyboard: any;
     let onResize: (() => void) | null = null;
     let onFocus: (() => void) | null = null;
+    let onPaste: ((e: ClipboardEvent) => void) | null = null;
     let disposed = false;
     // Fallback: reveal the real canvas/error if guacd never reaches CONNECTED, so
     // the vendor is never stuck behind the splash.
@@ -176,7 +203,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
         fsRef.current = object;
         if (!disposed) setCanUpload(true);
       };
-      clipRef.current = createClipboardBridge(client, Guacamole, caps);
+      clipRef.current = createClipboardBridge(client, Guacamole, caps, (b) => { if (!disposed) setAutoSyncBlocked(b); });
 
       const display = client.getDisplay();
       const el = display.getElement();
@@ -203,8 +230,28 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
       client.connect(`site=${encodeURIComponent(siteId)}&w=${vw()}&h=${vh()}&dpi=${dpi}`);
 
       keyboard = new Guacamole.Keyboard(document);
-      const kd = (k: number) => client.sendKeyEvent(1, k);
-      const ku = (k: number) => client.sendKeyEvent(0, k);
+      const trackMods = (k: number, down: boolean) => {
+        if (k === KEYSYM.ctrlL || k === KEYSYM.ctrlR) modsRef.current.ctrl = down;
+        if (k === KEYSYM.altL || k === KEYSYM.altR) modsRef.current.alt = down;
+        if (k === KEYSYM.shiftL || k === KEYSYM.shiftR) modsRef.current.shift = down;
+        if (k === KEYSYM.insert) modsRef.current.insert = down;
+      };
+      // Ctrl+V is the browser's paste gesture: swallow the `v` (Ctrl itself was
+      // already forwarded) and let the browser's default fire the `paste` event
+      // below, which carries the clipboard text with no permission prompt.
+      // Returning false = don't preventDefault, so that event actually fires.
+      const kd = (k: number) => {
+        trackMods(k, true);
+        if (isBrowserPasteKey(k, modsRef.current)) return false;
+        client.sendKeyEvent(1, k);
+        return false;
+      };
+      const ku = (k: number) => {
+        trackMods(k, false);
+        if (isBrowserPasteKey(k, modsRef.current)) return false;
+        client.sendKeyEvent(0, k);
+        return false;
+      };
       keyboard.onkeydown = kd;
       keyboard.onkeyup = ku;
       keyboardRef.current = keyboard;
@@ -231,6 +278,25 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
       // no-op where the Clipboard API is blocked — the manual panel covers that.
       onFocus = () => clipRef.current?.syncFromBrowser();
       window.addEventListener("focus", onFocus);
+      // The paste gesture (Ctrl+V / Shift+Insert / Edit → Paste): the browser hands
+      // us the clipboard text directly. Ignored while the panel's textarea has it.
+      onPaste = (e: ClipboardEvent) => {
+        if (clipboardOpenRef.current) return;
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        e.preventDefault();
+        // Shift+Insert was forwarded to the remote as-is (a desktop pastes on it
+        // itself): only refresh guacd's clipboard, don't replay a second paste.
+        const shiftInsert = modsRef.current.shift && modsRef.current.insert;
+        if (!caps.allowPasteIn) {
+          // Paste-in is blocked by policy: forward the plain chord so a remote-side
+          // paste (its own clipboard) still behaves as before.
+          if (!shiftInsert) sendChord(pasteKeySequence(protocol, modsRef.current.ctrl));
+          return;
+        }
+        if (shiftInsert) clipRef.current?.pushLocal(text);
+        else pasteIntoSession(text);
+      };
+      document.addEventListener("paste", onPaste);
       fit();
       clipRef.current?.syncFromBrowser();
     })().catch(() => setError("Couldn't start the session."));
@@ -241,6 +307,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
       try {
         if (onResize) window.removeEventListener("resize", onResize);
         if (onFocus) window.removeEventListener("focus", onFocus);
+        if (onPaste) document.removeEventListener("paste", onPaste);
         if (keyboard) {
           keyboard.onkeydown = null;
           keyboard.onkeyup = null;
@@ -287,7 +354,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
           <SessionControlPanel
             actions={[
               { key: "fs", label: "Full screen", sublabel: "Fill the screen", onClick: toggleFs },
-              { key: "clip", label: "Clipboard", status: `${caps.allowCopyOut ? "copy" : "no-copy"} · ${caps.allowPasteIn ? "paste" : "no-paste"}`, onClick: () => setClipboardOpen(true) },
+              { key: "clip", label: "Clipboard", status: `${caps.allowCopyOut ? "copy" : "no-copy"} · ${caps.allowPasteIn ? "paste" : "no-paste"}${autoSyncBlocked && caps.allowPasteIn ? " · Ctrl+V to paste" : ""}`, onClick: () => setClipboardOpen(true) },
               { key: "leave", label: "Leave session", sublabel: "Disconnect", onClick: () => clientRef.current?.disconnect() },
             ]}
           />
@@ -332,21 +399,29 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode }: { 
                   ref={taRef}
                   className="clip-ta"
                   spellCheck={false}
-                  placeholder={caps.allowPasteIn ? "Paste text here, then Send to push it into the session…" : "Remote clipboard (read-only)"}
+                  placeholder={caps.allowPasteIn ? "Paste text here — Send types it into the session." : "Remote clipboard (read-only)"}
                 />
                 <div className="clip-actions">
                   {caps.allowPasteIn && (
                     <button
                       type="button"
                       className="clip-btn clip-btn-primary"
-                      onClick={() => { clipRef.current?.pushLocal(taRef.current?.value ?? ""); closeClipboard(); }}
+                      onClick={() => {
+                        const text = taRef.current?.value ?? "";
+                        closeClipboard();
+                        if (text && pasteIntoSession(text)) setToast("Pasted into the session");
+                      }}
                     >
                       Send to session
                     </button>
                   )}
                   <button type="button" className="clip-btn" onClick={closeClipboard}>Close</button>
                 </div>
-                <div className="clip-hint">Ctrl+Alt+Shift toggles this panel · Esc closes</div>
+                <div className="clip-hint">
+                  Ctrl+V pastes your clipboard straight into the session{protocol === "SSH" ? " · right-click pastes in the terminal" : ""}
+                  {autoSyncBlocked && caps.allowPasteIn ? " · automatic sync is blocked by this browser, Ctrl+V still works" : ""}
+                  {" · "}Ctrl+Alt+Shift toggles this panel · Esc closes
+                </div>
               </>
             ) : (
               <>
