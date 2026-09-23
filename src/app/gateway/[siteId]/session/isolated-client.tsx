@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { ConnectSplash } from "./connect-splash";
 import { isolatedDims } from "@/lib/isolated/dims";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
-import { SessionControlPanel } from "./session-control-panel";
+import { SessionPanel } from "./shell/session-panel";
+import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, type ToastState } from "./shell/notices";
 
 // ?site pins the session for the data-plane; it sets a cookie so the KasmVNC
 // client's follow-up asset/WS requests (which carry no ?site) inherit it.
@@ -11,12 +12,13 @@ import { SessionControlPanel } from "./session-control-panel";
 // /websockify would route to the manager, not the data-plane). clipboard_* turn ON
 // the client's seamless clipboard (OFF by default); per-direction policy is still
 // enforced server-side by the broker's DLP config.
-// resize=scale (not remote): the isolated desktop stays a fixed 1280x800 and the
-// client scales it to fill the viewport. resize=remote grew the desktop past the
-// recorder's fixed 1280x800 x11grab region, so recordings only captured the top-left
-// corner — scale keeps the desktop size and the recording in lockstep while still
-// filling the screen (16:10 matches, no letterbox).
-const KASM_PARAMS = "path=kasm-tunnel/websockify&resize=scale&clipboard_seamless=true&clipboard_up=true&clipboard_down=true";
+// resize=scale (not remote): the isolated desktop is sized ONCE (to the vendor's
+// viewport, see isolatedDims) and the client scales it to whatever the viewport
+// becomes (e.g. after toggling full screen). resize=remote would grow the desktop
+// past the recorder's fixed x11grab region, so recordings would only capture the
+// top-left corner — scale keeps desktop and recording in lockstep.
+// show_control_bar=false hides KasmVNC's own side bar: Captivo's shell is the UI.
+const KASM_PARAMS = "path=kasm-tunnel/websockify&resize=scale&show_control_bar=false&clipboard_seamless=true&clipboard_up=true&clipboard_down=true";
 
 export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }: { siteId: string; siteName: string; recorded: boolean; fileTransferMode: string }) {
   const canUpload = fileTransferMode === "allow" || fileTransferMode === "no_download";
@@ -27,9 +29,18 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [fs, setFs] = useState(false);
   const [downloads, setDownloads] = useState<{ name: string; size: number; mtime: number }[]>([]);
-  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const [toast, setToastState] = useState<ToastState | null>(null);
+  const setToast = (text: string | null, tone: ToastState["tone"] = "info") => setToastState(text ? { text, tone } : null);
+  const [dropState, setDropState] = useState<"idle" | "over" | "blocked">("idle");
+  const dragDepth = useRef(0);
+  const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToastState(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Poll the isolated browser's Downloads folder so files it downloads surface to
   // the vendor. Only when the site allows downloads out.
@@ -49,22 +60,47 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
     return () => { stop = true; clearInterval(t); };
   }, [siteId, canDownload]);
 
-  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
-    setUploadMsg("Uploading…");
+  const uploadFile = async (f: File) => {
+    setToast(`Uploading ${f.name}…`);
     try {
       const res = await fetch(`/api/isolated/files/upload?site=${siteId}&name=${encodeURIComponent(f.name)}`, {
         method: "POST",
         headers: { "content-type": "application/octet-stream", "content-length": String(f.size) },
         body: f,
       });
-      setUploadMsg(res.ok ? `Uploaded ${f.name}` : res.status === 413 ? "File too large" : "Upload failed");
+      if (res.ok) setToast(`Uploaded ${f.name} — find it in the browser's Downloads folder`, "ok");
+      else setToast(res.status === 413 ? `${f.name} is too large` : `Upload failed: ${f.name}`, "danger");
     } catch {
-      setUploadMsg("Upload failed");
+      setToast(`Upload failed: ${f.name}`, "danger");
     }
-    setTimeout(() => setUploadMsg(null), 4000);
+  };
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (f) await uploadFile(f);
+  };
+  // Drag-and-drop onto the session (the iframe swallows drag events over the
+  // canvas, so a transparent catcher sits above it only while files are dragged).
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDropState(canUpload ? "over" : "blocked");
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropState("idle");
+  };
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropState("idle");
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    if (!canUpload) { setToast("File transfer is disabled for this resource", "warn"); return; }
+    for (const f of files) await uploadFile(f);
   };
 
   // The KasmVNC/noVNC hidden keyboard input inside the same-origin iframe. Focusing
@@ -106,13 +142,15 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
     }
   };
 
-  // Size the isolated desktop. On a desktop it matches the vendor's screen (browser-
-  // fullscreen fills exactly). On a touch device it matches the phone viewport, so the
-  // internal web app renders its mobile/responsive layout at ~1:1 and native touch is
-  // usable. The broker keeps this size fixed for the session, so recordings stay correct.
+  // Size the isolated desktop to the vendor's CURRENT viewport (not the physical
+  // screen): with resize=scale the desktop is scaled to fit, and a screen-sized
+  // desktop shown in a browser window whose aspect differs (tab bar, dock) was
+  // letterboxed — dark bands and a blurry, offset page. Matching the viewport gives
+  // a 1:1 fill; toggling full screen afterwards only changes the aspect slightly.
+  // The broker keeps this size fixed for the session, so recordings stay correct.
   useEffect(() => {
     const touch = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
-    setDims(isolatedDims(touch, window.screen.width, window.screen.height, window.innerWidth, window.innerHeight));
+    setDims(isolatedDims(touch, window.innerWidth, window.innerHeight, window.innerWidth, window.innerHeight));
   }, []);
 
   // Mirror GatewaySession: poll whether an admin is watching / has taken control so
@@ -150,7 +188,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
       }
     };
     const poll = window.setInterval(() => {
-      if (isConnected()) { window.clearInterval(poll); setReady(true); }
+      if (isConnected()) { window.clearInterval(poll); setReady(true); setConnectedAt((t) => t ?? Date.now()); }
     }, 250);
     const fallback = window.setTimeout(() => { window.clearInterval(poll); setReady(true); }, 20000);
     return () => { window.clearInterval(poll); window.clearTimeout(fallback); };
@@ -167,53 +205,49 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
           allow="clipboard-read; clipboard-write"
         />
       )}
-      {recorded && (
-        <div
-          style={{
-            position: "fixed", top: 12, left: 12, zIndex: 20, pointerEvents: "none",
-            display: "flex", alignItems: "center", gap: 6,
-            background: "rgba(0,0,0,0.6)", color: "#ff4d4f",
-            font: "600 12px/1 sans-serif", letterSpacing: "0.06em",
-            padding: "6px 10px", borderRadius: 6,
-          }}
-        >
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ff4d4f", display: "inline-block" }} />
-          RECORDED
-        </div>
-      )}
-      {(watching || controlHeld) && (
-        <div
-          style={{
-            position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 20,
-            pointerEvents: "none",
-            background: controlHeld ? "rgba(180,0,0,0.92)" : "rgba(0,0,0,0.72)",
-            color: "#fff", padding: "6px 14px", borderRadius: 8, fontFamily: "sans-serif", fontSize: "13px", whiteSpace: "nowrap",
-          }}
-        >
-          {controlHeld ? "An administrator has taken control of this session." : "This session is being monitored live."}
-        </div>
-      )}
+      {/* Drag catcher: the iframe would swallow drag events, so while files are being
+          dragged a transparent layer above it owns the drop. */}
+      <div
+        style={{ position: "fixed", inset: 0, zIndex: dropState === "idle" ? -1 : 36, pointerEvents: dropState === "idle" ? "none" : "auto" }}
+        onDragOver={(e) => e.preventDefault()} onDragLeave={onDragLeave} onDrop={onDrop}
+      />
+      <div style={{ position: "fixed", inset: 0, zIndex: 35, pointerEvents: "none" }} onDragEnter={onDragEnter} />
       {ready && dims && (
         <>
           {canUpload && <input ref={fileRef} type="file" style={{ display: "none" }} onChange={onPick} />}
-          <SessionControlPanel
-            actions={[
-              { key: "fs", label: "Full screen", sublabel: fs ? "Exit full screen" : "Fill the screen", onClick: toggleFs },
-              ...(canUpload ? [{ key: "up", label: "Upload file", sublabel: uploadMsg ?? "Send a file into the browser", onClick: () => fileRef.current?.click() }] : []),
-              { key: "leave", label: "Leave session", sublabel: "Return to My access", onClick: () => { window.location.href = "/access"; } },
+          <SessionPanel
+            siteName={siteName}
+            mode="Isolated browser"
+            connectedAt={connectedAt}
+            quick={[
+              { key: "fs", icon: "fullscreen", label: fs ? "Exit full screen" : "Full screen", active: fs, onClick: toggleFs },
+              { key: "up", icon: "upload", label: "Upload", disabled: !canUpload, onClick: () => fileRef.current?.click() },
+              { key: "kbd", icon: "keyboard", label: "Keyboard", onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click() },
             ]}
+            sections={[
+              { title: "Session", items: [
+                { key: "files", icon: canUpload || canDownload ? "upload" : "block", label: "File transfer", sub: !canUpload && !canDownload ? "Disabled for this resource by policy" : `${canUpload ? "Upload allowed (drop files on the screen)" : "Upload blocked"} · ${canDownload ? "download allowed" : "download blocked"}`, tone: canUpload || canDownload ? "ok" : "muted", onClick: canUpload ? () => fileRef.current?.click() : undefined, chevron: canUpload },
+                ...(canDownload ? [{ key: "downloads", icon: "download" as const, label: "Downloads", sub: downloads.length ? `${downloads.length} file${downloads.length === 1 ? "" : "s"} ready — listed at the bottom left` : "Files the browser downloads appear here", tone: (downloads.length ? "ok" : "muted") as "ok" | "muted" }] : []),
+                { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: "Seamless copy & paste, as allowed by policy", tone: "ok" },
+                { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
+                { key: "iso", icon: "shield", label: "Isolation", sub: "The app runs in a throwaway browser inside the customer network; only pixels reach you", tone: "muted" },
+              ] },
+            ]}
+            leave={{ label: "Leave session", sub: "Close the isolated browser and return to My access", onClick: () => { window.location.href = "/access"; } }}
           />
           <OnScreenKeyboard sendKey={sendKeysym} />
+          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Controls: top-left tab", "Full screen fits the app exactly"]} />
         </>
       )}
+      <RecordingNotice active={recorded && ready} />
+      <MonitorNotice watching={watching} controlHeld={controlHeld} />
+      <DropOverlay state={dropState} siteName={siteName} />
+      <SessionToast toast={toast} />
       {ready && dims && canDownload && downloads.length > 0 && (
-        <div style={{ position: "fixed", bottom: 12, left: 12, zIndex: 30, maxWidth: 280, background: "rgba(0,0,0,0.6)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 8, padding: "8px 12px", fontFamily: "sans-serif", fontSize: 12 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Downloads ({downloads.length})</div>
+        <div className="ss-downloads">
+          <div className="ss-downloads-title">Downloads ({downloads.length})</div>
           {downloads.map((d) => (
-            <a key={d.name} href={`/api/isolated/files/download?site=${siteId}&name=${encodeURIComponent(d.name)}`} download={d.name}
-              style={{ display: "block", color: "#7fd7ff", textDecoration: "none", padding: "2px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              ↓ {d.name}
-            </a>
+            <a key={d.name} href={`/api/isolated/files/download?site=${siteId}&name=${encodeURIComponent(d.name)}`} download={d.name} className="ss-downloads-item">↓ {d.name}</a>
           ))}
         </div>
       )}
