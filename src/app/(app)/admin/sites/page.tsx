@@ -6,7 +6,7 @@ import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { isolationEnabled } from "@/lib/isolation/enabled";
-import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults } from "@/lib/settings/platform";
+import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
 import { AddSiteButton } from "./add-site-button";
 import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
@@ -88,7 +88,7 @@ async function AdminSitesPageImpl() {
           </p>
           <PlanUsageNote usage={siteUsage} noun="resources" />
         </div>
-        {connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}
+        {connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} clipboardDefault={await resolvedClipboardDefault()} watermarkDefault={await resolvedWatermarkDefault()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}
       </div>
 
       {sites.length === 0 ? (

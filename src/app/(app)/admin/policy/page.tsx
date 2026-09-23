@@ -1,6 +1,6 @@
 import { requireCapability } from "@/lib/current-user";
 import { getSessionPolicy } from "@/lib/policy/session-policy";
-import { getPlatformSettings, resolvedRecordingConsentRequired, resolvedGuacParamDefaults } from "@/lib/settings/platform";
+import { getPlatformSettings, resolvedRecordingConsentRequired, resolvedGuacParamDefaults, resolvedWatermarkDefault, resolvedRecordingMode } from "@/lib/settings/platform";
 import { cronHealth, type CronJob } from "@/lib/cron/heartbeat";
 import { SessionPolicyForm } from "./session-policy-form";
 import { PlatformSettingsForm } from "./platform-settings-form";
@@ -18,12 +18,14 @@ const JOB_LABEL: Record<CronJob, string> = {
 
 async function AdminPolicyPageImpl() {
   await requireCapability("configure");
-  const [policy, platform, consentEffective, cron, guacDefaults] = await Promise.all([
+  const [policy, platform, consentEffective, cron, guacDefaults, watermarkEffective, recordingModeEffective] = await Promise.all([
     getSessionPolicy(),
     getPlatformSettings(),
     resolvedRecordingConsentRequired(),
     cronHealth(),
     resolvedGuacParamDefaults(),
+    resolvedWatermarkDefault(),
+    resolvedRecordingMode(),
   ]);
 
   return (
@@ -59,7 +61,7 @@ async function AdminPolicyPageImpl() {
         <SessionPolicyForm initial={policy} />
       </div>
 
-      <PlatformSettingsForm initial={platform} consentEffective={consentEffective} guacDefaults={guacDefaults} />
+      <PlatformSettingsForm initial={platform} consentEffective={consentEffective} watermarkEffective={watermarkEffective} recordingModeEffective={recordingModeEffective} guacDefaults={guacDefaults} />
     </main>
   );
 }

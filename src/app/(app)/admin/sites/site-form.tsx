@@ -74,6 +74,8 @@ export function SiteForm({
   recordingMode = "per_resource",
   keystrokeMode = "per_resource",
   guacDefaults = {},
+  clipboardDefault = "allow",
+  watermarkDefault = false,
   nativeGateway = false,
   isolationEnabled = false,
   hostSuffix = null,
@@ -86,6 +88,8 @@ export function SiteForm({
   recordingMode?: string;
   keystrokeMode?: KeystrokeMode;
   guacDefaults?: GuacParams; // resolved Policy defaults, so "Inherit" shows the effective value
+  clipboardDefault?: string; // resolved Policy clipboard default (allow | no_copy | no_paste | none)
+  watermarkDefault?: boolean; // resolved Policy watermark default
   nativeGateway?: boolean;
   isolationEnabled?: boolean;
   hostSuffix?: string | null;
@@ -111,6 +115,8 @@ export function SiteForm({
   const [insecureSkipVerify, setInsecureSkipVerify] = useState(site?.insecureSkipVerify ?? false);
   const [recordSessions, setRecordSessions] = useState(site?.recordSessions ?? false);
   const [keystrokeLogging, setKeystrokeLogging] = useState(site?.keystrokeLogging ?? false);
+  const CLIP_LABEL: Record<string, string> = { allow: "Allow copy & paste", no_copy: "Block copy out", no_paste: "Block paste in", none: "Block both" };
+  const clipInheritLabel = `Inherit policy (${CLIP_LABEL[clipboardDefault] ?? clipboardDefault})`;
   const [clipboardMode, setClipboardMode] = useState(site?.clipboardMode ?? "inherit");
   const [watermark, setWatermark] = useState<"inherit" | "on" | "off">(
     site?.watermark == null ? "inherit" : site.watermark ? "on" : "off",
@@ -453,7 +459,7 @@ export function SiteForm({
           <div className="field">
             <label className="field-label" htmlFor="site-clipboard-iso">Clipboard</label>
             <select id="site-clipboard-iso" className="select" value={clipboardMode} onChange={(e) => setClipboardMode(e.target.value)}>
-              <option value="inherit">Inherit (policy default)</option>
+              <option value="inherit">{clipInheritLabel}</option>
               <option value="allow">Allow copy &amp; paste</option>
               <option value="no_copy">Block copy out (no exfil)</option>
               <option value="no_paste">Block paste in</option>
@@ -463,7 +469,7 @@ export function SiteForm({
           <div className="field">
             <label className="field-label" htmlFor="site-watermark">Screen watermark</label>
             <select id="site-watermark" className="select" value={watermark} onChange={(e) => setWatermark(e.target.value as "inherit" | "on" | "off")}>
-              <option value="inherit">Use global default</option>
+              <option value="inherit">Inherit policy ({watermarkDefault ? "On" : "Off"})</option>
               <option value="on">On (email + live clock)</option>
               <option value="off">Off</option>
             </select>
@@ -515,7 +521,7 @@ export function SiteForm({
             <div className="field">
               <label className="field-label" htmlFor="site-clipboard-gw">Clipboard</label>
               <select id="site-clipboard-gw" className="select" value={clipboardMode} onChange={(e) => setClipboardMode(e.target.value)}>
-                <option value="inherit">Inherit (policy default)</option>
+                <option value="inherit">{clipInheritLabel}</option>
                 <option value="allow">Allow copy &amp; paste</option>
                 <option value="no_copy">Block copy out (no exfil)</option>
                 <option value="no_paste">Block paste in</option>
@@ -590,7 +596,7 @@ export function SiteForm({
         <div className="field">
           <label className="field-label" htmlFor="site-clipboard">Clipboard</label>
           <select id="site-clipboard" className="select" value={clipboardMode} onChange={(e) => setClipboardMode(e.target.value)}>
-            <option value="inherit">Inherit (policy default)</option>
+            <option value="inherit">{clipInheritLabel}</option>
             <option value="allow">Allow copy &amp; paste</option>
             <option value="no_copy">Block copy out (no exfil)</option>
             <option value="no_paste">Block paste in</option>

@@ -10,7 +10,9 @@ function str(n: number | null): string {
   return n == null ? "" : String(n);
 }
 
-export function PlatformSettingsForm({ initial, consentEffective, guacDefaults }: { initial: PlatformSettings; consentEffective: boolean; guacDefaults: GuacParams }) {
+// *Effective props: the resolved value (DB, else the server env fallback, else the
+// product default) so the form shows what actually applies, not just the DB row.
+export function PlatformSettingsForm({ initial, consentEffective, watermarkEffective, recordingModeEffective, guacDefaults }: { initial: PlatformSettings; consentEffective: boolean; watermarkEffective?: boolean; recordingModeEffective?: string; guacDefaults: GuacParams }) {
   const [audit, setAudit] = useState(str(initial.auditRetentionDays));
   const [invite, setInvite] = useState(str(initial.inviteTtlHours));
   const [webhook, setWebhook] = useState(initial.notificationWebhookUrl ?? "");
@@ -18,10 +20,10 @@ export function PlatformSettingsForm({ initial, consentEffective, guacDefaults }
   const [maxGrant, setMaxGrant] = useState(str(initial.maxGrantDays));
   const [requireJustif, setRequireJustif] = useState(initial.requireRequestJustification !== false);
   const [consent, setConsent] = useState(consentEffective);
-  const [watermark, setWatermark] = useState(initial.watermarkDefault === true);
+  const [watermark, setWatermark] = useState(initial.watermarkDefault ?? watermarkEffective ?? false);
   const [clipboardDefault, setClipboardDefault] = useState(initial.clipboardDefault ?? "allow");
   const [ksMode, setKsMode] = useState(initial.keystrokeLoggingMode ?? "per_resource");
-  const [recMode, setRecMode] = useState(initial.recordingMode ?? "per_resource");
+  const [recMode, setRecMode] = useState(initial.recordingMode ?? recordingModeEffective ?? "per_resource");
   const [tz, setTz] = useState(initial.displayTimezone ?? "");
   const [recRetention, setRecRetention] = useState(str(initial.recordingRetentionDays));
   const [connLog, setConnLog] = useState(initial.defaultConnectorLogLevel ?? "info");

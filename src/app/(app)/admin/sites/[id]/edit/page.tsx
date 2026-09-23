@@ -5,7 +5,7 @@ import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
-import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults } from "@/lib/settings/platform";
+import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
 import { getVaultCredentialMeta } from "@/lib/vault/store";
 import { SiteForm } from "../../site-form";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -29,6 +29,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
   const keystrokeMode = await resolvedKeystrokeLoggingMode();
   const recordingMode = await resolvedRecordingMode();
   const guacDefaults = await resolvedGuacParamDefaults();
+  const [clipboardDefault, watermarkDefault] = await Promise.all([resolvedClipboardDefault(), resolvedWatermarkDefault()]);
 
   return (
     <main>
@@ -48,6 +49,8 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
             recordingMode={recordingMode}
             keystrokeMode={keystrokeMode}
             guacDefaults={guacDefaults}
+            clipboardDefault={clipboardDefault}
+            watermarkDefault={watermarkDefault}
             nativeGateway={nativeGatewayEnabled()}
             isolationEnabled={isolationEnabled()}
             hostSuffix={await siteHostSuffix()}
