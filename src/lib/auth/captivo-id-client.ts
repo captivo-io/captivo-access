@@ -115,6 +115,32 @@ export async function reportTenantLink(
 }
 
 /**
+ * Tell the centre this person just entered Access.
+ *
+ * So a later sign-in that carries no product intent -- Portal's own login
+ * page, the hub -- sends them back here instead of to Portal. Someone who
+ * lives in Access reached for the switcher on every single sign-in before
+ * this existed.
+ *
+ * Best effort and silent: a sign-in must never fail because the centre
+ * blinked, and there is nothing the person could do about it if it did.
+ */
+export async function reportLastProduct(email: string, env: ServiceEnv = process.env as ServiceEnv): Promise<void> {
+  const svc = service(env);
+  if (!svc) return;
+  try {
+    await fetch(`${svc.issuer}/api/last-product`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Captivo-Service": svc.secret },
+      body: JSON.stringify({ email, product: "ACCESS" }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    // Deliberately swallowed -- see above.
+  }
+}
+
+/**
  * Everything the centre knows about an organisation: what it is entitled to,
  * and which products it already has a tenant for.
  *

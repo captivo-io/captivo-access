@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { reportLastProduct } from "@/lib/auth/captivo-id-client";
 import { clientIp } from "@/lib/request-ip";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
@@ -41,6 +42,22 @@ export async function createSession(userId: string, meta?: { userAgent?: string;
       ip: meta?.ip ?? null,
     },
   });
+  // Every sign-in path funnels through here -- passkey and the OIDC callback
+  // both -- so this is the one place that knows someone actually landed in
+  // Access. Support sessions write their row directly (lib/support/session.ts)
+  // and deliberately do not come through here: a platform operator looking at
+  // a customer's console is not that customer choosing a product.
+  //
+  // Awaited, not left dangling: an unawaited promise can be killed when the
+  // response completes, and the preference would silently never be recorded.
+  // reportLastProduct swallows its own failures, so this cannot break a login.
+  try {
+    const u = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (u?.email) await reportLastProduct(u.email);
+  } catch {
+    // A lookup failure is not a reason to refuse a session.
+  }
+
   return token;
 }
 
