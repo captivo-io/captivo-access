@@ -11,6 +11,8 @@ export function AddSiteButton({
   recordingMode,
   keystrokeMode,
   guacDefaults,
+  clipboardDefault,
+  watermarkDefault,
   nativeGateway,
   hostSuffix,
   isolationEnabled,
@@ -20,6 +22,8 @@ export function AddSiteButton({
   recordingMode: string;
   keystrokeMode: KeystrokeMode;
   guacDefaults: GuacParams;
+  clipboardDefault: string;
+  watermarkDefault: boolean;
   nativeGateway: boolean;
   hostSuffix: string | null;
   isolationEnabled: boolean;
@@ -31,7 +35,7 @@ export function AddSiteButton({
         Add resource
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title="Add resource" size="lg">
-        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
+        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} clipboardDefault={clipboardDefault} watermarkDefault={watermarkDefault} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
       </Modal>
     </>
   );
