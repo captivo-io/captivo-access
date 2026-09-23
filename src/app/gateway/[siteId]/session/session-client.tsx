@@ -6,7 +6,8 @@ import { createClipboardBridge, type ClipboardBridge } from "./clipboard";
 import { pasteKeySequence, isBrowserPasteKey, KEYSYM, type GatewayProtocol } from "@/lib/gateway/paste-keys";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
-import { SessionControlPanel } from "./session-control-panel";
+import { SessionPanel } from "./shell/session-panel";
+import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, type ToastState } from "./shell/notices";
 
 // Fullscreen HTML5 session: embeds guacamole-common-js and points it at the
 // data-plane guac-tunnel (same origin, fronted by nginx). The server drives the
@@ -28,7 +29,17 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [clipboardOpen, setClipboardOpen] = useState(false);
   const [canUpload, setCanUpload] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toastState, setToastState] = useState<ToastState | null>(null);
+  const setToast = (text: string | null, tone: ToastState["tone"] = "info") => setToastState(text ? { text, tone } : null);
+  const [dropState, setDropState] = useState<"idle" | "over" | "blocked">("idle");
+  const dragDepth = useRef(0);
+  const [connectedAt, setConnectedAt] = useState<number | null>(null);
+  const [isFs, setIsFs] = useState(false);
+  useEffect(() => {
+    const onFs = () => setIsFs(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
   const [autoSyncBlocked, setAutoSyncBlocked] = useState(false);
   // Modifier state as forwarded to the remote, so the Ctrl+V intercept and the
   // replayed paste chord never double-press Ctrl.
@@ -50,10 +61,10 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   };
 
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
+    if (!toastState) return;
+    const t = setTimeout(() => setToastState(null), 3500);
     return () => clearTimeout(t);
-  }, [toast]);
+  }, [toastState]);
 
   // While the clipboard panel is open the guac keyboard is suspended so keys go
   // to the textarea instead of the remote; reset() first releases Ctrl/Alt/Shift
@@ -115,14 +126,28 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDropState(fsRef.current ? "over" : "blocked");
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropState("idle");
+  };
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    dragDepth.current = 0;
+    setDropState("idle");
     const fs = fsRef.current, G = guacRef.current;
     if (!e.dataTransfer?.files?.length || !G) return;
     if (!fs) {
       // guacd only exposes a filesystem when file transfer is enabled for the
       // resource (SFTP for SSH, a mapped drive for RDP) — never fail silently.
-      setToast("File transfer is not enabled for this resource — ask your admin to turn it on.");
+      setToast("File transfer is disabled for this resource", "warn");
       return;
     }
     for (const file of Array.from(e.dataTransfer.files)) {
@@ -134,16 +159,16 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       // blob — corrupting large multi-chunk uploads (verified: one chunk dropped
       // mid-file). ArrayBufferWriter has no such ack-timing race.
       const fr = new FileReader();
-      fr.onerror = () => setToast(`Upload failed: ${file.name}`);
+      fr.onerror = () => setToast(`Upload failed: ${file.name}`, "danger");
       fr.onload = () => {
         const stream = fs.createOutputStream(file.type || "application/octet-stream", "/" + file.name);
         const writer = new G.ArrayBufferWriter(stream);
         writer.onack = (status: any) => {
-          if (status.isError()) setToast(`Upload failed: ${file.name}`);
+          if (status.isError()) setToast(`Upload failed: ${file.name}`, "danger");
         };
         writer.sendData(fr.result);
         writer.sendEnd();
-        setToast(`Uploaded ${file.name}`);
+        setToast(`Uploaded ${file.name}`, "ok");
       };
       fr.readAsArrayBuffer(file);
     }
@@ -172,7 +197,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       tunnel.onerror = fail;
       client.onerror = fail;
       // Dismiss the connect splash once guacd reaches CONNECTED (state 3).
-      client.onstatechange = (state: number) => { if (state === 3 && !disposed) setReady(true); };
+      client.onstatechange = (state: number) => { if (state === 3 && !disposed) { setReady(true); setConnectedAt((t) => t ?? Date.now()); } };
 
       guacRef.current = Guacamole;
       client.onfile = (stream: any, mimetype: string, filename: string) => {
@@ -187,9 +212,9 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
             // Remove + revoke only after the browser has started the download —
             // doing it synchronously after click() cancels it silently.
             setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 2000);
-            if (!disposed) setToast(`Downloaded ${filename}`);
+            if (!disposed) setToast(`Downloaded ${filename}`, "ok");
           } catch {
-            if (!disposed) setToast(`Download failed: ${filename}`);
+            if (!disposed) setToast(`Download failed: ${filename}`, "danger");
           }
         };
         // guacd streams downloads on demand: after the "file" instruction it sends
@@ -344,51 +369,42 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   }, [siteId]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden", cursor: "none" }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+    <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden", cursor: "none" }} onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       {!ready && !error && <ConnectSplash siteName={siteName} />}
       {/* Dedicated display target: the guac client clears this via innerHTML, so the
           overlays below must NOT live inside it (they'd be wiped on connect). */}
       <div ref={ref} style={{ position: "absolute", inset: 0 }} />
       {ready && (
         <>
-          <SessionControlPanel
-            actions={[
-              { key: "fs", label: "Full screen", sublabel: "Fill the screen", onClick: toggleFs },
-              { key: "clip", label: "Clipboard", status: `${caps.allowCopyOut ? "copy" : "no-copy"} · ${caps.allowPasteIn ? "paste" : "no-paste"}${autoSyncBlocked && caps.allowPasteIn ? " · Ctrl+V to paste" : ""}`, onClick: () => setClipboardOpen(true) },
-              { key: "leave", label: "Leave session", sublabel: "Disconnect", onClick: () => clientRef.current?.disconnect() },
+          <SessionPanel
+            siteName={siteName}
+            mode={protocol === "SSH" ? "SSH terminal" : protocol === "VNC" ? "VNC desktop" : "Remote desktop (RDP)"}
+            connectedAt={connectedAt}
+            quick={[
+              { key: "fs", icon: "fullscreen", label: isFs ? "Exit full screen" : "Full screen", active: isFs, onClick: toggleFs },
+              { key: "clip", icon: "clipboard", label: "Clipboard", onClick: () => setClipboardOpen(true) },
+              { key: "kbd", icon: "keyboard", label: "Keyboard", onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click() },
             ]}
+            sections={[
+              { title: "Session", items: [
+                { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: `${caps.allowCopyOut ? "Copy out allowed" : "Copy out blocked"} · ${caps.allowPasteIn ? "paste in allowed" : "paste in blocked"}${autoSyncBlocked && caps.allowPasteIn ? " · Ctrl+V pastes" : ""}`, tone: caps.allowCopyOut && caps.allowPasteIn ? "ok" : "warn", onClick: () => setClipboardOpen(true), chevron: true },
+                { key: "files", icon: canUpload ? "upload" : "block", label: "File transfer", sub: canUpload ? "Enabled — drop files anywhere on the screen to upload; downloads open here" : "Disabled for this resource by policy", tone: canUpload ? "ok" : "muted" },
+                { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
+              ] },
+              { title: "Help", items: [
+                { key: "tips", icon: "info", label: "Shortcuts", sub: protocol === "SSH" ? "Ctrl+V pastes · right-click pastes in the terminal · Ctrl+Alt+Shift opens the clipboard panel" : "Ctrl+V pastes · Ctrl+Alt+Shift opens the clipboard panel", tone: "muted" },
+              ] },
+            ]}
+            leave={{ label: "Leave session", sub: "Disconnect and return to My access", onClick: () => clientRef.current?.disconnect() }}
           />
           <OnScreenKeyboard sendKey={(keysym, pressed) => clientRef.current?.sendKeyEvent(pressed ? 1 : 0, keysym)} />
+          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Ctrl+V pastes your clipboard", "Controls: top-left tab"]} />
         </>
       )}
-      {recorded && (
-        <div
-          style={{
-            position: "fixed", top: 12, left: 12, zIndex: 20, pointerEvents: "none",
-            display: "flex", alignItems: "center", gap: 6,
-            background: "rgba(0,0,0,0.6)", color: "#ff4d4f",
-            font: "600 12px/1 sans-serif", letterSpacing: "0.06em",
-            padding: "6px 10px", borderRadius: 6,
-          }}
-        >
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ff4d4f", display: "inline-block" }} />
-          RECORDED
-        </div>
-      )}
-      {(watching || controlHeld) && (
-        <div
-          style={{
-            position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 20,
-            pointerEvents: "none", // never intercept clicks — they must reach the session (e.g. the window close button)
-            background: controlHeld ? "rgba(180,0,0,0.92)" : "rgba(0,0,0,0.72)",
-            color: "#fff", padding: "6px 14px", borderRadius: 8, fontFamily: "sans-serif", fontSize: "13px", whiteSpace: "nowrap",
-          }}
-        >
-          {controlHeld ? "An administrator has taken control of this session." : "This session is being monitored live."}
-        </div>
-      )}
-      {canUpload && <div className="ft-hint">Drop files to upload</div>}
-      {toast && <div className="ft-toast">{toast}</div>}
+      <RecordingNotice active={recorded && ready} />
+      <MonitorNotice watching={watching} controlHeld={controlHeld} />
+      <DropOverlay state={dropState} siteName={siteName} />
+      <SessionToast toast={toastState} />
       {clipboardOpen && (
         <div className="clip-overlay" role="dialog" aria-label="Clipboard" aria-modal="true">
           <div className="clip-panel">
@@ -409,7 +425,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
                       onClick={() => {
                         const text = taRef.current?.value ?? "";
                         closeClipboard();
-                        if (text && pasteIntoSession(text)) setToast("Pasted into the session");
+                        if (text && pasteIntoSession(text)) setToast("Pasted into the session", "ok");
                       }}
                     >
                       Send to session
