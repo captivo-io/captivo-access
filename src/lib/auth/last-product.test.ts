@@ -14,7 +14,7 @@ const SUPPORT = readFileSync(path.join(__dirname, "..", "support", "session.ts")
  */
 describe("last product reporting", () => {
   it("reports from createSession, the one funnel every sign-in passes through", () => {
-    expect(SESSION).toMatch(/reportLastProduct\(u\.email\)/);
+    expect(SESSION).toMatch(/reportLastProduct\(u\.email, "ACCESS"\)/);
     expect(SESSION).toMatch(/import \{ reportLastProduct \}/);
   });
 
@@ -28,14 +28,14 @@ describe("last product reporting", () => {
   it("awaits the report instead of leaving it dangling", () => {
     // An unawaited promise can be killed when the response completes; the
     // preference would then silently never be recorded.
-    expect(SESSION).toMatch(/await reportLastProduct\(/);
+    expect(SESSION).toMatch(/await reportLastProduct\(u\.email, "ACCESS"\)/);
   });
 
   it("cannot fail a sign-in", () => {
     // Two layers: the client swallows its own transport failure, and the call
     // site swallows a lookup failure. A login must not depend on the centre.
     expect(CLIENT).toMatch(/export async function reportLastProduct[\s\S]*?\} catch \{/);
-    const at = SESSION.indexOf("reportLastProduct(u.email)");
+    const at = SESSION.indexOf('reportLastProduct(u.email, "ACCESS")');
     const tryAt = SESSION.lastIndexOf("try {", at);
     expect(tryAt).toBeGreaterThan(-1);
     expect(SESSION.slice(tryAt, at + 200)).toMatch(/\} catch \{/);

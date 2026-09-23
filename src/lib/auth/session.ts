@@ -53,7 +53,7 @@ export async function createSession(userId: string, meta?: { userAgent?: string;
   // reportLastProduct swallows its own failures, so this cannot break a login.
   try {
     const u = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
-    if (u?.email) await reportLastProduct(u.email);
+    if (u?.email) await reportLastProduct(u.email, "ACCESS");
   } catch {
     // A lookup failure is not a reason to refuse a session.
   }

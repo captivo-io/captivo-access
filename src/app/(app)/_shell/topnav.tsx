@@ -136,7 +136,7 @@ export function TopNav({ model, records, role, userName, roleLabel, showLive, pr
                       {PRODUCT_NAMES[p.product]} <span className="tn-badge">You are here</span>
                     </div>
                   ) : (
-                    <a key={p.product} href={p.href} className="tn-menuitem" onClick={() => setOpen(null)}>
+                    <a key={p.product} href="/go" className="tn-menuitem" onClick={() => setOpen(null)}>
                       {PRODUCT_NAMES[p.product]}
                       {p.state === "setup" && <span className="tn-badge">Needs setup</span>}
                     </a>
