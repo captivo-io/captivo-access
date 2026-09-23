@@ -20,6 +20,21 @@ import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, t
 // show_control_bar=false hides KasmVNC's own side bar: Captivo's shell is the UI.
 const KASM_PARAMS = "path=kasm-tunnel/websockify&resize=scale&show_control_bar=false&clipboard_seamless=true&clipboard_up=true&clipboard_down=true";
 
+// Streaming quality presets → KasmVNC client settings (JPEG/WebP quality ladder
+// and video-mode quality). Chosen per vendor browser; applied at connect.
+type Quality = "auto" | "saver" | "best";
+const QUALITY_PARAMS: Record<Quality, string> = {
+  auto: "",
+  saver: "&quality=3&dynamic_quality_min=2&dynamic_quality_max=6&video_quality=1&enable_webp=true",
+  best: "&quality=9&dynamic_quality_min=7&dynamic_quality_max=9&treat_lossless=9&video_quality=3&enable_webp=true",
+};
+const QUALITY_LABEL: Record<Quality, string> = { auto: "Auto (adaptive)", saver: "Bandwidth saver", best: "Best quality" };
+const QUALITY_KEY = "ca_iso_quality";
+function readQuality(): Quality {
+  try { const v = localStorage.getItem(QUALITY_KEY); if (v === "saver" || v === "best") return v; } catch { /* ignore */ }
+  return "auto";
+}
+
 export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }: { siteId: string; siteName: string; recorded: boolean; fileTransferMode: string }) {
   const canUpload = fileTransferMode === "allow" || fileTransferMode === "no_download";
   const canDownload = fileTransferMode === "allow" || fileTransferMode === "no_upload";
@@ -27,6 +42,18 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
   const [watching, setWatching] = useState(false);
   const [controlHeld, setControlHeld] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const [quality, setQuality] = useState<Quality>("auto");
+  const [gen, setGen] = useState(0); // bump to reconnect the iframe (new isolated session)
+  useEffect(() => { setQuality(readQuality()); }, []);
+  const cycleQuality = () => {
+    const order: Quality[] = ["auto", "saver", "best"];
+    const next = order[(order.indexOf(quality) + 1) % order.length];
+    try { localStorage.setItem(QUALITY_KEY, next); } catch { /* ignore */ }
+    setQuality(next);
+    setReady(false); setConnectedAt(null);
+    setGen((g) => g + 1);
+    setToast(`Streaming quality: ${QUALITY_LABEL[next]} — reconnecting`, "info");
+  };
   const [fs, setFs] = useState(false);
   const [downloads, setDownloads] = useState<{ name: string; size: number; mtime: number }[]>([]);
   const [toast, setToastState] = useState<ToastState | null>(null);
@@ -192,7 +219,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
     }, 250);
     const fallback = window.setTimeout(() => { window.clearInterval(poll); setReady(true); }, 20000);
     return () => { window.clearInterval(poll); window.clearTimeout(fallback); };
-  }, []);
+  }, [gen]);
 
   return (
     <>
@@ -200,7 +227,8 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
         <iframe
           ref={frameRef}
           title="Isolated browser"
-          src={`/kasm-tunnel/?site=${siteId}&w=${dims.w}&h=${dims.h}&${KASM_PARAMS}`}
+          key={gen}
+          src={`/kasm-tunnel/?site=${siteId}&w=${dims.w}&h=${dims.h}&${KASM_PARAMS}${QUALITY_PARAMS[quality]}`}
           style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", border: 0 }}
           allow="clipboard-read; clipboard-write"
         />
@@ -230,6 +258,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
                 ...(canDownload ? [{ key: "downloads", icon: "download" as const, label: "Downloads", sub: downloads.length ? `${downloads.length} file${downloads.length === 1 ? "" : "s"} ready — listed at the bottom left` : "Files the browser downloads appear here", tone: (downloads.length ? "ok" : "muted") as "ok" | "muted" }] : []),
                 { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: "Seamless copy & paste, as allowed by policy", tone: "ok" },
                 { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
+                { key: "quality", icon: "gauge", label: "Streaming quality", sub: `${QUALITY_LABEL[quality]} — tap to change (reopens the browser)`, tone: "default", onClick: cycleQuality, chevron: true },
                 { key: "iso", icon: "shield", label: "Isolation", sub: "The app runs in a throwaway browser inside the customer network; only pixels reach you", tone: "muted" },
               ] },
             ]}

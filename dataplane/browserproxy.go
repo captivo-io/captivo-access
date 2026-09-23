@@ -227,7 +227,7 @@ func (p *BrowserProxy) consentPage(w http.ResponseWriter, r *http.Request) {
 // production use.
 type proxyControl interface {
 	ResolveSession(token string) (userID, email string, err error)
-	SiteByHost(host string) (siteID, connectorID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired bool, err error)
+	SiteByHost(host string) (siteID, connectorID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark bool, err error)
 	CheckAccess(userID, siteID, clientIP string) (allow bool, reason string, err error)
 	RecorderJS() ([]byte, error)
 	SendRecording(userID, siteID, host string, body []byte) error
@@ -259,7 +259,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Site by host.
-	siteID, connectorID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, err := p.ctrl.SiteByHost(host)
+	siteID, connectorID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, err := p.ctrl.SiteByHost(host)
 	if err != nil {
 		if errors.Is(err, ErrNoSite) {
 			errorPage(w, http.StatusNotFound, "No application here", "There's no application published at this address.", "Check the link, or contact your administrator.")
@@ -383,7 +383,11 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	copyRespHeaders(w.Header(), resp.Header)
 	body := tunnel.NewBodyReader(st)
-	written := p.writeProxyResponse(w, resp, body, recordSessions, clipboardMode)
+	watermarkText := ""
+	if watermark && !gateway {
+		watermarkText = email
+	}
+	written := p.writeProxyResponse(w, resp, body, recordSessions, clipboardMode, watermarkText)
 	accessLog(userID, siteID, host, r.Method, r.URL.Path, resp.Status, written)
 	// Emit a single session_open when a new web span starts (so the activity feed
 	// shows one "connected" like gateway/isolated), then the per-request ALLOW —
@@ -403,13 +407,13 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // recomputes Content-Length. Every other response — non-recorded Sites,
 // non-HTML content types, and oversized HTML bodies — is streamed exactly
 // as it arrives, unmodified.
-func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.DialResponse, body io.Reader, recordSessions bool, clipboardMode string) int64 {
+func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.DialResponse, body io.Reader, recordSessions bool, clipboardMode, watermarkText string) int64 {
 	// Two independent reasons to buffer + rewrite an HTML body: session
 	// recording (inject the rrweb recorder) and clipboard restriction
 	// (inject the clipboard guard). Either one needs the same treatment —
 	// buffer, inject before </body>, strip CSP so the injected inline
 	// script runs. When neither applies, stream the body through untouched.
-	inject := recordSessions || clipboardRestricted(clipboardMode)
+	inject := recordSessions || clipboardRestricted(clipboardMode) || watermarkText != ""
 	// isCompressed: an upstream that ignored the Accept-Encoding: identity
 	// sent toward it (Step 2) and returned compressed HTML anyway must not
 	// have its bytes mangled by injectRecorder, which only understands raw
@@ -440,6 +444,9 @@ func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.Dia
 	}
 	if clipboardRestricted(clipboardMode) {
 		injected = injectBeforeBody(injected, []byte(clipboardScript(clipboardMode)))
+	}
+	if watermarkText != "" {
+		injected = injectBeforeBody(injected, []byte(watermarkScript(watermarkText)))
 	}
 	w.Header().Del("Content-Security-Policy")
 	w.Header().Del("Content-Security-Policy-Report-Only")
@@ -515,6 +522,20 @@ func clipboardScript(mode string) string {
 		s += `document.addEventListener('paste',b,true);`
 	}
 	return s + `})();</script>`
+}
+
+// watermarkScript builds an inline <script> that overlays a tiled, translucent
+// DLP watermark (the vendor's identity + a live UTC clock) on the page — the
+// transparent-mode counterpart of KasmVNC's -DLP_WatermarkText. pointer-events:
+// none, so it never blocks the app; refreshed every minute so screenshots carry
+// the time. Deterrent + attribution, like the clipboard guard (a vendor who
+// disables JavaScript loses the overlay, but also the app's own scripts).
+func watermarkScript(text string) string {
+	quoted, _ := json.Marshal(text)
+	return `<script>(function(){try{var t=` + string(quoted) + `;var d=document.createElement('div');d.id='__captivo_wm';d.setAttribute('style','position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:.14;');` +
+		`function svg(s){return "url(\"data:image/svg+xml;utf8,"+encodeURIComponent('<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'420\' height=\'220\'><text x=\'20\' y=\'120\' transform=\'rotate(-24 210 110)\' font-family=\'system-ui,sans-serif\' font-size=\'18\' font-weight=\'600\' fill=\'#000\'>'+s.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</text></svg>')+"\")";}` +
+		`function paint(){var n=new Date();var hh=('0'+n.getUTCHours()).slice(-2),mm=('0'+n.getUTCMinutes()).slice(-2);d.style.backgroundImage=svg(t+'  \u00b7  '+n.toISOString().slice(0,10)+' '+hh+':'+mm+' UTC');}` +
+		`paint();setInterval(paint,60000);var m=function(){if(document.body)document.body.appendChild(d);};if(document.body)m();else addEventListener('DOMContentLoaded',m);}catch(e){}})();</script>`
 }
 
 // maxInjectableBodyBytes caps how large a recorded-Site HTML response body

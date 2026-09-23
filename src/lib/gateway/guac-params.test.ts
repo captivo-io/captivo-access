@@ -107,3 +107,24 @@ describe("toGuacArgs file transfer", () => {
     expect(toGuacArgs({}, "allow", "RDP")["security"]).toBeUndefined();
   });
 });
+
+describe("audio / printing / terminal params", () => {
+  it("parses and bounds the new keys", () => {
+    expect(parseGuacParams({ disableAudio: true, enablePrinting: true, terminalFontSize: "14", terminalColorScheme: "green-black", terminalScrollback: 5000 }))
+      .toEqual({ disableAudio: true, enablePrinting: true, terminalFontSize: 14, terminalColorScheme: "green-black", terminalScrollback: 5000 });
+    expect(parseGuacParams({ terminalFontSize: 4, terminalColorScheme: "neon", terminalScrollback: 10 })).toEqual({});
+  });
+  it("emits guacd args per protocol", () => {
+    const rdp = toGuacArgs({ disableAudio: true, enablePrinting: true, terminalFontSize: 14 }, "allow", "RDP");
+    expect(rdp["disable-audio"]).toBe("true");
+    expect(rdp["enable-printing"]).toBe("true");
+    expect(rdp["printer-name"]).toBe("Captivo Printer");
+    expect(rdp["font-size"]).toBeUndefined();
+    const ssh = toGuacArgs({ disableAudio: true, enablePrinting: true, terminalFontSize: 14, terminalColorScheme: "green-black", terminalScrollback: 5000 }, "allow", "SSH", "root");
+    expect(ssh["font-size"]).toBe("14");
+    expect(ssh["color-scheme"]).toBe("green-black");
+    expect(ssh["scrollback"]).toBe("5000");
+    expect(ssh["disable-audio"]).toBeUndefined();
+    expect(ssh["enable-printing"]).toBeUndefined();
+  });
+});

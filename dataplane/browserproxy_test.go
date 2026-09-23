@@ -20,6 +20,8 @@ import (
 // fakeControl is a stub proxyControl for tests: each field controls one of
 // the three control-plane calls' return values.
 type fakeControl struct {
+	watermark bool // SiteByHost: inject the DLP watermark overlay
+
 	userID     string
 	email      string
 	resolveErr error
@@ -48,8 +50,8 @@ func (f *fakeControl) ResolveSession(string) (string, string, error) {
 	return f.userID, f.email, f.resolveErr
 }
 
-func (f *fakeControl) SiteByHost(string) (string, string, string, string, bool, bool, bool, bool, error) {
-	return f.siteID, f.connID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.siteErr
+func (f *fakeControl) SiteByHost(string) (string, string, string, string, bool, bool, bool, bool, bool, error) {
+	return f.siteID, f.connID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.watermark, f.siteErr
 }
 
 func (f *fakeControl) CheckAccess(string, string, string) (bool, string, error) {
@@ -1075,5 +1077,24 @@ func TestTrustedClientIP(t *testing.T) {
 	r3.Header.Set("X-Forwarded-For", "198.51.100.9")
 	if got := trustedClientIP(r3); got != "198.51.100.9" {
 		t.Fatalf("single-XFF: got %q, want 198.51.100.9", got)
+	}
+}
+
+// watermarkScript: JSON-quotes the identity (no script injection through an
+// email), paints a fixed non-interactive overlay, and is injected only when
+// the control plane flags the site.
+func TestWatermarkScript(t *testing.T) {
+	s := watermarkScript(`vendor@example.com"</script><script>alert(1)`)
+	// json.Marshal escapes quotes and angle brackets (\u003c), so a crafted
+	// identity can neither break out of the string nor close the <script>.
+	if strings.Contains(s, `"</script><script>`) || !strings.Contains(s, `\"\u003c/script\u003e`) {
+		t.Fatalf("identity not JSON-escaped: %s", s)
+	}
+	if !strings.Contains(s, "pointer-events:none") || !strings.Contains(s, "__captivo_wm") {
+		t.Fatalf("overlay markers missing: %s", s)
+	}
+	out := injectBeforeBody([]byte("<html><head></head><body><p>x</p></body></html>"), []byte(watermarkScript("a@b.co")))
+	if strings.Count(string(out), "__captivo_wm") != 1 {
+		t.Fatalf("expected exactly one injection, got: %s", out)
 	}
 }

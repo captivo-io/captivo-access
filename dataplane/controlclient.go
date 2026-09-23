@@ -124,7 +124,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 // ErrNoSite. recordSessions reports whether session recording is enabled for
 // this site (see Site.recordSessions). gateway reports whether the site's
 // accessMode is GATEWAY (see setGatewayIdentity in browserproxy.go).
-func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired bool, err error) {
+func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark bool, err error) {
 	var out struct {
 		SiteID             string `json:"siteId"`
 		ConnectorID        string `json:"connectorId"`
@@ -134,14 +134,15 @@ func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, upstreamUr
 		ClipboardMode      string `json:"clipboardMode"`
 		AccessMode         string `json:"accessMode"`
 		ConsentRequired    bool   `json:"recordingConsentRequired"`
+		Watermark          bool   `json:"watermark"`
 	}
 	if err := c.post("/api/internal/site/by-host", map[string]string{"host": host}, &out); err != nil {
 		if he, ok := err.(*httpError); ok && he.code == http.StatusNotFound {
-			return "", "", "", "", false, false, false, false, ErrNoSite
+			return "", "", "", "", false, false, false, false, false, ErrNoSite
 		}
-		return "", "", "", "", false, false, false, false, err
+		return "", "", "", "", false, false, false, false, false, err
 	}
-	return out.SiteID, out.ConnectorID, out.UpstreamUrl, out.ClipboardMode, out.InsecureSkipVerify, out.RecordSessions, out.AccessMode == "GATEWAY", out.ConsentRequired, nil
+	return out.SiteID, out.ConnectorID, out.UpstreamUrl, out.ClipboardMode, out.InsecureSkipVerify, out.RecordSessions, out.AccessMode == "GATEWAY", out.ConsentRequired, out.Watermark, nil
 }
 
 // RecorderJS returns the rrweb recorder bundle served by the control plane

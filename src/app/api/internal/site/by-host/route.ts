@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { db } from "@/lib/db";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { resolvedRecordingConsentRequired, resolvedClipboardDefault } from "@/lib/settings/platform";
+import { resolvedRecordingConsentRequired, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
 import { requireDataplaneSecret, resolveTenantByHostname, withTenantFrom } from "@/lib/tenant/internal";
 
 function dataplaneAuthorized(req: NextRequest): boolean {
@@ -28,7 +28,7 @@ async function handler(req: NextRequest) {
   // this lookup runs already scoped in cloud (RLS) via the ambient `db`.
   const site = await db.site.findFirst({
     where: { hostname },
-    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true },
+    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true },
   });
   if (!site) return NextResponse.json({ error: "no_site" }, { status: 404 });
 
@@ -46,6 +46,10 @@ async function handler(req: NextRequest) {
     // manage clipboard in Guacamole, so never inject for them.
     clipboardMode: site.accessMode === "GATEWAY" ? "allow" : (site.clipboardMode ?? (await resolvedClipboardDefault())),
     accessMode: site.accessMode,
+    // DLP watermark for transparent web apps: the data-plane overlays the vendor's
+    // email + a live clock on every page (isolated sessions get the same from
+    // KasmVNC). Per-site override, else the tenant default.
+    watermark: site.accessMode === "TRANSPARENT" && (site.watermark ?? (await resolvedWatermarkDefault())),
     // Global consent-gate policy; only meaningful when this site records.
     recordingConsentRequired: recordSessions ? await resolvedRecordingConsentRequired() : false,
   });

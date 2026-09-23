@@ -1,5 +1,5 @@
 "use client";
-import { KEYBOARD_LAYOUTS, type GuacParams } from "@/lib/gateway/guac-params";
+import { TERMINAL_COLOR_SCHEMES, KEYBOARD_LAYOUTS, type GuacParams } from "@/lib/gateway/guac-params";
 
 // Form-friendly shape: every field is a string ("" = use default). Toggles are a
 // 3-way select ("" default / "on" / "off") so an override can also force OFF.
@@ -12,6 +12,11 @@ export interface GuacFields {
   enableFullWindowDrag: string;
   fileTransfer: string;
   blockUpload: string;
+  audio: string; // "" inherit | "on" | "off"  (off → disable-audio)
+  printing: string; // "" | "on" | "off"
+  terminalFontSize: string;
+  terminalColorScheme: string;
+  terminalScrollback: string;
   blockDownload: string;
   sftpRoot: string;
   rdpSecurity: string;
@@ -20,6 +25,7 @@ export interface GuacFields {
 export const EMPTY_GUAC_FIELDS: GuacFields = {
   serverLayout: "", colorDepth: "", enableWallpaper: "", enableTheming: "", enableFontSmoothing: "", enableFullWindowDrag: "",
   fileTransfer: "", blockUpload: "", blockDownload: "", sftpRoot: "", rdpSecurity: "",
+  audio: "", printing: "", terminalFontSize: "", terminalColorScheme: "", terminalScrollback: "",
 };
 
 const TOGGLES: { key: keyof GuacFields; label: string }[] = [
@@ -42,6 +48,11 @@ export function paramsToGuacFields(p: GuacParams): GuacFields {
     blockUpload: tri(p.blockUpload),
     blockDownload: tri(p.blockDownload),
     sftpRoot: p.sftpRoot ?? "",
+    audio: p.disableAudio === undefined ? "" : p.disableAudio ? "off" : "on",
+    printing: tri(p.enablePrinting),
+    terminalFontSize: p.terminalFontSize?.toString() ?? "",
+    terminalColorScheme: p.terminalColorScheme ?? "",
+    terminalScrollback: p.terminalScrollback?.toString() ?? "",
     rdpSecurity: p.rdpSecurity ?? "",
   };
 }
@@ -54,7 +65,7 @@ export function guacFieldsToParams(f: GuacFields): GuacParams {
     if (f[key] === "on") (p as Record<string, unknown>)[key] = true;
     else if (f[key] === "off") (p as Record<string, unknown>)[key] = false;
   }
-  const triToBool = (v: string, k: "enableFileTransfer" | "blockUpload" | "blockDownload") => {
+  const triToBool = (v: string, k: "enableFileTransfer" | "blockUpload" | "blockDownload" | "enablePrinting") => {
     if (v === "on") (p as Record<string, unknown>)[k] = true;
     else if (v === "off") (p as Record<string, unknown>)[k] = false;
   };
@@ -62,6 +73,12 @@ export function guacFieldsToParams(f: GuacFields): GuacParams {
   triToBool(f.blockUpload, "blockUpload");
   triToBool(f.blockDownload, "blockDownload");
   if (f.sftpRoot.trim()) p.sftpRoot = f.sftpRoot.trim();
+  if (f.audio === "off") p.disableAudio = true;
+  else if (f.audio === "on") p.disableAudio = false;
+  triToBool(f.printing, "enablePrinting");
+  if (f.terminalFontSize.trim()) p.terminalFontSize = Number(f.terminalFontSize);
+  if (f.terminalColorScheme) p.terminalColorScheme = f.terminalColorScheme;
+  if (f.terminalScrollback.trim()) p.terminalScrollback = Number(f.terminalScrollback);
   if (f.rdpSecurity) p.rdpSecurity = f.rdpSecurity;
   return p;
 }
@@ -87,6 +104,13 @@ export function GuacParamsFields({ value, onChange, protocol, policy }: { value:
   const showSecurity = !protocol || protocol === "RDP";
   const showFt = !protocol || protocol === "RDP" || protocol === "SSH";
   const showSftpRoot = !protocol || protocol === "SSH";
+  const showAudio = !protocol || protocol === "RDP";
+  const showTerminal = !protocol || protocol === "SSH";
+  const audioLabel = inherit(policy?.disableAudio ? "Off" : "On");
+  const printLabel = inherit(onOff(policy?.enablePrinting, false));
+  const fontLabel = policy?.terminalFontSize ? `Inherit policy (${policy.terminalFontSize} pt)` : inherit("12 pt");
+  const schemeLabel = policy?.terminalColorScheme ? `Inherit policy (${TERMINAL_COLOR_SCHEMES.find((c) => c.value === policy.terminalColorScheme)?.label ?? policy.terminalColorScheme})` : inherit("gray on black");
+  const scrollLabel = policy?.terminalScrollback ? `Inherit policy (${policy.terminalScrollback} lines)` : inherit("1000 lines");
   return (
     <div className="guac-fields">
       {showLayout && (
@@ -145,6 +169,41 @@ export function GuacParamsFields({ value, onChange, protocol, policy }: { value:
         <label className="field"><span className="field-label">Block download</span>
           <select className="select" value={value.blockDownload} onChange={(e) => set("blockDownload", e.target.value)}>
             <option value="">{blockDownLabel}</option><option value="on">On (vendor cannot take files out)</option><option value="off">Off (download allowed)</option>
+          </select>
+        </label>
+      )}
+      {showAudio && (
+        <label className="field"><span className="field-label">Sound {protocol ? "" : "(RDP)"}</span>
+          <select className="select" value={value.audio} onChange={(e) => set("audio", e.target.value)}>
+            <option value="">{audioLabel}</option><option value="on">On (remote audio plays in the vendor&apos;s browser)</option><option value="off">Off</option>
+          </select>
+        </label>
+      )}
+      {showAudio && (
+        <label className="field"><span className="field-label">Printing {protocol ? "" : "(RDP)"}</span>
+          <select className="select" value={value.printing} onChange={(e) => set("printing", e.target.value)}>
+            <option value="">{printLabel}</option><option value="on">On (a &quot;Captivo Printer&quot; that prints to PDF, delivered as a download)</option><option value="off">Off</option>
+          </select>
+        </label>
+      )}
+      {showTerminal && (
+        <label className="field"><span className="field-label">Terminal font size {protocol ? "" : "(SSH)"}</span>
+          <select className="select" value={value.terminalFontSize} onChange={(e) => set("terminalFontSize", e.target.value)}>
+            <option value="">{fontLabel}</option>{[10, 12, 14, 16, 18, 20, 24].map((n) => <option key={n} value={n}>{n} pt</option>)}
+          </select>
+        </label>
+      )}
+      {showTerminal && (
+        <label className="field"><span className="field-label">Terminal colours {protocol ? "" : "(SSH)"}</span>
+          <select className="select" value={value.terminalColorScheme} onChange={(e) => set("terminalColorScheme", e.target.value)}>
+            {TERMINAL_COLOR_SCHEMES.map((c) => <option key={c.value} value={c.value}>{c.value === "" ? schemeLabel : c.label}</option>)}
+          </select>
+        </label>
+      )}
+      {showTerminal && (
+        <label className="field"><span className="field-label">Terminal scrollback {protocol ? "" : "(SSH)"}</span>
+          <select className="select" value={value.terminalScrollback} onChange={(e) => set("terminalScrollback", e.target.value)}>
+            <option value="">{scrollLabel}</option>{[1000, 5000, 10000, 50000].map((n) => <option key={n} value={n}>{n} lines</option>)}
           </select>
         </label>
       )}
