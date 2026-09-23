@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseGuacParams } from "@/lib/gateway/guac-params";
 import { GuacParamsFields, paramsToGuacFields, guacFieldsToParams, type GuacFields } from "@/components/guac-params-fields";
+import type { GuacParams } from "@/lib/gateway/guac-params";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { recordToggleLock } from "@/lib/recording/mode";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
@@ -72,6 +73,7 @@ export function SiteForm({
   recordingEnabled = false,
   recordingMode = "per_resource",
   keystrokeMode = "per_resource",
+  guacDefaults = {},
   nativeGateway = false,
   isolationEnabled = false,
   hostSuffix = null,
@@ -83,6 +85,7 @@ export function SiteForm({
   recordingEnabled?: boolean;
   recordingMode?: string;
   keystrokeMode?: KeystrokeMode;
+  guacDefaults?: GuacParams; // resolved Policy defaults, so "Inherit" shows the effective value
   nativeGateway?: boolean;
   isolationEnabled?: boolean;
   hostSuffix?: string | null;
@@ -508,7 +511,7 @@ export function SiteForm({
           </div>
           <details className="guac-advanced">
             <summary>Advanced (Guacamole)</summary>
-            <p className="hint">Leave a field on <b>Default</b> to inherit the Policy default. Overrides here win for this resource.</p>
+            <p className="hint">Leave a field on <b>Inherit policy</b> to follow the Policy → Guacamole defaults (the effective value is shown in brackets). Anything set here wins for this resource.</p>
             <div className="field">
               <label className="field-label" htmlFor="site-clipboard-gw">Clipboard</label>
               <select id="site-clipboard-gw" className="select" value={clipboardMode} onChange={(e) => setClipboardMode(e.target.value)}>
@@ -520,7 +523,7 @@ export function SiteForm({
               </select>
               <span className="hint">Enforced by the session engine (guacd) — copy out / paste in are disabled server-side, a real control (not a browser deterrent).</span>
             </div>
-            <GuacParamsFields value={guac} onChange={setGuac} protocol={protocol as "RDP" | "SSH" | "VNC"} />
+            <GuacParamsFields value={guac} onChange={setGuac} protocol={protocol as "RDP" | "SSH" | "VNC"} policy={guacDefaults} />
           </details>
         </>
       )}

@@ -6,6 +6,7 @@ import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { resolvedRecordingConsentRequired, resolvedClipboardDefault } from "@/lib/settings/platform";
+import type { GatewayProtocol } from "@/lib/gateway/paste-keys";
 import { GatewaySession } from "./session-client";
 import { IsolatedSession } from "./isolated-client";
 import { ConsentGate } from "./consent-gate";
@@ -39,12 +40,15 @@ async function GatewaySessionPageImpl({ params }: { params: Promise<{ siteId: st
   // Resolve the inherit sentinel (null) to a concrete mode server-side so the
   // client's clipboard caps mirror the same policy guacd enforces.
   const clipboardMode = site.clipboardMode ?? (await resolvedClipboardDefault());
+  // The remote's paste chord differs per protocol (terminal vs desktop).
+  const cred = mode === "GATEWAY" ? await db.vaultCredential.findUnique({ where: { siteId }, select: { protocol: true } }) : null;
+  const protocol: GatewayProtocol = cred?.protocol === "SSH" || cred?.protocol === "VNC" ? cred.protocol : "RDP";
   if (consentNeeded) {
-    return <ConsentGate accessMode={mode} siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} fileTransferMode={site.fileTransferMode} />;
+    return <ConsentGate accessMode={mode} siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} fileTransferMode={site.fileTransferMode} protocol={protocol} />;
   }
   return mode === "ISOLATED"
     ? <IsolatedSession siteId={siteId} siteName={site.name} recorded={recorded} fileTransferMode={site.fileTransferMode} />
-    : <GatewaySession siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} />;
+    : <GatewaySession siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} protocol={protocol} />;
 }
 
 export default async function GatewaySessionPage(...args: Parameters<typeof GatewaySessionPageImpl>) {

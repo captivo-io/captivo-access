@@ -5,7 +5,7 @@ import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
-import { resolvedKeystrokeLoggingMode, resolvedRecordingMode } from "@/lib/settings/platform";
+import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults } from "@/lib/settings/platform";
 import { getVaultCredentialMeta } from "@/lib/vault/store";
 import { SiteForm } from "../../site-form";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -28,6 +28,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
   const vault = site && site.accessMode === "GATEWAY" ? await getVaultCredentialMeta(site.id) : null;
   const keystrokeMode = await resolvedKeystrokeLoggingMode();
   const recordingMode = await resolvedRecordingMode();
+  const guacDefaults = await resolvedGuacParamDefaults();
 
   return (
     <main>
@@ -46,6 +47,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
             recordingEnabled={recordingEnabled()}
             recordingMode={recordingMode}
             keystrokeMode={keystrokeMode}
+            guacDefaults={guacDefaults}
             nativeGateway={nativeGatewayEnabled()}
             isolationEnabled={isolationEnabled()}
             hostSuffix={await siteHostSuffix()}
