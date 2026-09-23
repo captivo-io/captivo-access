@@ -20,7 +20,7 @@ describe("validateCreateInput", () => {
 });
 
 describe("validateUpdateInput", () => {
-  const base = { name: "Acme", plan: "standard", trialEndsAt: null, limits: {}, capabilities: {}, notes: null };
+  const base = { name: "Acme", plan: "pro", trialEndsAt: null, limits: {}, capabilities: {}, notes: null };
   it("normalizes a valid update", () => {
     const v = validateUpdateInput({ ...base, name: "  Acme Inc ", plan: "enterprise", trialEndsAt: new Date("2026-10-01T00:00:00Z"), limits: { maxUsers: "5" }, capabilities: { vault: false }, notes: "  hi " });
     expect(v).toMatchObject({ name: "Acme Inc", plan: "enterprise", limits: { maxUsers: 5 }, capabilities: { vault: false }, notes: "hi" });
@@ -30,7 +30,7 @@ describe("validateUpdateInput", () => {
     expect(v.trialEndsAt).toBeNull();
   });
   it("drops the trial end on every plan", () => {
-    for (const plan of ["standard", "enterprise", "free"]) {
+    for (const plan of ["free", "pro", "enterprise"]) {
       expect(validateUpdateInput({ ...base, plan, trialEndsAt: new Date() }).trialEndsAt).toBeNull();
     }
   });
@@ -107,5 +107,24 @@ describe("createTenant leaves nothing half made", () => {
     // could not even retry at the address they just chose.
     const fn = SQL_SRC.slice(SQL_SRC.indexOf("export async function rollbackCreatedTenantRow"));
     expect(fn).toMatch(/\$transaction\([\s\S]{0,400}?platform_delete_tenant[\s\S]{0,400}?platform_purge_tenant/);
+  });
+});
+
+describe("an unclassified tenant defaults to free", () => {
+  const SCHEMA = readFileSync(path.join(__dirname, "..", "..", "..", "prisma", "schema.prisma"), "utf-8");
+  const SRC = readFileSync(path.join(__dirname, "tenants.ts"), "utf-8");
+
+  it("the column default says free", () => {
+    const model = SCHEMA.slice(SCHEMA.indexOf("model Tenant"));
+    expect(model.slice(0, model.indexOf("\n}"))).toMatch(/plan\s+String\s+@default\("free"\)/);
+  });
+
+  it("the code fallbacks agree with the column", () => {
+    // Three places used to say "standard". If the column and the code
+    // disagree, a tenant reads as one plan in the console and another in the
+    // database -- and the row that wins depends on which path wrote it.
+    expect(SRC).not.toMatch(/"standard"/);
+    expect(SRC).toMatch(/isPlan\(input\.plan\) \? input\.plan : "free"/);
+    expect(SRC).toMatch(/plan !== "free" \|\| limits/);
   });
 });

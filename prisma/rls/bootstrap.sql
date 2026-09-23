@@ -287,13 +287,23 @@ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
   ORDER BY t.slug, c.job
 $$;
 
+-- Retired plan names, normalised on every deploy so no installation carries a
+-- value the code no longer recognises. Idempotent, and it matters most for a
+-- SELF-HOSTED upgrade: the platform console is notFound() there and nothing
+-- rewrites the row, so 'standard' would sit in the database forever while the
+-- code had no such tier. Harmless at runtime (it reads back as "free"), but
+-- whoever debugs that installation in six months should not find a plan name
+-- that does not exist.
+UPDATE "Tenant" SET plan = 'pro' WHERE plan = 'standard';
+UPDATE "Tenant" SET plan = 'free' WHERE plan = 'trial';
+
 DROP FUNCTION IF EXISTS platform_expired_trials();
 
 CREATE OR REPLACE FUNCTION platform_update_tenant(p_id text, p_name text, p_plan text, p_trial_ends timestamptz, p_limits jsonb, p_capabilities jsonb, p_notes text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF p_id IN ('platform', 'default') THEN RAISE EXCEPTION 'reserved tenant'; END IF;
-  IF p_plan NOT IN ('standard', 'enterprise', 'free') THEN RAISE EXCEPTION 'invalid plan: %', p_plan; END IF;
+  IF p_plan NOT IN ('free', 'pro', 'enterprise') THEN RAISE EXCEPTION 'invalid plan: %', p_plan; END IF;
   UPDATE "Tenant" SET name = p_name, plan = p_plan, "trialEndsAt" = p_trial_ends, limits = p_limits,
                       capabilities = p_capabilities, notes = p_notes, "updatedAt" = now()
   WHERE id = p_id;

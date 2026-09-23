@@ -34,7 +34,7 @@ describe("withinLimit / formatBytes / isPlan", () => {
     // because a clock ran out; someone who needs more capacity buys it.
     expect(PLANS).not.toContain("trial");
     expect(isPlan("trial")).toBe(false);
-    expect([...PLANS].sort()).toEqual(["enterprise", "free", "standard"]);
+    expect([...PLANS].sort()).toEqual(["enterprise", "free", "pro"]);
   });
 
   it("formatBytes", () => {
@@ -43,7 +43,7 @@ describe("withinLimit / formatBytes / isPlan", () => {
     expect(formatBytes(5 * 1024 * 1024 * 1024)).toBe("5.0 GB");
   });
   it("isPlan", () => {
-    expect(isPlan("standard")).toBe(true);
+    expect(isPlan("pro")).toBe(true);
     expect(isPlan("gold")).toBe(false);
   });
 });
@@ -74,5 +74,47 @@ describe("free plan", () => {
     const sql = readFileSync(path.join(__dirname, "..", "..", "..", "prisma", "rls", "bootstrap.sql"), "utf-8");
     expect(sql).toContain("DROP FUNCTION IF EXISTS platform_expired_trials();");
     expect(sql).not.toContain("CREATE OR REPLACE FUNCTION platform_expired_trials()");
+  });
+});
+
+describe("plan names are aligned across the two products", () => {
+  it("offers the same three steps Captivo Portal offers", () => {
+    // A customer who says "I want Pro" must not have to be asked which
+    // product's Pro they mean, and an invoice covering both products must not
+    // carry two vocabularies for one step. WHAT a step includes stays
+    // product-specific: Access counts connectors and resources, Portal counts
+    // concurrent guests.
+    expect([...PLANS].sort()).toEqual(["enterprise", "free", "pro"]);
+  });
+
+  it("has no tier called standard any more", () => {
+    // "standard" was never a step someone bought -- it was the column default,
+    // meaning "nobody classified this tenant". Renaming it to "pro" and
+    // leaving it as the default would have labelled every unclassified tenant
+    // as something paid for.
+    expect(isPlan("standard")).toBe(false);
+  });
+});
+
+describe("retired plan names leave nothing behind", () => {
+  const SQL = readFileSync(path.join(__dirname, "..", "..", "..", "prisma", "rls", "bootstrap.sql"), "utf-8");
+
+  it("every deploy normalises a row the code no longer recognises", () => {
+    // Matters most for a SELF-HOSTED upgrade: the platform console is
+    // notFound() there and nothing rewrites the row, so a retired name would
+    // sit in the database forever. Harmless at runtime -- it reads back as
+    // "free" -- but nobody debugging that install should find a tier the code
+    // has never heard of.
+    expect(SQL).toMatch(/UPDATE "Tenant" SET plan = 'pro' WHERE plan = 'standard';/);
+    expect(SQL).toMatch(/UPDATE "Tenant" SET plan = 'free' WHERE plan = 'trial';/);
+  });
+
+  it("normalises before the guard that would reject those names", () => {
+    // platform_update_tenant refuses a retired name. The rewrite has to land
+    // first, or an upgrade could leave a row nothing is willing to touch.
+    const fix = SQL.indexOf(`UPDATE "Tenant" SET plan = 'pro'`);
+    const guard = SQL.indexOf("p_plan NOT IN");
+    expect(fix).toBeGreaterThan(-1);
+    expect(fix).toBeLessThan(guard);
   });
 });

@@ -4,7 +4,12 @@
 // "free": the complimentary tier a new organisation receives from Captivo ID.
 // Open-ended on purpose -- it carries no trialEndsAt, so the ops job that
 // suspends expired trials never selects it (prisma/rls/bootstrap.sql).
-export const PLANS = ["standard", "enterprise", "free"] as const;
+// The same three names Captivo Portal uses, so "Pro" means one thing when a
+// customer says it and one thing on an invoice. WHAT a tier includes stays
+// product-specific -- Access counts connectors and resources, Portal counts
+// concurrent guests -- and that is right: the same step measures different
+// things in different products.
+export const PLANS = ["free", "pro", "enterprise"] as const;
 export type Plan = (typeof PLANS)[number];
 
 export const LIMIT_KEYS = ["maxUsers", "maxSites", "maxConnectors", "maxRecordingRetentionDays"] as const;

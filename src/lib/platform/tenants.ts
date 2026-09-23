@@ -65,7 +65,7 @@ type TenantRow = {
 function shape(r: TenantRow): PlatformTenant {
   return {
     id: r.id, slug: r.slug, name: r.name, status: r.status, createdAt: new Date(r.createdAt), adminCount: Number(r.adminCount),
-    plan: isPlan(r.plan) ? r.plan : "standard",
+    plan: isPlan(r.plan) ? r.plan : "free",
     trialEndsAt: r.trialEndsAt ? new Date(r.trialEndsAt) : null,
     deletedAt: r.deletedAt ? new Date(r.deletedAt) : null,
     limits: parseLimits(r.limits), capabilities: parseCapabilities(r.capabilities),
@@ -170,11 +170,12 @@ export async function createTenant(input: { name: string; slug: string; adminEma
 
     // 3. Plan / trial + the platform's defaults for new tenants (Settings →
     // New tenant defaults), written as the tenant's own PlatformSettings row.
-    const plan = isPlan(input.plan) ? input.plan : "standard";
+    const plan = isPlan(input.plan) ? input.plan : "free";
     const limits = input.limits ?? null;
     // Written whenever the plan is not the default OR caps were supplied: a
     // standard tenant with caps used to fall through this branch and lose them.
-    if (plan !== "standard" || limits) {
+    // Skipped when nothing differs from the column default, which is now "free".
+    if (plan !== "free" || limits) {
         // trialEndsAt stays null: there is no trial plan any more (the free tier
     // is the trial). The COLUMN is kept -- dropping it would be a data-loss
     // migration for a field nothing writes.

@@ -21,7 +21,10 @@ model Tenant {
   status    String   @default("ACTIVE") // ACTIVE | SUSPENDED
   createdAt DateTime @default(now())
   // --- Platform console (Cloud) ---
-  plan         String    @default("standard") // trial | standard | enterprise
+  plan         String    @default("free") // free | pro | enterprise
+  // Default "free" on purpose: an unclassified tenant should not be labelled as
+  // something someone paid for. The plan is a LABEL here -- caps live in
+  // `limits` -- so this restricts nothing on its own.
   trialEndsAt  DateTime? // plan=trial: auto-suspended by the platform-ops cron after this
   deletedAt    DateTime? // soft-deleted (hidden from resolvers); purged 30 days later
   limits       Json? // { maxUsers?, maxSites?, maxConnectors?, maxRecordingRetentionDays? } — null/absent = unlimited
