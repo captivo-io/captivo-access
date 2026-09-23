@@ -16,6 +16,16 @@ export interface CaptivoIdRegistration {
   email: string;
   organizationName: string;
   name: string;
+  /**
+   * The END USER's address, for the centre's per-IP registration cap.
+   *
+   * The centre cannot use the address our request arrives over -- that is this
+   * container, one bucket for every customer on the platform -- so the cap
+   * only applies if we supply it. Omitted when it cannot be determined:
+   * `clientIp ? check(clientIp) : { allowed: true }` there, and a guess would
+   * put unrelated signups in one bucket.
+   */
+  clientIp?: string;
 }
 
 /**
@@ -64,6 +74,7 @@ export async function registerWithCaptivoId(
         product: "ACCESS",
         name: input.name,
         emailVerified: true,
+        ...(input.clientIp ? { clientIp: input.clientIp } : {}),
       }),
       // Five seconds, not ten: Captivo ID runs on the same host, so a healthy
       // call returns in milliseconds and anything slower is already a failure

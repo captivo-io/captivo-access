@@ -48,7 +48,7 @@ export async function startSignup(input: { name: string; slug: string; email: st
 }
 
 // Step 2: the verified link creates the trial tenant and hands the invite over.
-export async function completeSignup(token: string): Promise<{ ok: true; inviteUrl: string } | { ok: false; error: string }> {
+export async function completeSignup(token: string, clientIp?: string): Promise<{ ok: true; inviteUrl: string } | { ok: false; error: string }> {
   const c: SignupClaims | null = await verifySignup(token);
   if (!c) return { ok: false, error: "invalid_token" };
   let result;
@@ -71,7 +71,7 @@ export async function completeSignup(token: string): Promise<{ ok: true; inviteU
   // workspace above already exists and the customer is waiting on their
   // invite link -- a problem registering with Captivo ID must never undo
   // that. See registerWithCaptivoId for why failures only get logged.
-  await registerWithCaptivoId({ email: c.email, organizationName: c.name, name: c.adminName || c.name });
+  await registerWithCaptivoId({ email: c.email, organizationName: c.name, name: c.adminName || c.name, clientIp });
   return { ok: true, inviteUrl: result.inviteUrl };
 }
 
