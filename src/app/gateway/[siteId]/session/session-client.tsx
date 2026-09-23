@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { clipboardCaps } from "@/lib/gateway/clipboard-caps";
 import { createClipboardBridge, type ClipboardBridge } from "./clipboard";
 import { pasteKeySequence, isBrowserPasteKey, KEYSYM, type GatewayProtocol } from "@/lib/gateway/paste-keys";
+import { setupGatewayTouch, type TouchController } from "./shell/gateway-touch";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
@@ -35,6 +36,15 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const dragDepth = useRef(0);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [isFs, setIsFs] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const touchRef = useRef<TouchController | null>(null);
+  const kbInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+  const openKeyboard = () => {
+    if (isTouch && kbInputRef.current) { kbInputRef.current.focus(); return; }
+    document.querySelector<HTMLButtonElement>(".osk-handle")?.click();
+  };
+  const resetZoom = () => { touchRef.current?.reset(); setZoomed(false); };
   // Remote audio (RDP): guacamole-common-js plays it through one shared
   // AudioContext; muting = suspending that context. Browsers gate audio on a
   // user gesture, so the context is (re)started on the first click.
@@ -245,9 +255,14 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
 
       const display = client.getDisplay();
       const el = display.getElement();
+      // A stage wraps the display so touch pinch-zoom can transform it without
+      // disturbing the guac canvas or its coordinate mapping.
+      const stage = document.createElement("div");
+      stage.className = "gw-stage";
+      stage.appendChild(el);
       if (ref.current) {
         ref.current.innerHTML = "";
-        ref.current.appendChild(el);
+        ref.current.appendChild(stage);
       }
       if (disposed) return;
 
@@ -268,6 +283,9 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       client.connect(`site=${encodeURIComponent(siteId)}&w=${vw()}&h=${vh()}&dpi=${dpi}`);
 
       keyboard = new Guacamole.Keyboard(document);
+      // On touch devices, also listen to a hidden input; focusing it raises the
+      // phone's own keyboard and its keystrokes (incl. IME) reach guacd.
+      if (isTouch && kbInputRef.current) keyboard.listenTo(kbInputRef.current);
       const trackMods = (k: number, down: boolean) => {
         if (k === KEYSYM.ctrlL || k === KEYSYM.ctrlR) modsRef.current.ctrl = down;
         if (k === KEYSYM.altL || k === KEYSYM.altR) modsRef.current.alt = down;
@@ -298,11 +316,17 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       // First user gesture unlocks audio playback (autoplay policy); respect mute.
       const unlock = () => { const ctx = audioCtx(); if (ctx && soundOnRef.current) ctx.resume?.().catch(() => {}); };
       el.addEventListener("mousedown", unlock, { once: true, capture: true });
-      const mouse = new Guacamole.Mouse(el);
       const send = (state: any) => client.sendMouseState(state);
-      mouse.onmousedown = send;
-      mouse.onmouseup = send;
-      mouse.onmousemove = send;
+      let mouse: any = null;
+      if (isTouch) {
+        touchRef.current = setupGatewayTouch(Guacamole, client, stage, el);
+        touchRef.current.onZoomChange((z) => { if (!disposed) setZoomed(z); });
+      } else {
+        mouse = new Guacamole.Mouse(el);
+        mouse.onmousedown = send;
+        mouse.onmouseup = send;
+        mouse.onmousemove = send;
+      }
 
       // On window resize, ask the remote to match the new viewport, then refit.
       onResize = () => {
@@ -349,6 +373,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
         if (onResize) window.removeEventListener("resize", onResize);
         if (onFocus) window.removeEventListener("focus", onFocus);
         if (onPaste) document.removeEventListener("paste", onPaste);
+        touchRef.current?.destroy();
         if (keyboard) {
           keyboard.onkeydown = null;
           keyboard.onkeyup = null;
@@ -385,8 +410,11 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   }, [siteId]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden", cursor: "none" }} onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+    <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden", cursor: isTouch ? "default" : "none" }} onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       {!ready && !error && <ConnectSplash siteName={siteName} />}
+      {/* Hidden input: on touch, focusing it raises the phone keyboard and its
+          keystrokes flow to guacd via Guacamole.Keyboard.listenTo. */}
+      <textarea ref={kbInputRef} className="gw-kbsink" aria-hidden="true" tabIndex={-1} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
       {/* Dedicated display target: the guac client clears this via innerHTML, so the
           overlays below must NOT live inside it (they'd be wiped on connect). */}
       <div ref={ref} style={{ position: "absolute", inset: 0 }} />
@@ -401,7 +429,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
               { key: "clip", icon: "clipboard", label: "Clipboard", onClick: () => setClipboardOpen(true) },
               ...(protocol === "RDP"
                 ? [{ key: "snd", icon: (soundOn ? "sound" : "mute") as "sound" | "mute", label: soundOn ? "Sound on" : "Muted", active: soundOn, onClick: toggleSound }]
-                : [{ key: "kbd", icon: "keyboard" as const, label: "Keyboard", onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click() }]),
+                : [{ key: "kbd", icon: "keyboard" as const, label: "Keyboard", onClick: openKeyboard }]),
             ]}
             sections={[
               { title: "Session", items: [
@@ -410,7 +438,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
                 { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
                 ...(protocol === "RDP" ? [
                   { key: "print", icon: "printer" as const, label: "Printing", sub: "If enabled by policy, print to \"Captivo Printer\" — the PDF arrives as a download", tone: "muted" as const },
-                  { key: "kbd2", icon: "keyboard" as const, label: "On-screen keyboard", sub: "For touch devices and special keys", tone: "muted" as const, onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click(), chevron: true },
+                  { key: "kbd2", icon: "keyboard" as const, label: isTouch ? "Keyboard" : "On-screen keyboard", sub: isTouch ? "Raise your device keyboard" : "For touch devices and special keys", tone: "muted" as const, onClick: openKeyboard, chevron: true },
                 ] : []),
               ] },
               { title: "Help", items: [
@@ -423,6 +451,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
           <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Ctrl+V pastes your clipboard", "Controls: top-left tab"]} />
         </>
       )}
+      {zoomed && <button type="button" className="gw-zoom-reset" onClick={resetZoom}>Reset zoom</button>}
       <RecordingNotice active={recorded && ready} />
       <MonitorNotice watching={watching} controlHeld={controlHeld} />
       <DropOverlay state={dropState} siteName={siteName} />
