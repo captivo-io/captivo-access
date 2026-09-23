@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ConnectSplash } from "./connect-splash";
 import { isolatedDims } from "@/lib/isolated/dims";
+import { keysymToDomKey } from "@/lib/session/dom-key";
+import { KEY } from "@/lib/session/keysyms";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
 import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, type ToastState } from "./shell/notices";
@@ -17,8 +19,10 @@ import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, t
 // becomes (e.g. after toggling full screen). resize=remote would grow the desktop
 // past the recorder's fixed x11grab region, so recordings would only capture the
 // top-left corner — scale keeps desktop and recording in lockstep.
-// show_control_bar=false hides KasmVNC's own side bar: Captivo's shell is the UI.
-const KASM_PARAMS = "path=kasm-tunnel/websockify&resize=scale&show_control_bar=false&clipboard_seamless=true&clipboard_up=true&clipboard_down=true";
+// KasmVNC hides its own side bar whenever it runs inside an iframe (which it does
+// here), so Captivo's shell is the only UI. Do NOT pass show_control_bar=false:
+// the client reads URL params as strings and "false" is truthy — it SHOWS the bar.
+const KASM_PARAMS = "path=kasm-tunnel/websockify&resize=scale&clipboard_seamless=true&clipboard_up=true&clipboard_down=true";
 
 // Streaming quality presets → KasmVNC client settings (JPEG/WebP quality ladder
 // and video-mode quality). Chosen per vendor browser; applied at connect.
@@ -43,6 +47,29 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
   const [controlHeld, setControlHeld] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [quality, setQuality] = useState<Quality>("auto");
+  const [clipOpen, setClipOpen] = useState(false);
+  const clipRef = useRef<HTMLTextAreaElement>(null);
+  // Ctrl+Alt+Shift toggles the manual clipboard panel (same chord as gateway sessions).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.shiftKey && !e.repeat) { e.preventDefault(); setClipOpen((v) => !v); }
+      else if (e.key === "Escape") setClipOpen(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, []);
+  const sendClipboard = async () => {
+    const text = clipRef.current?.value ?? "";
+    setClipOpen(false);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast("Copied to your clipboard — paste inside the session (Ctrl+V)", "ok");
+      kbInput()?.focus();
+    } catch {
+      setToast("Your browser blocked clipboard access", "warn");
+    }
+  };
   const [gen, setGen] = useState(0); // bump to reconnect the iframe (new isolated session)
   useEffect(() => { setQuality(readQuality()); }, []);
   const cycleQuality = () => {
@@ -138,19 +165,35 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
       ?? (doc?.querySelector("textarea, input[type=text]") as HTMLElement | null);
   };
 
-  // Send a raw X11 keysym to the isolated session for the shared OnScreenKeyboard:
-  // prefer the RFB API if the bundle exposes it, else a synthetic KeyboardEvent on
-  // the hidden keyboard input (best-effort — the embed may ignore synthetic events).
+  // Send a raw X11 keysym to the isolated session for the shared OnScreenKeyboard.
+  // KasmVNC's RFB instance is module-private (no window.rfb), but its Keyboard
+  // listens on the hidden input and does not reject synthetic events — it just
+  // needs a real `key` + `code` on both edges (keyup is matched by `code`).
+  const modsRef = useRef({ shift: false, ctrl: false, alt: false, meta: false });
   const sendKeysym = (keysym: number, pressed: boolean) => {
     const el = kbInput();
-    if (!el) return;
-    el.focus();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rfb: any = (frameRef.current?.contentWindow as any)?.rfb;
-    if (rfb?.sendKey) { rfb.sendKey(keysym, null, pressed); return; }
-    if (!pressed) return; // synthetic path fires on the down edge only
-    const ch = keysym >= 0x20 && keysym <= 0x7e ? String.fromCharCode(keysym) : "";
-    el.dispatchEvent(new KeyboardEvent("keydown", { key: ch || " ", bubbles: true }));
+    const win = frameRef.current?.contentWindow;
+    if (!el || !win) return;
+    if (keysym === KEY.shift) modsRef.current.shift = pressed;
+    if (keysym === KEY.ctrl) modsRef.current.ctrl = pressed;
+    if (keysym === KEY.alt) modsRef.current.alt = pressed;
+    if (keysym === KEY.super) modsRef.current.meta = pressed;
+    const init = keysymToDomKey(keysym, modsRef.current.shift);
+    if (!init) return;
+    if (document.activeElement !== el) el.focus({ preventScroll: true });
+    const KE = (win as unknown as { KeyboardEvent: typeof KeyboardEvent }).KeyboardEvent ?? KeyboardEvent;
+    el.dispatchEvent(new KE(pressed ? "keydown" : "keyup", {
+      key: init.key, code: init.code, keyCode: init.keyCode, which: init.keyCode,
+      shiftKey: modsRef.current.shift, ctrlKey: modsRef.current.ctrl, altKey: modsRef.current.alt, metaKey: modsRef.current.meta,
+      bubbles: true, cancelable: true,
+    } as KeyboardEventInit));
+  };
+  // Touch devices: the phone's own keyboard is the best keyboard — focusing the
+  // hidden input raises it and KasmVNC captures the typing. Desktop: our OSK.
+  const isTouch = () => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+  const openKeyboard = () => {
+    if (isTouch()) { const el = kbInput(); if (el) { el.focus(); return; } }
+    document.querySelector<HTMLButtonElement>(".osk-handle")?.click();
   };
 
   // The macOS green button only maximises the browser window — it keeps the tab/URL
@@ -250,13 +293,13 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
             quick={[
               { key: "fs", icon: "fullscreen", label: fs ? "Exit full screen" : "Full screen", active: fs, onClick: toggleFs },
               { key: "up", icon: "upload", label: "Upload", disabled: !canUpload, onClick: () => fileRef.current?.click() },
-              { key: "kbd", icon: "keyboard", label: "Keyboard", onClick: () => document.querySelector<HTMLButtonElement>(".osk-handle")?.click() },
+              { key: "kbd", icon: "keyboard", label: "Keyboard", onClick: openKeyboard },
             ]}
             sections={[
               { title: "Session", items: [
                 { key: "files", icon: canUpload || canDownload ? "upload" : "block", label: "File transfer", sub: !canUpload && !canDownload ? "Disabled for this resource by policy" : `${canUpload ? "Upload allowed (drop files on the screen)" : "Upload blocked"} · ${canDownload ? "download allowed" : "download blocked"}`, tone: canUpload || canDownload ? "ok" : "muted", onClick: canUpload ? () => fileRef.current?.click() : undefined, chevron: canUpload },
                 ...(canDownload ? [{ key: "downloads", icon: "download" as const, label: "Downloads", sub: downloads.length ? `${downloads.length} file${downloads.length === 1 ? "" : "s"} ready — listed at the bottom left` : "Files the browser downloads appear here", tone: (downloads.length ? "ok" : "muted") as "ok" | "muted" }] : []),
-                { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: "Seamless copy & paste, as allowed by policy", tone: "ok" },
+                { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: "Seamless copy & paste, as allowed by policy · Ctrl+Alt+Shift for the manual panel", tone: "ok", onClick: () => setClipOpen(true), chevron: true },
                 { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
                 { key: "quality", icon: "gauge", label: "Streaming quality", sub: `${QUALITY_LABEL[quality]} — tap to change (reopens the browser)`, tone: "default", onClick: cycleQuality, chevron: true },
                 { key: "iso", icon: "shield", label: "Isolation", sub: "The app runs in a throwaway browser inside the customer network; only pixels reach you", tone: "muted" },
@@ -265,13 +308,26 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
             leave={{ label: "Leave session", sub: "Close the isolated browser and return to My access", onClick: () => { window.location.href = "/access"; } }}
           />
           <OnScreenKeyboard sendKey={sendKeysym} />
-          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Controls: top-left tab", "Full screen fits the app exactly"]} />
+          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Copy & paste works seamlessly", "Controls: top-left tab"]} />
         </>
       )}
       <RecordingNotice active={recorded && ready} />
       <MonitorNotice watching={watching} controlHeld={controlHeld} />
       <DropOverlay state={dropState} siteName={siteName} />
       <SessionToast toast={toast} />
+      {clipOpen && (
+        <div className="clip-overlay" role="dialog" aria-label="Clipboard" aria-modal="true">
+          <div className="clip-panel">
+            <div className="clip-title">Clipboard</div>
+            <textarea ref={clipRef} className="clip-ta" spellCheck={false} placeholder="Paste text here — Send puts it on your clipboard for the session." autoFocus />
+            <div className="clip-actions">
+              <button type="button" className="clip-btn clip-btn-primary" onClick={sendClipboard}>Send to session</button>
+              <button type="button" className="clip-btn" onClick={() => setClipOpen(false)}>Close</button>
+            </div>
+            <div className="clip-hint">Seamless clipboard is on: copying anywhere and pasting inside the session usually just works. Use this panel when your browser blocks clipboard access. Ctrl+Alt+Shift toggles · Esc closes</div>
+          </div>
+        </div>
+      )}
       {ready && dims && canDownload && downloads.length > 0 && (
         <div className="ss-downloads">
           <div className="ss-downloads-title">Downloads ({downloads.length})</div>
