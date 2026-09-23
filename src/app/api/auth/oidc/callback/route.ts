@@ -11,6 +11,8 @@ import { managerBaseUrl } from "@/lib/url";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { signWorkspaceClaim } from "@/lib/signup/workspace-claim";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
+import { tenantSlugByOrg } from "@/lib/platform/sql";
+import { consoleDomain } from "@/lib/tenant/console-domain";
 import { currentTenantId } from "@/lib/tenant/context";
 
 export const dynamic = "force-dynamic";
@@ -128,6 +130,16 @@ async function handler(req: NextRequest) {
   if (!invite && currentTenantId() === PLATFORM_TENANT_ID) {
     const grant = accessGrant(claims);
     if (grant) {
+      // A workspace this organisation ALREADY has is not something to create
+      // again. Without this, someone arriving at the platform host was shown
+      // the address form, typed an address they had already chosen, and was
+      // told at the submit that it was taken -- by themselves. The manager's
+      // own hosts comment claimed this forwarding existed; it did not.
+      const existingSlug = await tenantSlugByOrg(grant.org);
+      const domain = consoleDomain();
+      if (existingSlug && domain) {
+        return NextResponse.redirect(`https://${existingSlug}.${domain}`);
+      }
       const secret = process.env.CAPTIVO_ID_CLIENT_SECRET ?? "";
       const token = signWorkspaceClaim(
         { org: grant.org, orgName: grant.orgName, email, name: claims.name },
