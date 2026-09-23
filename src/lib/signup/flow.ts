@@ -10,7 +10,7 @@ import { registerWithCaptivoId } from "@/lib/auth/captivo-id-register";
 import { sendMail } from "@/lib/email/mailer";
 import { normalizeEmail } from "@/lib/auth/email";
 import { normalizeDisplayName } from "@/lib/auth/display-name";
-import { signSignup, verifySignup, TRIAL_DAYS, type SignupClaims } from "./token";
+import { signSignup, verifySignup, type SignupClaims } from "./token";
 
 export async function signupEnabled(): Promise<boolean> {
   return multiTenantEnabled() && (await getPlatformConfig()).signupEnabled;
@@ -53,13 +53,19 @@ export async function completeSignup(token: string): Promise<{ ok: true; inviteU
   if (!c) return { ok: false, error: "invalid_token" };
   let result;
   try {
-    result = await createTenant({ name: c.name, slug: c.slug, adminEmail: c.email, adminName: c.adminName || undefined, plan: "trial", trialDays: TRIAL_DAYS });
+    // The FREE tier, not a timed trial. Both doors into Access now give the
+    // same thing: a workspace that does not expire, capped at the free
+    // allowance. Someone who needs more buys more; nobody loses a workspace
+    // because a clock ran out. The caps are spelled here rather than imported
+    // from the centre because this path does not go through the centre's gift
+    // policy -- see lib/platform/plan-usage.ts for where they are shown.
+    result = await createTenant({ name: c.name, slug: c.slug, adminEmail: c.email, adminName: c.adminName || undefined, plan: "free", limits: { maxConnectors: 1, maxSites: 5 } });
   } catch (e) {
     if (e instanceof PlatformError) return { ok: false, error: e.code };
     throw e;
   }
   await withTenant(PLATFORM_TENANT_ID, () =>
-    recordPlatformAction({ actor: { id: "signup", email: c.email }, action: "platform.tenant.signup", tenant: { id: result.tenant.id, slug: result.tenant.slug }, summary: `Self-service signup created trial tenant ${c.slug} for ${c.email}`, metadata: { trialDays: TRIAL_DAYS } }),
+    recordPlatformAction({ actor: { id: "signup", email: c.email }, action: "platform.tenant.signup", tenant: { id: result.tenant.id, slug: result.tenant.slug }, summary: `Self-service signup created free-tier tenant ${c.slug} for ${c.email}`, metadata: { plan: "free" } }),
   );
   // Best-effort: one Captivo account should reach both products, but the
   // workspace above already exists and the customer is waiting on their

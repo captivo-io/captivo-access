@@ -7,7 +7,7 @@ import { tenantStats } from "@/lib/platform/sql";
 import { tenantHealth, healthProblems } from "@/lib/platform/health";
 import { tenantOverview, tenantAdminAudit } from "@/lib/platform/tenant-admin";
 import { consoleDomain } from "@/lib/tenant/console-domain";
-import { formatBytes, trialState, LIMIT_LABELS, CAPABILITY_LABELS, LIMIT_KEYS, CAPABILITY_KEYS } from "@/lib/platform/tenant-shape";
+import { formatBytes, LIMIT_LABELS, CAPABILITY_LABELS, LIMIT_KEYS, CAPABILITY_KEYS } from "@/lib/platform/tenant-shape";
 import { timeAgo } from "@/lib/format";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { StatCard, StatusPill, PlanPill, HealthChips, SectionHead } from "../../../_shell/ui";
@@ -48,7 +48,6 @@ export default async function TenantDetailPage({ params, searchParams }: { param
   const { tenant, stats, health, ov, audit } = data;
   const domain = consoleDomain();
   const consoleUrl = domain ? `https://${tenant.slug}.${domain}` : null;
-  const ts = trialState(tenant.plan, tenant.trialEndsAt);
   const problems = health ? healthProblems(health) : [];
   const href = (t: Tab) => (t === "overview" ? `/platform/tenants/${tenant.id}` : `/platform/tenants/${tenant.id}?tab=${t}`);
 
@@ -59,7 +58,7 @@ export default async function TenantDetailPage({ params, searchParams }: { param
         <div>
           <div className="page-title-row">
             <h1>{tenant.name}</h1>
-            <span className="chips"><StatusPill status={tenant.status} deletedAt={tenant.deletedAt} /><PlanPill plan={tenant.plan} />{ts === "expired" ? <span className="pill danger">Trial expired</span> : ts === "ending_soon" ? <span className="pill warn">Trial ending</span> : null}</span>
+            <span className="chips"><StatusPill status={tenant.status} deletedAt={tenant.deletedAt} /><PlanPill plan={tenant.plan} /></span>
           </div>
           <p>
             <code>{tenant.slug}</code>

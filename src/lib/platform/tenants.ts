@@ -90,7 +90,7 @@ export function validateUpdateInput(input: UpdateTenantInput): { name: string; p
   if (!isPlan(input.plan)) throw new PlatformError("invalid_plan");
   if (input.trialEndsAt && Number.isNaN(input.trialEndsAt.getTime())) throw new PlatformError("invalid_trial_end");
   const notes = input.notes?.trim() ? input.notes.trim().slice(0, 4000) : null;
-  return { name, plan: input.plan, trialEndsAt: input.plan === "trial" ? input.trialEndsAt : null, limits: parseLimits(input.limits), capabilities: parseCapabilities(input.capabilities), notes };
+  return { name, plan: input.plan, trialEndsAt: null, limits: parseLimits(input.limits), capabilities: parseCapabilities(input.capabilities), notes };
 }
 
 export async function updateTenant(id: string, input: UpdateTenantInput): Promise<void> {
@@ -116,7 +116,7 @@ export async function setTenantStatus(id: string, status: "ACTIVE" | "SUSPENDED"
   await base.$executeRawUnsafe(`SELECT platform_set_tenant_status($1, $2)`, id, status);
 }
 
-export async function createTenant(input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; trialDays?: number; limits?: TenantLimits; captivoOrgId?: string }) {
+export async function createTenant(input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; limits?: TenantLimits; captivoOrgId?: string }) {
   validateCreateInput(input);
   const id = crypto.randomUUID();
   const name = input.name.trim();
@@ -175,8 +175,10 @@ export async function createTenant(input: { name: string; slug: string; adminEma
     // Written whenever the plan is not the default OR caps were supplied: a
     // standard tenant with caps used to fall through this branch and lose them.
     if (plan !== "standard" || limits) {
-      const trialEndsAt = plan === "trial" ? new Date(Date.now() + (input.trialDays ?? 14) * 24 * 3600 * 1000) : null;
-      await updateTenantRow({ id, name, plan, trialEndsAt, limits, capabilities: null, notes: null });
+        // trialEndsAt stays null: there is no trial plan any more (the free tier
+    // is the trial). The COLUMN is kept -- dropping it would be a data-loss
+    // migration for a field nothing writes.
+    await updateTenantRow({ id, name, plan, trialEndsAt: null, limits, capabilities: null, notes: null });
     }
     const defaults = newTenantDefaultsFrom(await getPlatformConfig());
     if (defaults) {

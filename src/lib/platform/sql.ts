@@ -104,10 +104,6 @@ export async function purgeCandidates(days: number): Promise<string[]> {
   const rows = await base.$queryRawUnsafe<{ platform_purge_candidates: string }[]>(`SELECT platform_purge_candidates($1::int)`, days);
   return rows.map((r) => r.platform_purge_candidates);
 }
-export async function expiredTrials(): Promise<string[]> {
-  const rows = await base.$queryRawUnsafe<{ platform_expired_trials: string }[]>(`SELECT platform_expired_trials()`);
-  return rows.map((r) => r.platform_expired_trials);
-}
 export interface PlatformSmtpRow { host: string; port: number; secure: boolean; username: string; password: string; fromName: string; fromEmail: string }
 export async function platformSmtpConfig(): Promise<PlatformSmtpRow | null> {
   const rows = await base.$queryRawUnsafe<PlatformSmtpRow[]>(`SELECT * FROM platform_smtp_config()`);

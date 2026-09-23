@@ -22,17 +22,22 @@ describe("validateCreateInput", () => {
 describe("validateUpdateInput", () => {
   const base = { name: "Acme", plan: "standard", trialEndsAt: null, limits: {}, capabilities: {}, notes: null };
   it("normalizes a valid update", () => {
-    const v = validateUpdateInput({ ...base, name: "  Acme Inc ", plan: "trial", trialEndsAt: new Date("2026-10-01T00:00:00Z"), limits: { maxUsers: "5" }, capabilities: { vault: false }, notes: "  hi " });
-    expect(v).toMatchObject({ name: "Acme Inc", plan: "trial", limits: { maxUsers: 5 }, capabilities: { vault: false }, notes: "hi" });
-    expect(v.trialEndsAt?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
+    const v = validateUpdateInput({ ...base, name: "  Acme Inc ", plan: "enterprise", trialEndsAt: new Date("2026-10-01T00:00:00Z"), limits: { maxUsers: "5" }, capabilities: { vault: false }, notes: "  hi " });
+    expect(v).toMatchObject({ name: "Acme Inc", plan: "enterprise", limits: { maxUsers: 5 }, capabilities: { vault: false }, notes: "hi" });
+    // Dropped whatever the caller sent: no plan expires any more, so the
+    // column is never written. It is KEPT in the schema because removing it
+    // would be a data-loss migration for a field nothing writes.
+    expect(v.trialEndsAt).toBeNull();
   });
-  it("drops the trial end when the plan is not trial", () => {
-    expect(validateUpdateInput({ ...base, trialEndsAt: new Date() }).trialEndsAt).toBeNull();
+  it("drops the trial end on every plan", () => {
+    for (const plan of ["standard", "enterprise", "free"]) {
+      expect(validateUpdateInput({ ...base, plan, trialEndsAt: new Date() }).trialEndsAt).toBeNull();
+    }
   });
-  it("rejects an empty name, an unknown plan, and a bad trial date", () => {
+  it("rejects an empty name and an unknown plan — 'trial' now among them", () => {
     expect(() => validateUpdateInput({ ...base, name: " " })).toThrow(PlatformError);
     expect(() => validateUpdateInput({ ...base, plan: "gold" })).toThrow(/invalid_plan/);
-    expect(() => validateUpdateInput({ ...base, plan: "trial", trialEndsAt: new Date("nope") })).toThrow(/invalid_trial_end/);
+    expect(() => validateUpdateInput({ ...base, plan: "trial" })).toThrow(/invalid_plan/);
   });
 });
 

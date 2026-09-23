@@ -27,7 +27,7 @@ export function TenantSettingsForm({ tenant }: { tenant: T }) {
       for (const k of CAPABILITY_KEYS) if (caps[k] !== "default") capabilities[k] = caps[k] === "on";
       const res = await fetch(`/api/platform/tenants/${tenant.id}`, {
         method: "PATCH", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, plan, trialEndsAt: plan === "trial" && trialEndsAt ? new Date(`${trialEndsAt}T23:59:59`).toISOString() : null, limits, capabilities, notes }),
+        body: JSON.stringify({ name, plan, trialEndsAt: null, limits, capabilities, notes }),
       });
       const b = await res.json().catch(() => ({}));
       if (!res.ok) { setMsg({ ok: false, text: `Couldn't save (${b?.error ?? res.status}).` }); return; }
@@ -42,7 +42,6 @@ export function TenantSettingsForm({ tenant }: { tenant: T }) {
         <div className="setting"><div className="setting-main"><span className="setting-label">Display name</span><div className="setting-hint">Shown in the platform console and in the tenant&apos;s own console header.</div></div><div className="setting-ctl"><input className="input" style={{ minWidth: 260 }} value={name} maxLength={120} required onChange={(e) => setName(e.target.value)} /></div></div>
         <div className="setting"><div className="setting-main"><span className="setting-label">Plan</span><div className="setting-hint">Trial tenants are suspended automatically when the trial ends (platform-ops cron).</div></div><div className="setting-ctl">
           <select className="select" value={plan} onChange={(e) => setPlan(e.target.value)}>{PLANS.map((p) => <option key={p} value={p}>{p}</option>)}</select>
-          {plan === "trial" && <><span className="unit">ends</span><input className="input" type="date" value={trialEndsAt} onChange={(e) => setTrialEndsAt(e.target.value)} /><TimezoneHint /></>}
         </div></div>
         {LIMIT_KEYS.map((k) => (
           <div className="setting" key={k}><div className="setting-main"><span className="setting-label">{LIMIT_LABELS[k]}</span><div className="setting-hint">{k === "maxRecordingRetentionDays" ? "Caps the tenant's own recording-retention policy." : "Empty = unlimited. Enforced when the tenant tries to add one more."}</div></div><div className="setting-ctl"><input className="input" type="number" min={1} placeholder="∞" value={limits[k]} onChange={(e) => setLimits((s) => ({ ...s, [k]: e.target.value }))} /></div></div>

@@ -1,7 +1,6 @@
 import { listTenants, PURGE_AFTER_DAYS, type PlatformTenant } from "@/lib/platform/tenants";
 import { tenantStats, cronRuns, recentAdminEvents, recentAccessEvents, type TenantStats } from "@/lib/platform/sql";
 import { tenantsHealth, healthProblems, type TenantHealth } from "@/lib/platform/health";
-import { trialState } from "@/lib/platform/tenant-shape";
 
 export type AlertLevel = "info" | "warn" | "danger";
 export interface PlatformAlert {
@@ -51,9 +50,6 @@ export async function platformSnapshot(opts: { health?: boolean } = {}): Promise
       continue;
     }
     if (t.status === "SUSPENDED") alerts.push({ level: "info", kind: "suspended", tenant: ref, text: "Suspended", href });
-    const ts = trialState(t.plan, t.trialEndsAt);
-    if (ts === "expired") alerts.push({ level: "danger", kind: "trial_expired", tenant: ref, text: "Trial expired — will be suspended by the next platform-ops run", href });
-    else if (ts === "ending_soon") alerts.push({ level: "warn", kind: "trial_ending", tenant: ref, text: `Trial ends ${t.trialEndsAt!.toISOString().slice(0, 10)}`, href });
     if (t.health) {
       for (const p of healthProblems(t.health)) alerts.push({ level: t.health.cert === "expiring" ? "warn" : "danger", kind: "provisioning", tenant: ref, text: p, href: "/platform/jobs" });
     }
@@ -75,17 +71,16 @@ export async function platformSnapshot(opts: { health?: boolean } = {}): Promise
 }
 
 export interface Totals {
-  tenants: number; active: number; suspended: number; trial: number; deleted: number;
+  tenants: number; active: number; suspended: number; deleted: number;
   users: number; vendors: number; sessions24h: number; connectors: number; connectorsOnline: number;
   sites: number; grantsActive: number; requestsPending: number; recordings: number; recordingBytes: number; auditEvents: number;
 }
 function totalsOf(rows: TenantRow[]): Totals {
-  const t: Totals = { tenants: 0, active: 0, suspended: 0, trial: 0, deleted: 0, users: 0, vendors: 0, sessions24h: 0, connectors: 0, connectorsOnline: 0, sites: 0, grantsActive: 0, requestsPending: 0, recordings: 0, recordingBytes: 0, auditEvents: 0 };
+  const t: Totals = { tenants: 0, active: 0, suspended: 0, deleted: 0, users: 0, vendors: 0, sessions24h: 0, connectors: 0, connectorsOnline: 0, sites: 0, grantsActive: 0, requestsPending: 0, recordings: 0, recordingBytes: 0, auditEvents: 0 };
   for (const r of rows) {
     if (r.deletedAt) { t.deleted++; continue; }
     t.tenants++;
     if (r.status === "ACTIVE") t.active++; else t.suspended++;
-    if (r.plan === "trial") t.trial++;
     if (r.stats) {
       t.users += r.stats.users; t.vendors += r.stats.vendors; t.sessions24h += r.stats.sessions24h; t.connectors += r.stats.connectors;
       t.connectorsOnline += r.stats.connectorsOnline; t.sites += r.stats.sites; t.grantsActive += r.stats.grantsActive; t.requestsPending += r.stats.requestsPending;

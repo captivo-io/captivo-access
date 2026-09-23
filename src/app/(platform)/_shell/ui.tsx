@@ -44,7 +44,7 @@ export function StatusPill({ status, deletedAt }: { status: string; deletedAt?: 
 }
 
 export function PlanPill({ plan }: { plan: string }) {
-  const cls = plan === "enterprise" ? "ok" : plan === "trial" ? "warn" : "neutral";
+  const cls = plan === "enterprise" ? "ok" : "neutral";
   return <span className={`pill ${cls}`}>{plan[0].toUpperCase() + plan.slice(1)}</span>;
 }
 

@@ -1,7 +1,7 @@
 // Daily platform maintenance (Cloud): purge tenants deleted > PURGE_AFTER_DAYS
 // ago, suspend expired trials, and email the ops digest when there are alerts.
 // Runs under the platform tenant scope (audit rows land in the platform chain).
-import { purgeCandidates, expiredTrials } from "@/lib/platform/sql";
+import { purgeCandidates } from "@/lib/platform/sql";
 import { purgeTenant, setTenantStatus, getTenant, PURGE_AFTER_DAYS } from "@/lib/platform/tenants";
 import { forceLogoutTenant } from "@/lib/platform/tenant-admin";
 import { recordPlatformAction } from "@/lib/platform/audit";
@@ -12,7 +12,7 @@ import { consoleDomain } from "@/lib/tenant/console-domain";
 
 const SYSTEM = { id: "system", email: "platform-ops@system" };
 
-export interface OpsResult { purged: string[]; suspendedTrials: string[]; alerts: number; digestSent: boolean }
+export interface OpsResult { purged: string[]; alerts: number; digestSent: boolean }
 
 export async function runPlatformOps(): Promise<OpsResult> {
   const purged: string[] = [];
@@ -23,30 +23,19 @@ export async function runPlatformOps(): Promise<OpsResult> {
     purged.push(t?.slug ?? id);
   }
 
-  const suspendedTrials: string[] = [];
-  for (const id of await expiredTrials()) {
-    const t = await getTenant(id);
-    if (!t) continue;
-    await setTenantStatus(id, "SUSPENDED");
-    await forceLogoutTenant(id).catch(() => 0);
-    await recordPlatformAction({ actor: SYSTEM, action: "platform.tenant.suspend", tenant: { id, slug: t.slug }, summary: `Suspended ${t.slug}: trial ended ${t.trialEndsAt?.toISOString().slice(0, 10)}`, metadata: { reason: "trial_expired" } });
-    suspendedTrials.push(t.slug);
-  }
-
   const [snap, config] = await Promise.all([platformSnapshot(), getPlatformConfig()]);
   const actionable = snap.alerts.filter((a) => a.level !== "info");
   let digestSent = false;
-  if (config.opsEmail && (actionable.length > 0 || purged.length > 0 || suspendedTrials.length > 0)) {
+  if (config.opsEmail && (actionable.length > 0 || purged.length > 0)) {
     const domain = consoleDomain();
     const link = domain ? `https://platform.${domain}/platform` : "";
     const lines = [
       ...actionable.map((a) => `[${a.level.toUpperCase()}] ${a.tenant ? `${a.tenant.name} (${a.tenant.slug}): ` : ""}${a.text}`),
       ...purged.map((s) => `[INFO] Purged tenant ${s}`),
-      ...suspendedTrials.map((s) => `[INFO] Suspended expired trial ${s}`),
     ];
     const text = `Captivo platform digest — ${new Date().toISOString().slice(0, 10)}\n\n${lines.join("\n")}\n\n${link}`;
     const html = `<p><b>Captivo platform digest</b> — ${new Date().toISOString().slice(0, 10)}</p><ul>${lines.map((l) => `<li>${l.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</li>`).join("")}</ul>${link ? `<p><a href="${link}">Open the platform console</a></p>` : ""}`;
     digestSent = (await sendMail({ to: config.opsEmail, subject: `[Captivo platform] ${actionable.length} alert${actionable.length === 1 ? "" : "s"}`, html, text })).sent;
   }
-  return { purged, suspendedTrials, alerts: actionable.length, digestSent };
+  return { purged, alerts: actionable.length, digestSent };
 }

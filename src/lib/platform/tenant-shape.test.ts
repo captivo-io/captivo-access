@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { parseLimits, parseCapabilities, limitsForStorage, withinLimit, trialState, formatBytes, isPlan, PLANS } from "./tenant-shape";
+import { parseLimits, parseCapabilities, limitsForStorage, withinLimit, formatBytes, isPlan, PLANS } from "./tenant-shape";
 
 describe("parseLimits", () => {
   it("keeps positive integers, coerces numeric strings, drops junk", () => {
@@ -22,27 +22,28 @@ describe("parseCapabilities", () => {
   });
 });
 
-describe("withinLimit / trialState / formatBytes / isPlan", () => {
+describe("withinLimit / formatBytes / isPlan", () => {
   it("withinLimit", () => {
     expect(withinLimit({}, "maxUsers", 999)).toBe(true);
     expect(withinLimit({ maxUsers: 3 }, "maxUsers", 2)).toBe(true);
     expect(withinLimit({ maxUsers: 3 }, "maxUsers", 3)).toBe(false);
   });
-  it("trialState", () => {
-    const now = new Date("2026-09-10T00:00:00Z");
-    expect(trialState("standard", null, now)).toBe("none");
-    expect(trialState("trial", null, now)).toBe("active");
-    expect(trialState("trial", new Date("2026-09-09T00:00:00Z"), now)).toBe("expired");
-    expect(trialState("trial", new Date("2026-09-13T00:00:00Z"), now)).toBe("ending_soon");
-    expect(trialState("trial", new Date("2026-10-13T00:00:00Z"), now)).toBe("active");
+  it("trial diye bir plan yok", () => {
+    // Product decision (2026-09-23): the free tier IS the trial. Nothing
+    // creates a time-limited plan any more, so a workspace never disappears
+    // because a clock ran out; someone who needs more capacity buys it.
+    expect(PLANS).not.toContain("trial");
+    expect(isPlan("trial")).toBe(false);
+    expect([...PLANS].sort()).toEqual(["enterprise", "free", "standard"]);
   });
+
   it("formatBytes", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(5 * 1024 * 1024 * 1024)).toBe("5.0 GB");
   });
   it("isPlan", () => {
-    expect(isPlan("trial")).toBe(true);
+    expect(isPlan("standard")).toBe(true);
     expect(isPlan("gold")).toBe(false);
   });
 });
@@ -53,25 +54,25 @@ describe("free plan", () => {
     expect(PLANS).toContain("free");
   });
 
-  it("has no trial state, so nothing can call it expired", () => {
-    // The free tier is open-ended. trialState is what the console and the ops
-    // job read to decide a tenant's standing; anything other than "none" here
-    // would eventually present a free workspace as an expiring one.
-    expect(trialState("free", null)).toBe("none");
-    expect(trialState("free", new Date("2000-01-01"))).toBe("none");
+  it("cannot be turned into an expiring plan by the database either", () => {
+    // The allow-list is a SECURITY DEFINER function, so no unit test exercises
+    // it; reading the source is the only way to notice a plan creeping back.
+    // The TypeScript union and this list are compared for equality by
+    // plan-sql-parity.test.ts -- this assertion is the narrower one that says
+    // WHICH name must stay out, so a regression reads as itself.
+    const sql = readFileSync(path.join(__dirname, "..", "..", "..", "prisma", "rls", "bootstrap.sql"), "utf-8");
+    const guard = sql.match(/p_plan NOT IN \(([^)]*)\)/);
+    expect(guard, "platform_update_tenant no longer guards p_plan").not.toBeNull();
+    expect(guard![1]).not.toContain("trial");
   });
 
-  it("is excluded by the ops job's SQL, not merely by a null date", () => {
-    // The suspension candidates come from a Postgres function, so no unit test
-    // exercises the real predicate. Reading the source is the only way to
-    // notice if someone widens it. Two independent reasons keep free out: the
-    // plan filter and the null trialEndsAt -- assert the plan filter, because
-    // that is the one a later edit could remove without thinking about free.
+  it("leaves no job that can suspend a workspace for running out of time", () => {
+    // platform_expired_trials() was the only thing that suspended a tenant on
+    // a clock. It is gone, and bootstrap.sql drops it where it already exists
+    // -- an upgraded database must not keep a SECURITY DEFINER function that
+    // nothing calls.
     const sql = readFileSync(path.join(__dirname, "..", "..", "..", "prisma", "rls", "bootstrap.sql"), "utf-8");
-    const fnStart = sql.indexOf("platform_expired_trials");
-    const bodyStart = sql.indexOf("$$", fnStart);
-    const bodyEnd = sql.indexOf("$$", bodyStart + 2);
-    const body = sql.slice(bodyStart, bodyEnd);
-    expect(body).toContain("plan = 'trial'");
+    expect(sql).toContain("DROP FUNCTION IF EXISTS platform_expired_trials();");
+    expect(sql).not.toContain("CREATE OR REPLACE FUNCTION platform_expired_trials()");
   });
 });

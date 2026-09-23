@@ -4,7 +4,7 @@
 // "free": the complimentary tier a new organisation receives from Captivo ID.
 // Open-ended on purpose -- it carries no trialEndsAt, so the ops job that
 // suspends expired trials never selects it (prisma/rls/bootstrap.sql).
-export const PLANS = ["trial", "standard", "enterprise", "free"] as const;
+export const PLANS = ["standard", "enterprise", "free"] as const;
 export type Plan = (typeof PLANS)[number];
 
 export const LIMIT_KEYS = ["maxUsers", "maxSites", "maxConnectors", "maxRecordingRetentionDays"] as const;
@@ -68,17 +68,6 @@ export function capabilitiesForStorage(c: TenantCapabilities): TenantCapabilitie
 export function withinLimit(limits: TenantLimits, key: LimitKey, count: number): boolean {
   const max = limits[key];
   return max === undefined || count < max;
-}
-
-// Trial state derived from plan + trialEndsAt.
-export type TrialState = "none" | "active" | "ending_soon" | "expired";
-export function trialState(plan: string, trialEndsAt: Date | null, now: Date = new Date()): TrialState {
-  if (plan !== "trial") return "none";
-  if (!trialEndsAt) return "active";
-  const ms = trialEndsAt.getTime() - now.getTime();
-  if (ms <= 0) return "expired";
-  if (ms < 7 * 24 * 3600 * 1000) return "ending_soon";
-  return "active";
 }
 
 export function formatBytes(n: number): string {

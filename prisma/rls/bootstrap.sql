@@ -287,11 +287,13 @@ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
   ORDER BY t.slug, c.job
 $$;
 
+DROP FUNCTION IF EXISTS platform_expired_trials();
+
 CREATE OR REPLACE FUNCTION platform_update_tenant(p_id text, p_name text, p_plan text, p_trial_ends timestamptz, p_limits jsonb, p_capabilities jsonb, p_notes text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF p_id IN ('platform', 'default') THEN RAISE EXCEPTION 'reserved tenant'; END IF;
-  IF p_plan NOT IN ('trial', 'standard', 'enterprise', 'free') THEN RAISE EXCEPTION 'invalid plan: %', p_plan; END IF;
+  IF p_plan NOT IN ('standard', 'enterprise', 'free') THEN RAISE EXCEPTION 'invalid plan: %', p_plan; END IF;
   UPDATE "Tenant" SET name = p_name, plan = p_plan, "trialEndsAt" = p_trial_ends, limits = p_limits,
                       capabilities = p_capabilities, notes = p_notes, "updatedAt" = now()
   WHERE id = p_id;
@@ -325,11 +327,6 @@ RETURNS SETOF text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public
   SELECT id FROM "Tenant" WHERE "deletedAt" IS NOT NULL AND "deletedAt" < now() - make_interval(days => p_days) AND id NOT IN ('platform', 'default')
 $$;
 
-CREATE OR REPLACE FUNCTION platform_expired_trials()
-RETURNS SETOF text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
-  SELECT id FROM "Tenant" WHERE plan = 'trial' AND "trialEndsAt" IS NOT NULL AND "trialEndsAt" < now()
-    AND status = 'ACTIVE' AND "deletedAt" IS NULL AND id NOT IN ('platform', 'default')
-$$;
 
 -- The platform tenant's SMTP settings, for the opt-in fallback used by tenants
 -- that have not configured their own mail. Read by ANY tenant request; the
@@ -350,7 +347,6 @@ REVOKE ALL ON FUNCTION platform_delete_tenant(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform_restore_tenant(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform_purge_tenant(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform_purge_candidates(int) FROM PUBLIC;
-REVOKE ALL ON FUNCTION platform_expired_trials() FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform_smtp_config() FROM PUBLIC;
 
 SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app') AS have_role \gset
@@ -365,6 +361,5 @@ GRANT EXECUTE ON FUNCTION platform_delete_tenant(text) TO app;
 GRANT EXECUTE ON FUNCTION platform_restore_tenant(text) TO app;
 GRANT EXECUTE ON FUNCTION platform_purge_tenant(text) TO app;
 GRANT EXECUTE ON FUNCTION platform_purge_candidates(int) TO app;
-GRANT EXECUTE ON FUNCTION platform_expired_trials() TO app;
 GRANT EXECUTE ON FUNCTION platform_smtp_config() TO app;
 \endif

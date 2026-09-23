@@ -11,7 +11,7 @@ export interface TenantRowJSON {
   dns: string; cert: string; certDaysLeft: number | null; cronStale: boolean; problems: string[];
 }
 
-type Filter = "all" | "active" | "suspended" | "trial" | "problems" | "deleted";
+type Filter = "all" | "active" | "suspended" | "problems" | "deleted";
 
 export function TenantsTable({ rows }: { rows: TenantRowJSON[] }) {
   const [q, setQ] = useState("");
@@ -23,7 +23,6 @@ export function TenantsTable({ rows }: { rows: TenantRowJSON[] }) {
       else if (r.deletedAt) return false;
       if (filter === "active" && r.status !== "ACTIVE") return false;
       if (filter === "suspended" && r.status !== "SUSPENDED") return false;
-      if (filter === "trial" && r.plan !== "trial") return false;
       if (filter === "problems" && r.problems.length === 0) return false;
       if (needle && !(r.name.toLowerCase().includes(needle) || r.slug.includes(needle))) return false;
       return true;
@@ -33,7 +32,6 @@ export function TenantsTable({ rows }: { rows: TenantRowJSON[] }) {
     all: rows.filter((r) => !r.deletedAt).length,
     active: rows.filter((r) => !r.deletedAt && r.status === "ACTIVE").length,
     suspended: rows.filter((r) => !r.deletedAt && r.status === "SUSPENDED").length,
-    trial: rows.filter((r) => !r.deletedAt && r.plan === "trial").length,
     problems: rows.filter((r) => !r.deletedAt && r.problems.length > 0).length,
     deleted: rows.filter((r) => r.deletedAt).length,
   };
@@ -49,7 +47,7 @@ export function TenantsTable({ rows }: { rows: TenantRowJSON[] }) {
       <div className="filter-bar" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <input className="input" style={{ maxWidth: 280 }} placeholder="Search name or slug…" value={q} onChange={(e) => setQ(e.target.value)} />
         <div className="row-actions" style={{ flexWrap: "wrap" }}>
-          {chip("all", "All")}{chip("active", "Active")}{chip("suspended", "Suspended")}{chip("trial", "Trial")}{chip("problems", "Problems")}{chip("deleted", "Deleted")}
+          {chip("all", "All")}{chip("active", "Active")}{chip("suspended", "Suspended")}{chip("problems", "Problems")}{chip("deleted", "Deleted")}
         </div>
       </div>
       {shown.length === 0 ? <div className="empty">No tenants match.</div> : (
@@ -65,8 +63,7 @@ export function TenantsTable({ rows }: { rows: TenantRowJSON[] }) {
                 <tr key={r.id}>
                   <td><Link href={`/platform/tenants/${r.id}`} className="link-button">{r.name}</Link><div className="cell-sub">{r.slug}</div></td>
                   <td>
-                    <span className={`pill ${r.plan === "enterprise" ? "ok" : r.plan === "trial" ? "warn" : "neutral"}`}>{r.plan}</span>
-                    {r.plan === "trial" && r.trialEndsAt ? <div className="cell-sub">ends {r.trialEndsAt.slice(0, 10)}</div> : null}
+                    <span className={`pill ${r.plan === "enterprise" ? "ok" : "neutral"}`}>{r.plan}</span>
                   </td>
                   <td>{r.deletedAt ? <span className="pill danger">Deleted</span> : <span className={`pill ${r.status === "ACTIVE" ? "ok" : "warn"}`}>{r.status === "ACTIVE" ? "Active" : "Suspended"}</span>}</td>
                   <td>{r.users}<div className="cell-sub">{r.admins} admin{r.admins === 1 ? "" : "s"}</div></td>

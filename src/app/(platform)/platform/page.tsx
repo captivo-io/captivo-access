@@ -31,7 +31,7 @@ export default async function OverviewPage() {
       </div>
 
       <div className="stat-grid">
-        <StatCard k="Tenants" v={t.tenants} sub={<>{t.active} active · {t.suspended} suspended{t.trial ? ` · ${t.trial} on trial` : ""}{t.deleted ? ` · ${t.deleted} deleted` : ""}</>} />
+        <StatCard k="Tenants" v={t.tenants} sub={<>{t.active} active · {t.suspended} suspended{t.deleted ? ` · ${t.deleted} deleted` : ""}</>} />
         <StatCard k="Users" v={t.users} sub={<>{t.vendors} vendors</>} />
         <StatCard k="Sessions · 24h" v={t.sessions24h} sub="console + portal logins" />
         <StatCard k="Connectors online" v={<>{t.connectorsOnline}<span className="cell-sub"> / {t.connectors}</span></>} tone={t.connectors > 0 && t.connectorsOnline === 0 ? "danger" : t.connectorsOnline < t.connectors ? "warn" : "ok"} />
