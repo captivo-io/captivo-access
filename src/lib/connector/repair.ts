@@ -1,6 +1,8 @@
 // Pure, db-free helpers for connector install / re-pair / in-place update. A
 // revoked connector can't be re-paired (its token never validates anyway — use
 // delete/re-add instead).
+import { accessImage } from "@/lib/images";
+
 export function canRepairConnector(status: string): boolean {
   return status !== "REVOKED";
 }
@@ -29,8 +31,8 @@ export const GATEWAY_NETWORK = "captivo-gateway";
 // and re-pair (clearVolume drops the token volume so the agent re-enrolls). Pure + db-free.
 function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearVolume = false): string {
   const NET = GATEWAY_NETWORK;
-  const CONNECTOR = "ghcr.io/kurtserdar/captivo-access-connector:latest";
-  const KASM = "ghcr.io/kurtserdar/captivo-access-kasm-browser:latest";
+  const CONNECTOR = accessImage("connector");
+  const KASM = accessImage("kasm-browser");
   const GUACD = "guacamole/guacd:1.6.0";
 
   // Reclaim disk from dangling (untagged) images left by prior :latest pulls; never

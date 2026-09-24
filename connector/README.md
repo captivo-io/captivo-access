@@ -85,7 +85,7 @@ docker run -d \
   -e DATAPLANE_URL=wss://connect.access.example.com \
   -e PAIR_CODE=<one-time code from the Manager UI> \
   -v access_connector_data:/data \
-  ghcr.io/kurtserdar/captivo-access-connector:latest
+  ghcr.io/captivo-io/captivo-access-connector:latest
 ```
 
 The Manager generates this exact command for you (with your real

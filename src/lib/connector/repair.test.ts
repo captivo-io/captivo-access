@@ -27,7 +27,7 @@ describe("buildReconfigureCommand", () => {
     expect(cmd).toContain("PAIR_CODE=CODE123");
     expect(cmd).toContain("MANAGER_URL=https://mgr.example.com");
     expect(cmd).toContain("DATAPLANE_URL=wss://connect.example.com");
-    expect(cmd).toContain("ghcr.io/kurtserdar/captivo-access-connector:latest");
+    expect(cmd).toContain("ghcr.io/captivo-io/captivo-access-connector:latest");
   });
 });
 
@@ -58,12 +58,12 @@ describe("buildConnectorRunCommand", () => {
 describe("buildConnectorUpdateCommand", () => {
   it("pulls the new image and recreates the container without re-pairing", () => {
     const cmd = buildConnectorUpdateCommand("https://mgr.example.com", "wss://connect.example.com");
-    expect(cmd).toContain("docker pull ghcr.io/kurtserdar/captivo-access-connector:latest");
+    expect(cmd).toContain("docker pull ghcr.io/captivo-io/captivo-access-connector:latest");
     expect(cmd).toContain("docker rm -f access-connector");
     expect(cmd).toContain("MANAGER_URL=https://mgr.example.com");
     expect(cmd).toContain("DATAPLANE_URL=wss://connect.example.com");
     expect(cmd).toContain("-v access_connector_data:/data");
-    expect(cmd).toContain("ghcr.io/kurtserdar/captivo-access-connector:latest");
+    expect(cmd).toContain("ghcr.io/captivo-io/captivo-access-connector:latest");
   });
   it("does NOT include a pair code or wipe the token volume", () => {
     const cmd = buildConnectorUpdateCommand("https://mgr.example.com", "wss://connect.example.com");
@@ -103,11 +103,11 @@ describe("every connector bundles guacd on the shared network", () => {
   it("update re-provisions guacd", () => {
     const cmd = buildConnectorUpdateCommand(m, t);
     expect(cmd).toContain("--name captivo-guacd");
-    expect(cmd).toContain("docker pull ghcr.io/kurtserdar/captivo-access-connector:latest");
+    expect(cmd).toContain("docker pull ghcr.io/captivo-io/captivo-access-connector:latest");
   });
   it("install/update bundle the KasmVNC (hi-fi) browser, pulled fresh", () => {
     expect(buildInstallCommand("CODE123", m, t)).toContain("--name captivo-kasm");
-    expect(buildInstallCommand("CODE123", m, t)).toContain("docker pull ghcr.io/kurtserdar/captivo-access-kasm-browser:latest");
+    expect(buildInstallCommand("CODE123", m, t)).toContain("docker pull ghcr.io/captivo-io/captivo-access-kasm-browser:latest");
     expect(buildConnectorUpdateCommand(m, t)).toContain("--name captivo-kasm");
   });
   it("captures guacd logs to a shared volume", () => {
@@ -134,7 +134,7 @@ describe("every connector bundles guacd on the shared network", () => {
 describe("install/re-pair pull the newest connector image", () => {
   const m = "https://mgr.example.com";
   const t = "wss://connect.example.com";
-  const PULL = "docker pull ghcr.io/kurtserdar/captivo-access-connector:latest";
+  const PULL = "docker pull ghcr.io/captivo-io/captivo-access-connector:latest";
 
   it("install pulls latest before running (avoids a stale cached :latest)", () => {
     expect(buildInstallCommand("CODE123", m, t)).toContain(PULL);

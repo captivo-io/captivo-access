@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { formatDockerRun, formatShellCommand } from "./docker-command";
 
 const CMD =
-  "docker run -d --name access-connector --restart unless-stopped -e MANAGER_URL=https://m -e PAIR_CODE=X -v access_connector_data:/data ghcr.io/kurtserdar/captivo-access-connector:latest";
+  "docker run -d --name access-connector --restart unless-stopped -e MANAGER_URL=https://m -e PAIR_CODE=X -v access_connector_data:/data ghcr.io/captivo-io/captivo-access-connector:latest";
 
 const EXPECTED = `docker run -d \\
   --name access-connector \\
@@ -10,7 +10,7 @@ const EXPECTED = `docker run -d \\
   -e MANAGER_URL=https://m \\
   -e PAIR_CODE=X \\
   -v access_connector_data:/data \\
-  ghcr.io/kurtserdar/captivo-access-connector:latest`;
+  ghcr.io/captivo-io/captivo-access-connector:latest`;
 
 describe("formatDockerRun", () => {
   it("pretty-prints a docker run one-liner into multiline continuations", () => {

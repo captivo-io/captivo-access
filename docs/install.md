@@ -241,7 +241,7 @@ internal app. It only dials outward — no inbound port.
      -e DATAPLANE_URL=wss://connect.access.acme.com \
      -e PAIR_CODE=<one-time code from the console> \
      -v access_connector_data:/data \
-     ghcr.io/kurtserdar/captivo-access-connector:latest
+     ghcr.io/captivo-io/captivo-access-connector:latest
    ```
 
    > **Always copy the full command from the console** rather than hand-writing it

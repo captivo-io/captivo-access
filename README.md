@@ -302,7 +302,7 @@ cp .env.prod.example .env   # fill in ACCESS_DOMAIN and secrets
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Images are published to `ghcr.io/kurtserdar/captivo-access-{manager,dataplane,connector,migrate,kasm-browser}`
+Images are published to `ghcr.io/captivo-io/captivo-access-{manager,dataplane,connector,migrate,kasm-browser}`
 on each `vX.Y.Z` release tag (plus `latest`) — see
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) and the
 [releases](https://github.com/kurtserdar/captivo-access/releases). Pull the

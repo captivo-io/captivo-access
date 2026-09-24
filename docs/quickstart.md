@@ -94,7 +94,7 @@ In the console:
      -e DATAPLANE_URL=ws://access-dataplane:3101 \
      -e PAIR_CODE=<paste from the console> \
      -v access_connector_data:/data \
-     ghcr.io/kurtserdar/captivo-access-connector:latest
+     ghcr.io/captivo-io/captivo-access-connector:latest
    ```
 
    It should show as **online** in the console shortly. No per-app config is
