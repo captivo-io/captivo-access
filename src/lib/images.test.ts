@@ -67,6 +67,32 @@ describe("image namespace", () => {
     expect(wf).not.toContain("ghcr.io/kurtserdar");
   });
 
+  it("both compose files fall back to the version this checkout ships", () => {
+    // The fallback is a literal in each compose file, and a literal nobody bumps
+    // goes stale in silence: it had drifted to 1.9.0 in one file and 1.10.0 in
+    // the other while the release was 1.14.0. That was invisible only because the
+    // old registry namespace still held every old tag -- the moment the images
+    // moved to a fresh namespace, a default install asked for a version never
+    // published there and failed. This test is what makes the staleness loud.
+    const version = read("VERSION")!.trim();
+    expect(version, "VERSION dosyasi bos").toMatch(/^\d+\.\d+\.\d+$/);
+
+    for (const f of ["deploy/docker-compose.prod.yml", "deploy-saas/docker-compose.saas.yml"]) {
+      const fallbacks = [...read(f)!.matchAll(/CAPTIVO_VERSION:-([0-9.]+)/g)].map((m) => m[1]);
+      expect(fallbacks.length, `${f}: fallback bulunamadi`).toBeGreaterThan(0);
+      for (const v of fallbacks) expect(v, `${f}: ${v} != ${version}`).toBe(version);
+    }
+  });
+
+  it("a fresh install pins the version rather than trusting the fallback", () => {
+    // Belt and braces: even if a fallback goes stale again, setup.sh writes the
+    // shipped version into the generated .env, so a first install asks for an
+    // image that exists.
+    const setup = read("deploy/setup.sh")!;
+    expect(setup).toContain("CAPTIVO_VERSION=$VERSION");
+    expect(setup).toMatch(/VERSION="\$\(cat .*VERSION/);
+  });
+
   it("accessImage builds a fully qualified reference", () => {
     expect(accessImage("connector")).toBe(`${IMAGE_PREFIX}-connector:latest`);
     expect(accessImage("manager", "1.14.0")).toBe(`${IMAGE_PREFIX}-manager:1.14.0`);

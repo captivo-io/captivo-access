@@ -33,6 +33,15 @@ remove_legacy_cron() {
   echo "→ Removed the legacy host-crontab jobs (scheduling now runs in the access-cron container)."
 }
 
+# The version this checkout ships, pinned into .env so a fresh install asks for
+# an image that exists. The compose files carry the same value as a fallback, but
+# a literal nobody bumps goes stale: it had drifted to 1.9.0 in one file and
+# 1.10.0 in the other while the release was 1.14.0. That was invisible only
+# because the old registry namespace still held every old tag -- after the move
+# to a fresh namespace a default install asked for a version never published
+# there, and failed.
+VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo latest)"
+
 if [ ! -f .env ]; then
   if [ -z "$ACCESS_DOMAIN" ]; then
     printf "Access domain (e.g. access.example.com): "
@@ -52,6 +61,7 @@ ENCRYPTION_KEY=$(openssl rand -hex 32)
 DATAPLANE_SECRET=$(openssl rand -hex 32)
 CRON_SECRET=$(openssl rand -hex 32)
 AUDIT_RETENTION_DAYS=730
+CAPTIVO_VERSION=$VERSION
 EOF
   chmod 600 .env
 else
