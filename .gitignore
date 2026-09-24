@@ -27,6 +27,19 @@ docker-compose.override.yml
 # Local Claude Code tooling / third-party skills — not part of the project
 .claude/
 .superpowers/
+# Plan and spec documents: kept locally, not published.
+#
+# They record WHY a decision was made and are worth having -- but this repository
+# is PUBLIC, and 138 of these files put the roadmap and the reasoning behind it
+# in front of anyone. Scanned before removing: no customer names, no addresses,
+# no real IPs, no secret values -- so this is not a data risk, it is a decision
+# about what we choose to publish. They serve us rather than the project's
+# contributors, and there are none yet (0 forks, 0 issues) for whom the trade
+# would be worth making.
+#
+# The files already in the history stay public; this only stops future ones.
+# Portal's copy is in a private repository and stays tracked there.
+docs/superpowers/
 
 # Python bytecode
 __pycache__/
