@@ -107,7 +107,7 @@ including registrars whose certificate API is locked down.
 On the server:
 
 ```bash
-git clone https://github.com/kurtserdar/captivo-access.git
+git clone https://github.com/captivo-io/captivo-access.git
 cd captivo-access/deploy
 cp .env.prod.example .env
 ```

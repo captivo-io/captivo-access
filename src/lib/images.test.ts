@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "fs";
+import { execSync } from "child_process";
 import path from "path";
 import { IMAGE_OWNER, IMAGE_PREFIX, PUBLISHED_IMAGES, accessImage } from "./images";
 
@@ -37,6 +38,44 @@ describe("image namespace", () => {
 
   it("no operator-facing file names the OLD namespace", () => {
     const stale = OPERATOR_FACING.filter((f) => read(f)!.includes("ghcr.io/kurtserdar/"));
+    expect(stale).toEqual([]);
+  });
+
+  it("nothing outside the historical plan documents names the old owner", () => {
+    // Wider than the list above on purpose. The clone links were caught by
+    // grepping the docs; a FIFTH reference lived in shipped code -- the update
+    // check queried api.github.com/repos/kurtserdar/... -- plus a deploy README
+    // and CONTRIBUTING.md. Those resolve today only because GitHub redirects a
+    // transferred repository, which is a dependency on a redirect rather than a
+    // correct address.
+    //
+    // The file list comes from GIT, not from walking the disk: a filesystem walk
+    // also found a stale worktree under .wt/ that is gitignored and not part of
+    // the repository at all. Asking git is the only list that cannot drift from
+    // what is actually committed.
+    //
+    // docs/superpowers is exempt -- those are records of what was done on a
+    // given day, not instructions. This file is exempt because it has to name
+    // the string it forbids.
+    const tracked = execSync("git ls-files", { cwd: ROOT, encoding: "utf-8" })
+      .split("\n")
+      .filter(Boolean)
+      .filter((f) => !f.startsWith("docs/superpowers/"))
+      .filter((f) => f !== "src/lib/images.test.ts")
+      .filter((f) => /\.(ts|tsx|md|yml|yaml|sh|json)$/.test(f));
+    expect(tracked.length, "git ls-files bos").toBeGreaterThan(100);
+
+    const stale = tracked.filter((f) => readFileSync(path.join(ROOT, f), "utf-8").includes("kurtserdar"));
+    expect(stale).toEqual([]);
+  });
+
+  it("no operator-facing file names the OLD repository address", () => {
+    // Clone and release links pointed at the personal account for four more
+    // commits after the move. They resolve today only because GitHub redirects
+    // a transferred repository -- and a clone from the old URL leaves that
+    // address as the reader's `origin`, which stops working the day anyone
+    // creates a repository by that name again.
+    const stale = OPERATOR_FACING.filter((f) => read(f)!.includes("github.com/kurtserdar/"));
     expect(stale).toEqual([]);
   });
 

@@ -5,7 +5,7 @@ import { getUpdateCheckConfig, saveUpdateCheckResult } from "@/lib/updates/updat
 import { parseLatestRelease } from "@/lib/updates/github";
 import { withTenantRoute } from "@/lib/tenant/request";
 
-const RELEASES_URL = "https://api.github.com/repos/kurtserdar/captivo-access/releases/latest";
+const RELEASES_URL = "https://api.github.com/repos/captivo-io/captivo-access/releases/latest";
 
 export const POST = withTenantRoute(async () => {
   const admin = await getCurrentUser();

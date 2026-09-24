@@ -322,7 +322,7 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 Check the latest release tags at
-`https://github.com/kurtserdar/captivo-access/releases`. The schema migrates
+`https://github.com/captivo-io/captivo-access/releases`. The schema migrates
 automatically on `up -d` (the `access-migrate` service). Connectors run on
 their own hosts — update each with `docker pull …connector:latest` + recreate
 (the token in `/data` persists). Every release republishes the connector image

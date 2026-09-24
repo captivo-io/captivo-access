@@ -242,7 +242,7 @@ Shipped and working today:
 Requires Docker + Docker Compose v2.
 
 ```bash
-git clone https://github.com/kurtserdar/captivo-access.git
+git clone https://github.com/captivo-io/captivo-access.git
 cd captivo-access
 cp .env.example .env
 ```
@@ -305,7 +305,7 @@ docker compose -f docker-compose.prod.yml up -d
 Images are published to `ghcr.io/captivo-io/captivo-access-{manager,dataplane,connector,migrate,kasm-browser}`
 on each `vX.Y.Z` release tag (plus `latest`) — see
 [`.github/workflows/publish.yml`](.github/workflows/publish.yml) and the
-[releases](https://github.com/kurtserdar/captivo-access/releases). Pull the
+[releases](https://github.com/captivo-io/captivo-access/releases). Pull the
 `latest` tag (or pin a specific `vX.Y.Z`); the `deploy/` scaffold references
 them already. The **schema is migrated automatically** on `up -d` by the
 one-shot `access-migrate` service — no manual `db push` step. `deploy/README.md`

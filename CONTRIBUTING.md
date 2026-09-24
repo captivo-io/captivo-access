@@ -17,7 +17,7 @@ on recent commits. It's a Node/Next.js control plane plus three Go services
 ## Setup
 
 ```bash
-git clone https://github.com/kurtserdar/captivo-access.git
+git clone https://github.com/captivo-io/captivo-access.git
 cd captivo-access
 pnpm install
 cp .env.example .env   # edit DATABASE_URL / POSTGRES_PASSWORD / SESSION_SECRET

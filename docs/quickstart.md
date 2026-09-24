@@ -23,7 +23,7 @@ e.g. `203.0.113.10`.
 ## 1. Get the repo and configure
 
 ```bash
-git clone https://github.com/kurtserdar/captivo-access.git
+git clone https://github.com/captivo-io/captivo-access.git
 cd captivo-access/deploy
 cp .env.prod.example .env
 ```
