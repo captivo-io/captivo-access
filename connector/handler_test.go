@@ -19,6 +19,13 @@ import (
 // connector's yamux server over an in-memory net.Pipe, mirroring the real
 // WSS-over-yamux topology: the data-plane opens streams, the connector
 // accepts and serves them.
+// testStore gives the existing stream tests a real (empty) recording store so
+// serveStreams has one; none of them send recording frames.
+func testStore(t *testing.T) *recStore {
+	t.Helper()
+	return newRecStore(t.TempDir(), testKey())
+}
+
 func pairedSessions(t *testing.T) (dataplane *yamux.Session, connector *yamux.Session) {
 	t.Helper()
 	clientConn, serverConn := net.Pipe()
@@ -56,7 +63,7 @@ func TestHandleStreamRejectsOutOfBoundaryTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseAllowedTargets: %v", err)
 	}
-	go serveStreams(connector, allow)
+	go serveStreams(connector, allow, testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -95,7 +102,7 @@ func TestHandleLdapRejectsOutOfBoundaryTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseAllowedTargets: %v", err)
 	}
-	go serveStreams(connector, allow)
+	go serveStreams(connector, allow, testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -122,7 +129,7 @@ func TestHandleLdapRejectsOutOfBoundaryTarget(t *testing.T) {
 
 func TestHandleLdapBadTarget(t *testing.T) {
 	dataplane, connector := pairedSessions(t)
-	go serveStreams(connector, openMatcher(t))
+	go serveStreams(connector, openMatcher(t), testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -153,7 +160,7 @@ func TestHandleStreamRejectsBadUpstreamUrl(t *testing.T) {
 	for _, bad := range []string{"ftp://internal/", "http://", "not a url", "file:///etc/passwd"} {
 		t.Run(bad, func(t *testing.T) {
 			dataplane, connector := pairedSessions(t)
-			go serveStreams(connector, openMatcher(t))
+			go serveStreams(connector, openMatcher(t), testStore(t))
 
 			st, err := dataplane.Open()
 			if err != nil {
@@ -200,7 +207,7 @@ func TestHandleStreamProxiesAllowedUpstream(t *testing.T) {
 	defer upstream.Close()
 
 	dataplane, connector := pairedSessions(t)
-	go serveStreams(connector, openMatcher(t))
+	go serveStreams(connector, openMatcher(t), testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -265,7 +272,7 @@ func TestHandleStreamForwardsRequestBody(t *testing.T) {
 	defer upstream.Close()
 
 	dataplane, connector := pairedSessions(t)
-	go serveStreams(connector, openMatcher(t))
+	go serveStreams(connector, openMatcher(t), testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -329,7 +336,7 @@ func TestHandleStreamHonorsContentLength(t *testing.T) {
 	defer upstream.Close()
 
 	dataplane, connector := pairedSessions(t)
-	go serveStreams(connector, openMatcher(t))
+	go serveStreams(connector, openMatcher(t), testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -382,7 +389,7 @@ func TestHandleStreamHonorsContentLength(t *testing.T) {
 
 func TestHandleStreamUnreachableUpstream(t *testing.T) {
 	dataplane, connector := pairedSessions(t)
-	go serveStreams(connector, openMatcher(t))
+	go serveStreams(connector, openMatcher(t), testStore(t))
 
 	st, err := dataplane.Open()
 	if err != nil {
@@ -461,7 +468,7 @@ func TestHandleStreamRejectsPathHostInjection(t *testing.T) {
 	for _, path := range maliciousPaths {
 		t.Run(path, func(t *testing.T) {
 			dataplane, connector := pairedSessions(t)
-			go serveStreams(connector, openMatcher(t))
+			go serveStreams(connector, openMatcher(t), testStore(t))
 
 			st, err := dataplane.Open()
 			if err != nil {

@@ -24,7 +24,7 @@ const maxConcurrentStreams = 256
 
 // serveStreams accepts streams opened by the data-plane over mux and handles
 // each one independently until the session dies.
-func serveStreams(mux *yamux.Session, allow *TargetMatcher) {
+func serveStreams(mux *yamux.Session, allow *TargetMatcher, store *recStore) {
 	sem := make(chan struct{}, maxConcurrentStreams)
 	for {
 		st, err := mux.Accept()
@@ -34,7 +34,7 @@ func serveStreams(mux *yamux.Session, allow *TargetMatcher) {
 		sem <- struct{}{} // backpressure: block accepting new streams past the cap
 		go func(s io.ReadWriteCloser) {
 			defer func() { <-sem }()
-			handleStream(s, allow)
+			handleStream(s, allow, store)
 		}(st)
 	}
 }
@@ -68,7 +68,7 @@ func resolveUpstreamTarget(upstreamURL, path string, allow *TargetMatcher) (targ
 
 // handleStream reads the first control frame, peeks its kind, and dispatches
 // to the dial (proxied HTTP) or probe (TCP reachability) handler.
-func handleStream(st io.ReadWriteCloser, allow *TargetMatcher) {
+func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) {
 	defer st.Close()
 	reqBytes, err := tunnel.ReadFrame(st)
 	if err != nil {
@@ -95,6 +95,12 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher) {
 		handleLdap(cst, allow, reqBytes)
 	case "guacd":
 		handleGuacd(cst, allow, reqBytes)
+	case "recwrite":
+		handleRecWrite(cst, store, reqBytes)
+	case "recsearch":
+		handleRecSearch(cst, store, reqBytes)
+	case "recfetch":
+		handleRecFetch(cst, store, reqBytes)
 	default:
 		handleDial(cst, allow, reqBytes)
 	}

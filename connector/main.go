@@ -25,6 +25,18 @@ func main() {
 	managerURL := os.Getenv("MANAGER_URL")
 	dataplaneURL := os.Getenv("DATAPLANE_URL")
 	tokenFile := envOr("TOKEN_FILE", "/data/token")
+	// Recording bytes stay on this host. The key is generated here and never
+	// leaves: that is what makes "the operator cannot read recordings" true
+	// rather than a claim.
+	recKeyFile := envOr("RECORDING_KEY_FILE", "/data/recording.key")
+	recDir := envOr("RECORDING_DIR", "/data/recordings")
+	recKey, err := loadOrCreateRecKey(recKeyFile)
+	if err != nil {
+		// Fail loud at boot: a connector that cannot key its store would accept
+		// sessions and silently drop their recordings.
+		log.Fatalf("recording key: %v", err)
+	}
+	store := newRecStore(recDir, recKey)
 	// The enrollment pairing code and the long-lived connector token travel over
 	// these URLs; a plaintext scheme exposes them on the wire. Warn loudly but
 	// don't exit — local/test setups may legitimately use http/ws.
@@ -65,7 +77,7 @@ func main() {
 	if _, err := os.Stat("/kasmlog"); err == nil {
 		go tailKasmLog("/kasmlog/kasm.log")
 	}
-	runClient(dataplaneURL, token, allow)
+	runClient(dataplaneURL, token, allow, store)
 }
 
 // warnInsecureURL logs a hard warning when a control-plane URL uses a plaintext

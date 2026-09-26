@@ -11,7 +11,7 @@ import (
 func probe(t *testing.T, allow *TargetMatcher, upstreamUrl string) tunnel.ProbeResponse {
 	t.Helper()
 	dataplane, connector := pairedSessions(t)
-	go serveStreams(connector, allow)
+	go serveStreams(connector, allow, testStore(t))
 	st, err := dataplane.Open()
 	if err != nil {
 		t.Fatalf("Open: %v", err)
