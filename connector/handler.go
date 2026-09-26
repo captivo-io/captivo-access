@@ -79,7 +79,7 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 	}
 	_ = json.Unmarshal(reqBytes, &peek)
 	if peek.Kind == "control" {
-		handleControl(st)
+		handleControl(st, store)
 		return
 	}
 	// Relay stream: count it, and wrap st so bytes are tallied for every kind.
@@ -109,7 +109,7 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 // handleControl runs the control stream both ways: it reads pushed policy frames
 // (applying them live) and writes telemetry every 10s, until the stream dies.
 // (The opening ControlHello was already read as the dispatch frame.)
-func handleControl(st io.ReadWriteCloser) {
+func handleControl(st io.ReadWriteCloser, store *recStore) {
 	defer st.Close()
 	done := make(chan struct{})
 	// reader: apply pushed policy frames
@@ -122,7 +122,15 @@ func handleControl(st io.ReadWriteCloser) {
 			}
 			var p tunnel.Policy
 			if json.Unmarshal(b, &p) == nil {
-				applyPolicy(p)
+				ack := applyPolicy(p, store)
+				// Only speak up when something happened. The telemetry writer shares
+				// this stream, and an ack per policy tick would be noise the control
+				// plane has to filter.
+				if ack.RetentionRemoved > 0 || len(ack.PurgedKeys) > 0 {
+					if ab, err := json.Marshal(ack); err == nil {
+						_ = tunnel.WriteFrame(st, ab)
+					}
+				}
 			}
 		}
 	}()

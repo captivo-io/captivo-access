@@ -243,6 +243,16 @@ func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 	return total, nil
 }
 
+// Delete removes one recording and everything under it. An already-absent recording
+// is not an error: the caller's goal is "these bytes are gone", which already holds.
+func (s *recStore) Delete(tenantID, recordingKey string) error {
+	d, err := s.dir(tenantID, recordingKey)
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(d)
+}
+
 // Purge removes every recording for a tenant whose directory was last modified
 // before olderThan, and reports how many it removed. The connector owns the files,
 // so it owns retention.

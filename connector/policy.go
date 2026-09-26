@@ -20,12 +20,20 @@ func init() {
 // pushed log level. On a matcher parse error it keeps the previous matcher
 // (fail-safe: never loosen on bad input); the log level is orthogonal (no
 // security bearing) and applied independently.
-func applyPolicy(p tunnel.Policy) {
+// applyPolicy applies a pushed policy and returns what the recording half of it
+// actually did, so the control plane can trim its index and clear a confirmed
+// erasure. store may be nil in tests that only exercise egress/log policy.
+func applyPolicy(p tunnel.Policy, store *recStore) tunnel.PolicyAck {
 	setLogLevel(p.LogLevel) // "" / invalid = no-op (keeps current level)
 	if m, err := ParseAllowedTargets(p.EgressAllowedTargets); err == nil {
 		policyMatcher.Store(m)
 	}
+	ack := applyRecordingPolicy(store, p)
+	if ack.RetentionRemoved > 0 || len(ack.PurgedKeys) > 0 {
+		logInfo("recording policy applied: retention removed=%d erased=%d", ack.RetentionRemoved, len(ack.PurgedKeys))
+	}
 	logInfo("policy applied: egress=%q logLevel=%s", p.EgressAllowedTargets, p.LogLevel)
+	return ack
 }
 
 func policyAllowed(authority string) bool {

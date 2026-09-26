@@ -191,3 +191,22 @@ func TestStoreReadRangeRejectsAnInvertedRange(t *testing.T) {
 		t.Fatal("want an error for from > to")
 	}
 }
+
+func TestStoreRefusesAnEmptyTenantEverywhere(t *testing.T) {
+	// This is the real enforcement behind applyRecordingPolicy's fail-fast: an empty
+	// tenant must never resolve to a path, or a sweep would walk the whole store
+	// root and a purge would delete across tenants.
+	s := newRecStore(t.TempDir(), testKey())
+	if _, err := s.Append("", "k", 0, []byte("x")); err == nil {
+		t.Fatal("Append accepted an empty tenant")
+	}
+	if _, err := s.Purge("", time.Now()); err == nil {
+		t.Fatal("Purge accepted an empty tenant")
+	}
+	if err := s.Delete("", "k"); err == nil {
+		t.Fatal("Delete accepted an empty tenant")
+	}
+	if _, err := s.ReadRange("", "k", 0, 1); err == nil {
+		t.Fatal("ReadRange accepted an empty tenant")
+	}
+}

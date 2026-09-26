@@ -6,7 +6,7 @@ import (
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
-func setPolicy(s string) { applyPolicy(tunnel.Policy{EgressAllowedTargets: s}) }
+func setPolicy(s string) { applyPolicy(tunnel.Policy{EgressAllowedTargets: s}, nil) }
 
 func TestEgressAllowedAndsEnvWithPolicy(t *testing.T) {
 	env, _ := ParseAllowedTargets("10.0.0.0/24") // ceiling
