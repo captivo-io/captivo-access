@@ -107,6 +107,7 @@ func main() {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": res.Ok, "latencyMs": res.LatencyMs, "error": res.Error})
 	})
+	registerRecEndpoints(in, secret, reg)
 	in.HandleFunc("/kick", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {
 			http.Error(w, "forbidden", http.StatusForbidden)
