@@ -182,12 +182,15 @@ func (c *ControlClient) RecorderJS() ([]byte, error) {
 	return b, nil
 }
 
-// SendRecording ships one rrweb batch to the control plane's ingest
-// endpoint. body is the raw JSON the browser posted to /__captivo/rec —
-// {recordingKey, seq, events} — which is merged with the userId/siteId/host
-// the proxy resolved for this request into the shape
-// src/app/api/internal/recording/ingest/route.ts expects. Best-effort: the
-// caller (browserproxy) ignores the error, since recording must never affect
+// SendRecording reports one recording chunk's INDEX to the control plane:
+// {recordingKey, seq, bytes} plus the userId/siteId/host the proxy resolved.
+//
+// It no longer carries the event payload. The bytes go to the connector's own
+// store (see recrrweb.go), and this call exists so an admin can still see that a
+// recording exists and how large it is. Do not reintroduce a data field here --
+// that is the central copy connector-local recordings removed.
+//
+// Best-effort: the caller ignores the error, since recording must never affect
 // the proxied response.
 func (c *ControlClient) SendRecording(userID, siteID, host string, body []byte) error {
 	var batch map[string]any
