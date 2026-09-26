@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
@@ -53,6 +54,8 @@ func registerRecEndpoints(mux *http.ServeMux, secret string, reg *Registry) {
 			TenantID     string `json:"tenantId"`
 			RecordingKey string `json:"recordingKey"`
 			FromSeq      int    `json:"fromSeq"`
+			FromByte     int64  `json:"fromByte"`
+			ToByte       int64  `json:"toByte"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
@@ -63,15 +66,29 @@ func registerRecEndpoints(mux *http.ServeMux, secret string, reg *Registry) {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "connector offline"})
 			return
 		}
-		// Header before the body: once bytes start flowing the status is fixed, so a
-		// mid-stream failure can only truncate. The caller detects that from the
-		// recording's expected byte count in the index.
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
+		// The connector's total plaintext length has to reach the caller BEFORE the
+		// body, because an HTTP Range answer needs it for Content-Range. It travels
+		// as a header rather than in the stream so the body stays raw bytes.
+		//
+		// Header before body also fixes the status: once bytes flow, a mid-stream
+		// failure can only truncate, which the caller detects against this total.
+		// Headers are set from the connector's head frame, before any body byte, so
+		// nothing has to be buffered here: a 500 MiB recording streams straight
+		// through. Once bytes flow the status is fixed, and a mid-stream failure can
+		// only truncate -- which the caller detects against the advertised total.
 		if err := RecFetch(sess, tunnel.RecFetchRequest{
 			TenantID: body.TenantID, RecordingKey: body.RecordingKey, FromSeq: body.FromSeq,
+			FromByte: body.FromByte, ToByte: body.ToByte,
+		}, func(total int64) {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("X-Recording-Total-Bytes", strconv.FormatInt(total, 10))
+			w.WriteHeader(http.StatusOK)
 		}, w); err != nil {
+			// If onHead never ran, no status was written yet and a 502 still lands.
 			log.Printf("rec-fetch key=%s: stream failed err=%v", body.RecordingKey, err)
+			if w.Header().Get("Content-Type") == "" {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			}
 		}
 	})
 }

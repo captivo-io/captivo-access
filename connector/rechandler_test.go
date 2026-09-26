@@ -119,3 +119,73 @@ func TestHandleRecFetchStreamsChunks(t *testing.T) {
 		t.Fatalf("want onetwo, got %q", assembled)
 	}
 }
+
+func TestHandleRecFetchHonoursAByteRange(t *testing.T) {
+	store := newRecStore(t.TempDir(), testKey())
+	for i, p := range []string{"abc", "def", "ghi"} {
+		if _, err := store.Append("t1", "rec-1", i, []byte(p)); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	req, _ := json.Marshal(tunnel.RecFetchRequest{
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromByte: 2, ToByte: 5,
+	})
+	c := newRWC()
+	handleRecFetch(c, store, req)
+
+	head, _ := tunnel.ReadFrame(c.out)
+	var resp tunnel.RecFetchResponse
+	_ = json.Unmarshal(head, &resp)
+	if resp.Error != "" {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+	if resp.TotalBytes != 9 {
+		// Content-Range cannot be built without the total, and the player needs it
+		// to know the timeline length.
+		t.Fatalf("want total 9, got %d", resp.TotalBytes)
+	}
+	body, err := tunnel.ReadFrame(c.out)
+	if err != nil {
+		t.Fatalf("body: %v", err)
+	}
+	if string(body) != "cdef" {
+		t.Fatalf("want cdef, got %q", body)
+	}
+}
+
+func TestHandleRecFetchOpenEndedRangeReachesTheEnd(t *testing.T) {
+	store := newRecStore(t.TempDir(), testKey())
+	if _, err := store.Append("t1", "rec-1", 0, []byte("abcdef")); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// "bytes=3-" is what a browser sends when it resumes; ToByte arrives as 0.
+	req, _ := json.Marshal(tunnel.RecFetchRequest{
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromByte: 3,
+	})
+	c := newRWC()
+	handleRecFetch(c, store, req)
+	_, _ = tunnel.ReadFrame(c.out)
+	body, _ := tunnel.ReadFrame(c.out)
+	if string(body) != "def" {
+		t.Fatalf("want def, got %q", body)
+	}
+}
+
+func TestHandleRecFetchRefusesAnUnsatisfiableRange(t *testing.T) {
+	store := newRecStore(t.TempDir(), testKey())
+	if _, err := store.Append("t1", "rec-1", 0, []byte("abc")); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	req, _ := json.Marshal(tunnel.RecFetchRequest{
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromByte: 99, ToByte: 200,
+	})
+	c := newRWC()
+	handleRecFetch(c, store, req)
+	head, _ := tunnel.ReadFrame(c.out)
+	var resp tunnel.RecFetchResponse
+	_ = json.Unmarshal(head, &resp)
+	if resp.Error == "" {
+		// Streaming nothing with a 200 would show as a silently empty video.
+		t.Fatal("want an error for a range past the end")
+	}
+}

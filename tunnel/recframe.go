@@ -54,17 +54,32 @@ type RecSearchResponse struct {
 	Error     string           `json:"error,omitempty"`
 }
 
-// RecFetchRequest asks for a recording's chunks for replay, from FromSeq onward.
-// The connector answers with a RecFetchResponse frame and then streams the
-// plaintext chunks as frames until the stream closes.
+// RecFetchRequest asks for a recording's chunks for replay. The connector answers
+// with a RecFetchResponse frame and then streams the plaintext as frames until the
+// stream closes.
+//
+// FromByte/ToByte carry an HTTP Range through to the connector so a video player
+// can still scrub. Without them replay would have to stream from the start, and the
+// only way to answer a Range centrally would be buffering the whole recording in
+// the control plane's memory -- up to the 500 MiB per-recording cap, for a copy this
+// design exists to avoid keeping.
+//
+// Byte offsets are over the CONCATENATED plaintext, which is what the player sees;
+// the connector maps them onto its chunks. ToByte is inclusive, matching HTTP.
+// ToByte == 0 with FromByte == 0 means "the whole recording".
 type RecFetchRequest struct {
 	Kind         string `json:"kind"` // "recfetch"
 	TenantID     string `json:"tenantId"`
 	RecordingKey string `json:"recordingKey"`
 	FromSeq      int    `json:"fromSeq"`
+	FromByte     int64  `json:"fromByte"`
+	ToByte       int64  `json:"toByte"`
 }
 
 // RecFetchResponse precedes the streamed chunks. Empty Error = the stream follows.
+// TotalBytes is the recording's full plaintext length, which a Range response needs
+// for its Content-Range header and which only the connector can know for certain.
 type RecFetchResponse struct {
-	Error string `json:"error,omitempty"`
+	Error      string `json:"error,omitempty"`
+	TotalBytes int64  `json:"totalBytes,omitempty"`
 }

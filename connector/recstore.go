@@ -163,6 +163,60 @@ func (s *recStore) Format(tenantID, recordingKey string) string {
 	return strings.TrimSpace(string(b))
 }
 
+// TotalPlaintextBytes reports the length of the concatenated plaintext -- what a
+// player actually receives. It is NOT the on-disk size: every chunk carries a nonce
+// and a GCM tag, so the sealed total is larger and using it would put a wrong
+// Content-Length on every Range response.
+func (s *recStore) TotalPlaintextBytes(tenantID, recordingKey string) (int64, error) {
+	chunks, err := s.Read(tenantID, recordingKey, 0)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, c := range chunks {
+		total += int64(len(c.Data))
+	}
+	return total, nil
+}
+
+// ReadRange returns the plaintext bytes from..to INCLUSIVE, measured over the
+// concatenated recording, mapping the request onto whichever chunks it spans. `to`
+// beyond the end is clamped rather than refused: an open-ended HTTP Range is normal
+// and erroring on it would surface as a broken video.
+func (s *recStore) ReadRange(tenantID, recordingKey string, from, to int64) ([]byte, error) {
+	if from < 0 || to < from {
+		return nil, fmt.Errorf("invalid range")
+	}
+	chunks, err := s.Read(tenantID, recordingKey, 0)
+	if err != nil {
+		return nil, err
+	}
+	var out []byte
+	var offset int64
+	for _, c := range chunks {
+		size := int64(len(c.Data))
+		start := offset
+		end := offset + size - 1 // inclusive
+		offset += size
+		if end < from {
+			continue // wholly before the range
+		}
+		if start > to {
+			break // wholly after it; chunks are in order
+		}
+		lo := int64(0)
+		if from > start {
+			lo = from - start
+		}
+		hi := size - 1
+		if to < end {
+			hi = to - start
+		}
+		out = append(out, c.Data[lo:hi+1]...)
+	}
+	return out, nil
+}
+
 // Bytes reports what the disk actually holds for one recording (sealed sizes).
 func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 	d, err := s.dir(tenantID, recordingKey)

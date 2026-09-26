@@ -129,3 +129,65 @@ func TestStorePurgeRemovesOldRecordingsOnly(t *testing.T) {
 		t.Fatal("purge removed a fresh recording")
 	}
 }
+
+func TestStoreTotalPlaintextBytes(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	for i, part := range []string{"aaa", "bb", "c"} {
+		if _, err := s.Append("t1", "rec-1", i, []byte(part)); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	// A Range response needs the PLAINTEXT length, not the sealed size on disk:
+	// the player's byte offsets are over what it receives.
+	got, err := s.TotalPlaintextBytes("t1", "rec-1")
+	if err != nil {
+		t.Fatalf("total: %v", err)
+	}
+	if got != 6 {
+		t.Fatalf("want 6, got %d", got)
+	}
+}
+
+func TestStoreReadRangeSlicesAcrossChunks(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	for i, part := range []string{"abc", "def", "ghi"} {
+		if _, err := s.Append("t1", "rec-1", i, []byte(part)); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	// bytes 2..5 inclusive of "abcdefghi" is "cdef" -- it must span three chunks'
+	// worth of arithmetic: tail of #0, all of #1, nothing of #2.
+	got, err := s.ReadRange("t1", "rec-1", 2, 5)
+	if err != nil {
+		t.Fatalf("range: %v", err)
+	}
+	if string(got) != "cdef" {
+		t.Fatalf("want cdef, got %q", got)
+	}
+}
+
+func TestStoreReadRangeClampsToTheEnd(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	if _, err := s.Append("t1", "rec-1", 0, []byte("abc")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	// A player may ask for more than exists (open-ended Range); clamping beats
+	// erroring, which would show as a broken video.
+	got, err := s.ReadRange("t1", "rec-1", 1, 999)
+	if err != nil {
+		t.Fatalf("range: %v", err)
+	}
+	if string(got) != "bc" {
+		t.Fatalf("want bc, got %q", got)
+	}
+}
+
+func TestStoreReadRangeRejectsAnInvertedRange(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	if _, err := s.Append("t1", "rec-1", 0, []byte("abc")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if _, err := s.ReadRange("t1", "rec-1", 5, 2); err == nil {
+		t.Fatal("want an error for from > to")
+	}
+}

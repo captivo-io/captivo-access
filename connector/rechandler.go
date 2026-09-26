@@ -58,12 +58,40 @@ func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		writeRecFrame(st, tunnel.RecFetchResponse{Error: "bad request"})
 		return
 	}
+	total, err := store.TotalPlaintextBytes(req.TenantID, req.RecordingKey)
+	if err != nil {
+		writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
+		return
+	}
+
+	// A byte range means a player is scrubbing: answer exactly those bytes rather
+	// than the whole recording. Range wins over FromSeq when both are present --
+	// FromSeq is the coarse resume used by non-seeking players.
+	if req.FromByte > 0 || req.ToByte > 0 {
+		to := req.ToByte
+		if to <= 0 || to >= total {
+			to = total - 1
+		}
+		if total == 0 || req.FromByte > to {
+			writeRecFrame(st, tunnel.RecFetchResponse{Error: "range not satisfiable"})
+			return
+		}
+		part, err := store.ReadRange(req.TenantID, req.RecordingKey, req.FromByte, to)
+		if err != nil {
+			writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
+			return
+		}
+		writeRecFrame(st, tunnel.RecFetchResponse{TotalBytes: total})
+		_ = tunnel.WriteFrame(st, part)
+		return
+	}
+
 	chunks, err := store.Read(req.TenantID, req.RecordingKey, req.FromSeq)
 	if err != nil {
 		writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
 		return
 	}
-	writeRecFrame(st, tunnel.RecFetchResponse{})
+	writeRecFrame(st, tunnel.RecFetchResponse{TotalBytes: total})
 	for _, c := range chunks {
 		if tunnel.WriteFrame(st, c.Data) != nil {
 			return

@@ -39,3 +39,30 @@ func TestRecSearchResponseCarriesTruncation(t *testing.T) {
 		t.Fatalf("unexpected: %+v", out)
 	}
 }
+
+func TestRecFetchRequestCarriesAByteRange(t *testing.T) {
+	// The range must survive the wire, or a video player can only replay from the
+	// start -- and answering Range centrally would mean buffering the whole
+	// recording in the control plane, which is the copy this design removes.
+	b, _ := json.Marshal(RecFetchRequest{
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "k", FromByte: 1024, ToByte: 4095,
+	})
+	var out RecFetchRequest
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.FromByte != 1024 || out.ToByte != 4095 {
+		t.Fatalf("range lost: %+v", out)
+	}
+}
+
+func TestRecFetchResponseCarriesTotalBytes(t *testing.T) {
+	b, _ := json.Marshal(RecFetchResponse{TotalBytes: 98765})
+	var out RecFetchResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.TotalBytes != 98765 {
+		t.Fatal("Content-Range cannot be built without the total")
+	}
+}

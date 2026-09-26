@@ -73,7 +73,7 @@ func TestRecFetchStreamsChunksWithoutBuffering(t *testing.T) {
 	defer cleanup()
 
 	var out bytes.Buffer
-	if err := RecFetch(sess, tunnel.RecFetchRequest{TenantID: "acme", RecordingKey: "k1"}, &out); err != nil {
+	if err := RecFetch(sess, tunnel.RecFetchRequest{TenantID: "acme", RecordingKey: "k1"}, nil, &out); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
 	if out.String() != "onetwo" {
@@ -87,7 +87,7 @@ func TestRecFetchSurfacesConnectorError(t *testing.T) {
 	defer cleanup()
 
 	var out bytes.Buffer
-	if err := RecFetch(sess, tunnel.RecFetchRequest{}, &out); err == nil {
+	if err := RecFetch(sess, tunnel.RecFetchRequest{}, nil, &out); err == nil {
 		t.Fatal("want the connector's error surfaced")
 	}
 	if out.Len() != 0 {
@@ -97,7 +97,39 @@ func TestRecFetchSurfacesConnectorError(t *testing.T) {
 
 func TestRecFetchOfflineConnectorIsAnError(t *testing.T) {
 	var out bytes.Buffer
-	if err := RecFetch(nil, tunnel.RecFetchRequest{}, &out); err == nil {
+	if err := RecFetch(nil, tunnel.RecFetchRequest{}, nil, &out); err == nil {
 		t.Fatal("want an error for a nil session")
 	}
 }
+
+func TestRecFetchReportsTheTotalBeforeAnyBody(t *testing.T) {
+	// The callback exists so the caller can set Content-Range on a response it has
+	// not started. If it fired after the first chunk, the header would be too late
+	// and the only fix would be buffering the whole recording.
+	head, _ := json.Marshal(tunnel.RecFetchResponse{TotalBytes: 4242})
+	sess, cleanup := answerFrames(t, head, []byte("one"))
+	defer cleanup()
+
+	var order []string
+	var out bytes.Buffer
+	err := RecFetch(sess, tunnel.RecFetchRequest{TenantID: "acme", RecordingKey: "k"},
+		func(total int64) {
+			if total != 4242 {
+				t.Fatalf("want total 4242, got %d", total)
+			}
+			order = append(order, "head")
+		}, writerFunc(func(p []byte) (int, error) {
+			order = append(order, "body")
+			return out.Write(p)
+		}))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(order) < 2 || order[0] != "head" {
+		t.Fatalf("head must precede the body, got %v", order)
+	}
+}
+
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

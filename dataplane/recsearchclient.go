@@ -42,10 +42,20 @@ func RecSearch(s *Session, req tunnel.RecSearchRequest) (tunnel.RecSearchRespons
 	return resp, nil
 }
 
+// RecFetch streams one recording's chunks from the connector into w for replay, and
+// returns the recording's total plaintext length so the caller can answer an HTTP
+// Range. Nothing is buffered centrally: the bytes pass through on their way to the
 // RecFetch streams one recording's chunks from the connector into w for replay.
-// Nothing is buffered centrally: the bytes pass through on their way to the
-// admin's browser and are never written to control-plane storage.
-func RecFetch(s *Session, req tunnel.RecFetchRequest, w io.Writer) error {
+//
+// onHead is called once, after the connector reports the recording's total plaintext
+// length and BEFORE any body byte is written, so the caller can set Content-Range
+// and friends on a response it has not started yet. That callback is the reason this
+// does not simply return the total: returning it would force the caller to buffer
+// the whole body first, which for a 500 MiB recording is the memory blow-up
+// connector-local storage exists to avoid.
+//
+// Nothing is buffered here either: bytes pass straight through to w.
+func RecFetch(s *Session, req tunnel.RecFetchRequest, onHead func(totalBytes int64), w io.Writer) error {
 	if s == nil || s.mux == nil {
 		return errors.New("connector offline")
 	}
@@ -73,11 +83,13 @@ func RecFetch(s *Session, req tunnel.RecFetchRequest, w io.Writer) error {
 	if head.Error != "" {
 		return errors.New(head.Error)
 	}
+	if onHead != nil {
+		onHead(head.TotalBytes)
+	}
 	for {
 		chunk, err := tunnel.ReadFrame(st)
 		if err != nil {
-			// EOF is the normal end of the stream: the connector closes once it has
-			// written every chunk.
+			// EOF is the normal end: the connector closes once every chunk is written.
 			return nil
 		}
 		if len(chunk) == 0 {
