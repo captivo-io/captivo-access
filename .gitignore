@@ -53,3 +53,9 @@ docs/strategy/
 
 # Local git worktrees used during development.
 .wt/
+
+# Database dumps. Written by hand before an upgrade (deploy-saas is operator-only)
+# and they contain customer data: sessions, identities, audit events, vault rows.
+# This repo is PUBLIC -- a `git add -A` without this line publishes them.
+backups/
+*.sql.gz
