@@ -37,6 +37,14 @@ const ALLOWLIST: Record<string, string> = {
     "Tenant scoping lives in src/lib/connector/enrollment.ts (validateConnectorToken); this route performs no writes of its own.",
   "src/app/api/connector/enroll/route.ts":
     "Tenant scoping lives in src/lib/connector/enrollment.ts (redeemPairing); the route file itself does not scope.",
+  "src/app/api/internal/recording/ingest-guac/route.ts":
+    "Retired (410): recording bytes live on the connector. Reads nothing, writes nothing, touches no tenant data.",
+  "src/app/api/internal/recording/ingest-video/route.ts":
+    "Retired (410): recording bytes live on the connector. Reads nothing, writes nothing, touches no tenant data.",
+  "src/app/api/internal/recording/finalize-video/route.ts":
+    "Retired (410): recording bytes live on the connector. Reads nothing, writes nothing, touches no tenant data.",
+  "src/app/api/internal/recording/keyevents/route.ts":
+    "Retired (410): keystroke events live on the connector. Reads nothing, writes nothing, touches no tenant data.",
 };
 
 function walkRouteFiles(dir: string): string[] {

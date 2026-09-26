@@ -1,34 +1,27 @@
-import { describe, it, expect, beforeAll } from "vitest";
-import { commandTextMatches, scanDecryptedMatches } from "./command-search";
+import { describe, it, expect } from "vitest";
+import { commandTextMatches } from "./command-search";
 
-beforeAll(() => {
-  process.env.ENCRYPTION_KEY = "0".repeat(64);
-});
-
+/**
+ * The substring rule itself. The scan that used this moved to the connector
+ * (connector/recsearch.go) with the keystroke text; this module is now the written
+ * reference for that copy, and these tests are what keep the two honest.
+ *
+ * Masking and format selection are asserted on the connector side, where the data
+ * is -- see connector/recsearch_test.go, which fails with the password in the
+ * message when the mask check is removed.
+ */
 describe("commandTextMatches", () => {
-  it("matches case-insensitive substring", () => {
-    expect(commandTextMatches("sudo systemctl restart nginx", "SYSTEMCTL")).toBe(true);
-    expect(commandTextMatches("ls -la", "rm")).toBe(false);
+  it("matches case-insensitively", () => {
+    expect(commandTextMatches("sudo RM -RF /tmp", "rm -rf")).toBe(true);
+    expect(commandTextMatches("sudo rm -rf /tmp", "RM -RF")).toBe(true);
   });
-  it("empty query never matches", () => {
-    expect(commandTextMatches("anything", "")).toBe(false);
-  });
-});
 
-describe("scanDecryptedMatches", () => {
-  it("returns recordingKeys whose decrypted text contains the query", async () => {
-    const { encryptBytes } = await import("@/lib/crypto");
-    const enc = (s: string) => new Uint8Array(encryptBytes(Buffer.from(s, "utf8")));
-    const events = [
-      { recordingKey: "recA", data: enc("rm -rf /tmp/x") },
-      { recordingKey: "recB", data: enc("ls -la") },
-      { recordingKey: "recA", data: enc("whoami") },
-    ];
-    const hits = scanDecryptedMatches(events, "rm -rf");
-    expect([...hits]).toEqual(["recA"]);
+  it("never matches an empty query", () => {
+    // An empty needle would otherwise match every recording.
+    expect(commandTextMatches("anything at all", "")).toBe(false);
   });
-  it("skips undecryptable rows without throwing", () => {
-    const hits = scanDecryptedMatches([{ recordingKey: "bad", data: new Uint8Array([1, 2, 3]) }], "x");
-    expect(hits.size).toBe(0);
+
+  it("does not match text that is absent", () => {
+    expect(commandTextMatches("ls -la", "rm -rf")).toBe(false);
   });
 });
