@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { contentLengthExceeds } from "@/lib/request-limits";
-import { gzipSync } from "node:zlib";
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
-import { encryptBytes } from "@/lib/crypto";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { requireDataplaneSecret, resolveTenantBySite, withTenantFrom } from "@/lib/tenant/internal";
 
@@ -22,7 +20,7 @@ interface IngestBody {
   host?: string;
   recordingKey?: string;
   seq?: number;
-  events?: unknown[];
+  bytes?: number;
 }
 
 async function tenantFromReq(req: NextRequest): Promise<string | null> {
@@ -38,38 +36,33 @@ async function handler(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as IngestBody;
     const recordingKey = body.recordingKey;
-    const events = Array.isArray(body.events) ? body.events : [];
-    if (!recordingKey || events.length === 0) return new NextResponse(null, { status: 204 });
+    if (!recordingKey) return new NextResponse(null, { status: 204 });
 
-    const seq = typeof body.seq === "number" ? body.seq : 0;
-    // Encrypt at rest (AES-256-GCM over the gzipped events), same as GUAC recordings.
-    const data = encryptBytes(gzipSync(Buffer.from(JSON.stringify(events))));
+    // INDEX ONLY. The bytes were written to the customer's own connector by the
+    // dataplane (dataplane/recrrweb.go); what arrives here is {recordingKey, seq,
+    // bytes}. Never accept or store an event payload again -- that is the central
+    // copy connector-local recordings removed, and it would look correct.
+    const bytes = typeof body.bytes === "number" && body.bytes >= 0 ? body.bytes : 0;
 
     await db.$transaction(async (tx) => {
-      const recording = await tx.sessionRecording.upsert({
+      await tx.sessionRecording.upsert({
         where: { tenantId_recordingKey: { tenantId: currentTenantId(), recordingKey } },
         create: {
           recordingKey,
           userId: body.userId ?? "",
           siteId: body.siteId ?? "",
           host: body.host ?? "",
-          eventCount: events.length,
-          bytes: data.length,
+          eventCount: 1,
+          bytes,
+          // Encrypted, but with the CONNECTOR's key, which the control plane does
+          // not hold. Kept true so replay knows the payload is sealed.
           encrypted: true,
           lastEventAt: new Date(),
         },
         update: {
-          eventCount: { increment: events.length },
-          bytes: { increment: data.length },
+          eventCount: { increment: 1 },
+          bytes: { increment: bytes },
           lastEventAt: new Date(),
-        },
-      });
-
-      await tx.recordingChunk.create({
-        data: {
-          recordingId: recording.id,
-          seq,
-          data: new Uint8Array(data),
         },
       });
     });

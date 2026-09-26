@@ -1,82 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqualStr } from "@/lib/secure-compare";
-import { db } from "@/lib/db";
-import { currentTenantId } from "@/lib/tenant/context";
-import { encryptBytes } from "@/lib/crypto";
-import { contentLengthExceeds } from "@/lib/request-limits";
-import { recordingEnabled } from "@/lib/recording/enabled";
-import { requireDataplaneSecret, resolveTenantBySite, withTenantFrom } from "@/lib/tenant/internal";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-function dataplaneAuthorized(req: NextRequest): boolean {
-  const s = process.env.DATAPLANE_SECRET;
-  return !!s && timingSafeEqualStr(req.headers.get("x-dataplane-secret"), s);
+/**
+ * Gone: recording bytes are no longer accepted by the control plane.
+ *
+ * Since connector-local recordings, the dataplane writes every chunk into the
+ * customer's own connector (dataplane/recclient.go) and reports only the index to
+ * /api/internal/recording/ingest. Nothing calls this route.
+ *
+ * It answers 410 instead of being deleted so that a stale dataplane -- the few
+ * seconds of a rolling deploy, or an operator running mismatched images -- gets a
+ * clear refusal in the log rather than a 404 that reads like a routing bug. And it
+ * refuses rather than storing: losing seconds of recording in a deploy window is
+ * acceptable, quietly keeping a central copy of a customer's screen content is not.
+ *
+ * Safe to delete once no supported dataplane version posts here.
+ */
+export async function POST(req: NextRequest) {
+  console.warn(
+    `[recording] ${new URL(req.url).pathname} was called: a dataplane is still posting recording bytes centrally. Upgrade it -- these bytes belong on the connector.`
+  );
+  return NextResponse.json(
+    { error: "gone", detail: "recording bytes are stored on the connector; report the index to /api/internal/recording/ingest" },
+    { status: 410 }
+  );
 }
-
-interface IngestVideoBody {
-  recordingKey?: string;
-  seq?: number;
-  siteId?: string;
-  userId?: string;
-  host?: string;
-  data?: string; // base64 raw WebM bytes
-}
-
-async function tenantFromReq(req: NextRequest): Promise<string | null> {
-  const body = (await req.clone().json().catch(() => ({}))) as IngestVideoBody;
-  return resolveTenantBySite(body.siteId ?? "");
-}
-
-async function handler(req: NextRequest) {
-  if (!dataplaneAuthorized(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  if (!recordingEnabled()) return NextResponse.json({ error: "not found" }, { status: 403 });
-  if (contentLengthExceeds(req, 16 << 20)) return new NextResponse(null, { status: 413 });
-
-  try {
-    const body = (await req.json().catch(() => ({}))) as IngestVideoBody;
-    const recordingKey = body.recordingKey;
-    if (!recordingKey || !body.data) return new NextResponse(null, { status: 204 });
-
-    const raw = Buffer.from(body.data, "base64");
-    if (raw.length === 0) return new NextResponse(null, { status: 204 });
-    const seq = typeof body.seq === "number" ? body.seq : 0;
-    // Encrypt at rest (AES-256-GCM). WebM is already codec-compressed, so no gzip.
-    const data = encryptBytes(raw);
-
-    await db.$transaction(async (tx) => {
-      const rec = await tx.sessionRecording.upsert({
-        where: { tenantId_recordingKey: { tenantId: currentTenantId(), recordingKey } },
-        create: {
-          recordingKey,
-          userId: body.userId ?? "",
-          siteId: body.siteId ?? "",
-          host: body.host ?? "",
-          format: "VIDEO",
-          encrypted: true,
-          protocol: "kasm",
-          eventCount: 1,
-          bytes: data.length,
-          lastEventAt: new Date(),
-        },
-        update: {
-          eventCount: { increment: 1 },
-          bytes: { increment: data.length },
-          lastEventAt: new Date(),
-        },
-      });
-      await tx.recordingChunk.create({
-        data: { recordingId: rec.id, seq, data: new Uint8Array(data) },
-      });
-    });
-
-    return new NextResponse(null, { status: 204 });
-  } catch (err) {
-    // Best-effort: recording must never throw back to the data-plane.
-    console.error("[recording/ingest-video] failed to store chunk:", err);
-    return new NextResponse(null, { status: 500 });
-  }
-}
-
-export const POST = requireDataplaneSecret(withTenantFrom(tenantFromReq)(handler));
