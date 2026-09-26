@@ -37,6 +37,11 @@ func main() {
 		log.Fatalf("recording key: %v", err)
 	}
 	store := newRecStore(recDir, recKey)
+	// Warn loudly if the store will not outlive the container. Recordings are no
+	// longer held by the control plane, so if this volume is lost nobody has a copy.
+	if warn := recordingVolumeWarning(recDir); warn != "" {
+		log.Printf("WARNING: %s", warn)
+	}
 	// The enrollment pairing code and the long-lived connector token travel over
 	// these URLs; a plaintext scheme exposes them on the wire. Warn loudly but
 	// don't exit — local/test setups may legitimately use http/ws.

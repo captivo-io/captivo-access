@@ -165,6 +165,31 @@ commented keeps the features enabled; set one to `0` only to disable it.
 
 **Never commit `.env`.** It holds every secret.
 
+
+## Where session recordings are stored
+
+Recordings — screen streams, keystroke logs, isolated-browser video — are written to
+the **connector's own disk**, on the machine inside your network, encrypted with a key
+the connector generates on first start. The control plane never receives the content
+and cannot decrypt it. Search runs on the connector too, so nothing has to leave to
+find a command.
+
+Four consequences, and none of them are optional reading:
+
+1. **Back up the connector's volume.** Nobody else has a copy — not us. If the volume
+   is lost the recordings are gone permanently.
+2. **Back up `/data/recording.key` with it.** The recordings cannot be read without
+   that file, and it cannot be reissued or recovered.
+3. **A recording is searchable and playable only while its connector is online.** When
+   a connector is offline the console says an answer is incomplete rather than
+   pretending nothing matched.
+4. **An erasure completes when the connector next connects.** Asking the console to
+   delete a recording records the request immediately; the content goes when the
+   connector confirms, and the recording stays marked pending until then.
+
+The connector warns in its log at start-up if the recording directory is not on a
+mounted volume, because that means a `docker rm` would destroy every recording.
+
 ## Step 5 — Bring the stack up
 
 ```bash
