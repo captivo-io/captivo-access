@@ -1,64 +1,67 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
-func TestKasmRecWriterFlushesToIngestVideo(t *testing.T) {
-	var gotPath, gotSecret, gotData string
-	var gotSeq int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotSecret = r.Header.Get("x-dataplane-secret")
-		b, _ := io.ReadAll(r.Body)
-		var m struct {
-			Data string `json:"data"`
-			Seq  int    `json:"seq"`
-		}
-		_ = json.Unmarshal(b, &m)
-		gotData, gotSeq = m.Data, m.Seq
-		w.WriteHeader(204)
-	}))
-	defer srv.Close()
+func newTestKasmWriter(send func(tunnel.RecWriteRequest) (int, error), capBytes int) *kasmRecWriter {
+	return newKasmRecWriter(send, "acme", "k1", "site1", "user1", "host1", capBytes)
+}
 
-	w := newKasmRecWriter(srv.URL, "sekret", "k1", "site1", "user1", "host1", 1<<20)
-	// A payload >= recFlushBytes forces an immediate flush.
-	w.Write([]byte(strings.Repeat("A", recFlushBytes+16)))
-	w.Close()
-
-	if gotPath != "/api/internal/recording/ingest-video" {
-		t.Fatalf("path=%q", gotPath)
+func TestKasmRecWriterFlushesToConnector(t *testing.T) {
+	rec := &sendRecorder{}
+	w := newTestKasmWriter(rec.send, 1<<20)
+	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	if rec.count() != 1 {
+		t.Fatalf("want one chunk, got %d", rec.count())
 	}
-	if gotSecret != "sekret" {
-		t.Fatalf("secret=%q", gotSecret)
+	got := rec.reqs[0]
+	if got.Format != "video" {
+		// The connector stores by format; "guac" here would mis-assemble on replay.
+		t.Fatalf("want format video, got %q", got.Format)
 	}
-	if gotSeq != 0 {
-		t.Fatalf("seq=%d want 0", gotSeq)
-	}
-	dec, _ := base64.StdEncoding.DecodeString(gotData)
-	if len(dec) < recFlushBytes {
-		t.Fatalf("decoded %d bytes, want >= %d", len(dec), recFlushBytes)
+	if got.TenantID != "acme" || got.RecordingKey != "k1" {
+		t.Fatalf("chunk lost its addressing: %+v", got)
 	}
 }
 
-func TestKasmRecWriterStopsAtCap(t *testing.T) {
-	var posts int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		posts++
-		w.WriteHeader(204)
-	}))
-	defer srv.Close()
-	w := newKasmRecWriter(srv.URL, "s", "k", "si", "u", "h", 10) // 10-byte cap
-	w.Write([]byte(strings.Repeat("A", recFlushBytes))) // over cap on the first write
-	w.Write([]byte(strings.Repeat("B", recFlushBytes))) // dropped (stopped)
-	w.Close()
-	if posts > 1 {
-		t.Fatalf("posts=%d, expected capture to stop after the cap", posts)
+func TestKasmRecWriterStopsAtSizeCap(t *testing.T) {
+	rec := &sendRecorder{}
+	w := newTestKasmWriter(rec.send, 10) // 10-byte cap
+	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	w.Write([]byte(strings.Repeat("B", recFlushBytes+1)))
+	if rec.count() != 1 {
+		t.Fatalf("expected exactly 1 chunk before the cap, got %d", rec.count())
 	}
+}
+
+func TestKasmRecWriterSurvivesSendFailure(t *testing.T) {
+	rec := &sendRecorder{err: errors.New("connector offline")}
+	w := newTestKasmWriter(rec.send, 1<<20)
+	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	if rec.count() != 2 {
+		t.Fatalf("writer stopped after a failed send: %d attempts", rec.count())
+	}
+}
+
+func TestSendFinalizedVideoGoesToTheConnector(t *testing.T) {
+	rec := &sendRecorder{}
+	sendFinalizedVideo(rec.send, "acme", "k1", 4, []byte("webm"))
+	if rec.count() != 1 {
+		t.Fatalf("want one chunk, got %d", rec.count())
+	}
+	if rec.reqs[0].Seq != 4 || rec.reqs[0].Format != "video" {
+		t.Fatalf("finalized chunk wrong: %+v", rec.reqs[0])
+	}
+}
+
+func TestSendFinalizedVideoToleratesNilSend(t *testing.T) {
+	// The finalize path runs after the session ends; a torn-down recorder must not
+	// panic the goroutine.
+	sendFinalizedVideo(nil, "acme", "k1", 0, []byte("x"))
 }

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
 // openKasmSession asks the in-container broker to start an isolated KasmVNC
@@ -140,6 +142,7 @@ type kasmDesc struct {
 	KasmAddr           string `json:"kasmAddr"`
 	KasmControlAddr    string `json:"kasmControlAddr"`
 	ConnectorID        string `json:"connectorId"`
+	TenantID           string `json:"tenantId"`
 	ClipboardMode      string `json:"clipboardMode"`
 	Record             bool   `json:"record"`
 	WatermarkText      string `json:"watermarkText"`
@@ -252,7 +255,10 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 			// the connector and forward it in chunks. Closing recConn (on WS end)
 			// stops ffmpeg and flushes the tail. Best-effort — never blocks the session.
 			if recConn, e := dialGuacd(sess, d.KasmControlAddr); e == nil {
-				rw := newKasmRecWriter(ctrl.BaseURL, ctrl.Secret,
+				// Chunks go to the connector already carrying this session, so the
+				// video never leaves the customer's network.
+				recSend := func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess, req) }
+				rw := newKasmRecWriter(recSend, d.TenantID,
 					newRecordingKey(siteID, userID), siteID, userID, d.NavigateUrl, recordingMaxBytes())
 				_, _ = io.WriteString(recConn, "GET /session/"+id+"/rec HTTP/1.0\r\nHost: "+d.KasmControlAddr+"\r\nConnection: close\r\n\r\n")
 				recDone := make(chan struct{})
@@ -290,7 +296,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 							for {
 								n, er := fresp.Body.Read(fbuf)
 								if n > 0 {
-									postFinalizeVideo(ctrl.BaseURL, ctrl.Secret, rw.key, seq, fbuf[:n])
+									sendFinalizedVideo(recSend, d.TenantID, rw.key, seq, fbuf[:n])
 									seq++
 								}
 								if er != nil {

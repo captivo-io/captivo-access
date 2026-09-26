@@ -2,40 +2,40 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"log"
-	"net/http"
 	"time"
+
+	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
-// kasmRecWriter tees a KasmVNC session's live WebM byte stream to the manager's
-// ingest-video endpoint in recFlushBytes / recFlushInterval chunks. It is the video
+// kasmRecWriter tees a KasmVNC session's live WebM byte stream INTO THE
+// CONNECTOR'S OWN STORE in recFlushBytes / recFlushInterval chunks. It is the video
 // analog of guacrecord.go's recWriter and is deliberately self-contained (transport
-// B must not depend on the former transport A). Best-effort: a failed POST or a
+// B must not depend on the former transport A). Best-effort: a failed write or a
 // reached cap never blocks the session. Single-goroutine (the recording relay loop).
 type kasmRecWriter struct {
-	managerURL string
-	secret     string
-	key        string
-	siteID     string
-	userID     string
-	host       string
-	capBytes   int
+	send     func(tunnel.RecWriteRequest) (int, error)
+	tenantID string
+	key      string
+	siteID   string
+	userID   string
+	host     string
+	capBytes int
 
-	buf       bytes.Buffer
-	seq       int
-	total     int
-	lastFlush time.Time
-	stopped   bool
-	client    *http.Client
+	buf               bytes.Buffer
+	seq               int
+	total             int
+	lastFlush         time.Time
+	stopped           bool
+	unsupportedLogged int
 }
 
-func newKasmRecWriter(managerURL, secret, key, siteID, userID, host string, capBytes int) *kasmRecWriter {
+func newKasmRecWriter(send func(tunnel.RecWriteRequest) (int, error), tenantID, key, siteID, userID, host string, capBytes int) *kasmRecWriter {
 	return &kasmRecWriter{
-		managerURL: managerURL, secret: secret, key: key,
+		send: send, tenantID: tenantID, key: key,
 		siteID: siteID, userID: userID, host: host, capBytes: capBytes,
-		lastFlush: time.Now(), client: &http.Client{Timeout: 10 * time.Second},
+		lastFlush: time.Now(),
 	}
 }
 
@@ -62,61 +62,52 @@ func (w *kasmRecWriter) flush() {
 	if w.buf.Len() == 0 {
 		return
 	}
-	payload, err := json.Marshal(map[string]any{
-		"recordingKey": w.key,
-		"seq":          w.seq,
-		"siteId":       w.siteID,
-		"userId":       w.userID,
-		"host":         w.host,
-		"data":         base64.StdEncoding.EncodeToString(w.buf.Bytes()),
-	})
+	chunk := make([]byte, w.buf.Len())
+	copy(chunk, w.buf.Bytes())
+	seq := w.seq
 	w.seq++
 	w.buf.Reset()
 	w.lastFlush = time.Now()
-	if err != nil {
-		log.Printf("kasm-recording key=%s: marshal failed err=%v", w.key, err)
+
+	_, err := w.send(tunnel.RecWriteRequest{
+		TenantID:     w.tenantID,
+		RecordingKey: w.key,
+		Seq:          seq,
+		Format:       "video",
+		Data:         chunk,
+	})
+	if err == nil {
 		return
 	}
-	req, err := http.NewRequest(http.MethodPost, w.managerURL+"/api/internal/recording/ingest-video", bytes.NewReader(payload))
-	if err != nil {
-		log.Printf("kasm-recording key=%s: build request failed err=%v", w.key, err)
+	if errors.Is(err, errRecUnsupported) {
+		if w.unsupportedLogged == 0 {
+			log.Printf("kasm-recording site=%s key=%s: connector does not support local recordings; capture disabled for this session", w.siteID, w.key)
+		}
+		w.unsupportedLogged++
+		w.stopped = true
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-dataplane-secret", w.secret)
-	resp, err := w.client.Do(req)
-	if err != nil {
-		log.Printf("kasm-recording key=%s seq=%d: ingest post failed err=%v", w.key, w.seq-1, err)
-		return
-	}
-	resp.Body.Close()
+	log.Printf("kasm-recording key=%s seq=%d: connector write failed err=%v", w.key, seq, err)
 }
 
 // Close flushes the tail chunk.
 func (w *kasmRecWriter) Close() { w.flush() }
 
-// postFinalizeVideo sends one chunk of the finalized (seekable) recording to the
-// manager's finalize-video endpoint, which replaces the interim chunks. Best-effort.
-func postFinalizeVideo(managerURL, secret, key string, seq int, data []byte) {
-	payload, err := json.Marshal(map[string]any{
-		"recordingKey": key,
-		"seq":          seq,
-		"data":         base64.StdEncoding.EncodeToString(data),
-	})
-	if err != nil {
+// sendFinalizedVideo writes one chunk of the finalized (seekable) recording to the
+// connector, replacing the interim chunks it holds for the same recording. The
+// seq space continues from the interim chunks, so the connector overwrites in
+// place. Best-effort, like every recording write.
+func sendFinalizedVideo(send func(tunnel.RecWriteRequest) (int, error), tenantID, key string, seq int, data []byte) {
+	if send == nil {
 		return
 	}
-	req, err := http.NewRequest(http.MethodPost, managerURL+"/api/internal/recording/finalize-video", bytes.NewReader(payload))
-	if err != nil {
-		return
+	if _, err := send(tunnel.RecWriteRequest{
+		TenantID:     tenantID,
+		RecordingKey: key,
+		Seq:          seq,
+		Format:       "video",
+		Data:         data,
+	}); err != nil {
+		log.Printf("kasm-recording key=%s seq=%d: finalize write failed err=%v", key, seq, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-dataplane-secret", secret)
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("kasm-recording key=%s: finalize post failed err=%v", key, err)
-		return
-	}
-	resp.Body.Close()
 }
