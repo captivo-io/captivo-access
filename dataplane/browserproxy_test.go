@@ -26,7 +26,7 @@ type fakeControl struct {
 	email      string
 	resolveErr error
 
-	siteID, connID, upstream string
+	siteID, connID, tenantID, upstream string
 	clipboardMode            string
 	insecureSkipVerify       bool
 	recordSessions           bool
@@ -50,8 +50,8 @@ func (f *fakeControl) ResolveSession(string) (string, string, error) {
 	return f.userID, f.email, f.resolveErr
 }
 
-func (f *fakeControl) SiteByHost(string) (string, string, string, string, bool, bool, bool, bool, bool, error) {
-	return f.siteID, f.connID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.watermark, f.siteErr
+func (f *fakeControl) SiteByHost(string) (string, string, string, string, string, bool, bool, bool, bool, bool, error) {
+	return f.siteID, f.connID, f.tenantID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.watermark, f.siteErr
 }
 
 func (f *fakeControl) CheckAccess(string, string, string) (bool, string, error) {
@@ -457,7 +457,15 @@ func TestBrowserProxyIngestsRecordingBatch(t *testing.T) {
 		t.Fatalf("SendRecording called with userID=%q siteID=%q host=%q, want u1/s1/app.example.com",
 			ctrl.sentUserID, ctrl.sentSiteID, ctrl.sentHost)
 	}
-	if string(ctrl.sentBody) != batch {
+	// The control plane must receive the INDEX only. Event bytes belong to the
+	// connector; forwarding them here would undo connector-local recordings.
+	if strings.Contains(string(ctrl.sentBody), "events") {
+		t.Fatalf("event payload reached the control plane: %s", ctrl.sentBody)
+	}
+	if !strings.Contains(string(ctrl.sentBody), `"recordingKey":"k1"`) {
+		t.Fatalf("index lost the recording key: %s", ctrl.sentBody)
+	}
+	if false {
 		t.Fatalf("SendRecording body = %q, want %q", ctrl.sentBody, batch)
 	}
 }
@@ -621,7 +629,7 @@ func TestServeRecording_DropsOversizeBatch(t *testing.T) {
 	big := bytes.Repeat([]byte("x"), maxRecordingBatchBytes+1)
 	req := httptest.NewRequest(http.MethodPost, "/__captivo/rec", bytes.NewReader(big))
 	rec := httptest.NewRecorder()
-	p.serveRecording(rec, req, "u1", "s1", "host", true)
+	p.serveRecording(rec, req, "u1", "s1", "host", "c1", "acme", true)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
@@ -639,12 +647,19 @@ func TestServeRecording_ForwardsNormalBatch(t *testing.T) {
 	body := []byte(`{"recordingKey":"k","seq":0,"events":[{"type":2}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/__captivo/rec", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	p.serveRecording(rec, req, "u1", "s1", "host", true)
+	p.serveRecording(rec, req, "u1", "s1", "host", "c1", "acme", true)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
-	if string(ctrl.sentBody) != string(body) {
+	// Index only: the events stay with the connector.
+	if strings.Contains(string(ctrl.sentBody), "events") {
+		t.Fatalf("event payload reached the control plane: %s", ctrl.sentBody)
+	}
+	if !strings.Contains(string(ctrl.sentBody), `"recordingKey":"k"`) {
+		t.Fatalf("index lost the recording key: %s", ctrl.sentBody)
+	}
+	if false {
 		t.Fatalf("SendRecording body = %q, want %q", ctrl.sentBody, body)
 	}
 }

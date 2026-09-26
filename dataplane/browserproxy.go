@@ -227,7 +227,7 @@ func (p *BrowserProxy) consentPage(w http.ResponseWriter, r *http.Request) {
 // production use.
 type proxyControl interface {
 	ResolveSession(token string) (userID, email string, err error)
-	SiteByHost(host string) (siteID, connectorID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark bool, err error)
+	SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark bool, err error)
 	CheckAccess(userID, siteID, clientIP string) (allow bool, reason string, err error)
 	RecorderJS() ([]byte, error)
 	SendRecording(userID, siteID, host string, body []byte) error
@@ -259,7 +259,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Site by host.
-	siteID, connectorID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, err := p.ctrl.SiteByHost(host)
+	siteID, connectorID, tenantID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, err := p.ctrl.SiteByHost(host)
 	if err != nil {
 		if errors.Is(err, ErrNoSite) {
 			errorPage(w, http.StatusNotFound, "No application here", "There's no application published at this address.", "Check the link, or contact your administrator.")
@@ -305,7 +305,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// after session/site/access are resolved, so recording is scoped to an
 	// authenticated, allowed user on a recording-enabled site.
 	if strings.HasPrefix(r.URL.Path, "/__captivo/") {
-		p.serveRecording(w, r, userID, siteID, host, recordSessions)
+		p.serveRecording(w, r, userID, siteID, host, connectorID, tenantID, recordSessions)
 		return
 	}
 
@@ -616,7 +616,7 @@ const maxRecordingBatchBytes = 8 << 20 // 8 MiB
 // page (a site not recording-enabled yields 404; an oversized batch is dropped
 // with 204), since a recording hiccup must never be visible to the user or
 // break the app being proxied.
-func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, userID, siteID, host string, recordSessions bool) {
+func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, userID, siteID, host, connectorID, tenantID string, recordSessions bool) {
 	if !recordSessions {
 		http.NotFound(w, r)
 		return
@@ -643,7 +643,9 @@ func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, us
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		_ = p.ctrl.SendRecording(userID, siteID, host, body) // best-effort
+		// Recording bytes go to the connector, not the control plane. The index
+		// (that a recording exists, and how big) still goes to the manager.
+		p.sendRrwebToConnector(connectorID, tenantID, userID, siteID, host, body) // best-effort
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)

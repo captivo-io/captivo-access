@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { resolvedRecordingConsentRequired, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
 import { requireDataplaneSecret, resolveTenantByHostname, withTenantFrom } from "@/lib/tenant/internal";
+import { currentTenantId } from "@/lib/tenant/context";
 
 function dataplaneAuthorized(req: NextRequest): boolean {
   const s = process.env.DATAPLANE_SECRET;
@@ -36,6 +37,7 @@ async function handler(req: NextRequest) {
   return NextResponse.json({
     siteId: site.id,
     connectorId: site.connectorId,
+    tenantId: currentTenantId(),
     upstreamUrl: site.upstreamUrl,
     insecureSkipVerify: site.insecureSkipVerify,
     // Runtime-gated, not just the per-Site toggle: if RECORDING_ENABLED is
