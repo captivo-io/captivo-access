@@ -33,17 +33,23 @@ func (s *Session) setControl(w io.Writer) {
 
 // PushPolicy writes a policy frame to the connector's control stream. Returns an
 // error if the connector isn't connected / has no control stream yet.
-func (s *Session) PushPolicy(egressAllowedTargets, logLevel string) error {
+// PushPolicy writes a policy frame to the connector's control stream.
+//
+// It takes the whole tunnel.Policy rather than a fixed argument list: the frame is
+// deliberately extensible, and a positional signature meant every new field (tenant,
+// retention window, erasure list) had to be threaded through here and every caller.
+func (s *Session) PushPolicy(p tunnel.Policy) error {
 	s.ctrlMu.Lock()
-	defer s.ctrlMu.Unlock()
-	if s.ctrlStream == nil {
-		return errNoControl
+	w := s.ctrlStream
+	s.ctrlMu.Unlock()
+	if w == nil {
+		return errors.New("control stream not ready")
 	}
-	b, err := json.Marshal(tunnel.Policy{EgressAllowedTargets: egressAllowedTargets, LogLevel: logLevel})
+	b, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}
-	return tunnel.WriteFrame(s.ctrlStream, b)
+	return tunnel.WriteFrame(w, b)
 }
 
 func (s *Session) SetTelemetry(t *tunnel.Telemetry) {

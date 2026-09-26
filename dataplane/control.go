@@ -25,7 +25,7 @@ func runControl(sess *Session, initialPolicy, initialLogLevel string) {
 		return
 	}
 	// Push the connector's saved policy on connect (guarded like later updates).
-	_ = sess.PushPolicy(initialPolicy, initialLogLevel)
+	_ = sess.PushPolicy(tunnel.Policy{EgressAllowedTargets: initialPolicy, LogLevel: initialLogLevel})
 	for {
 		b, err := tunnel.ReadFrame(st)
 		if err != nil {

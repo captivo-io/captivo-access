@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
-import { resolvedConnectorLogLevel } from "@/lib/settings/platform";
+import { resolvedConnectorLogLevel, resolvedRecordingRetentionDays } from "@/lib/settings/platform";
+import { currentTenantId } from "@/lib/tenant/context";
+import { pendingErasuresByConnector } from "@/lib/recording/erasure";
 
 // Pushes a connector's full policy (egress narrowing + log level) to its live
 // control stream via the data-plane. Reads the current saved values from the DB
@@ -22,6 +24,12 @@ export async function pushConnectorPolicy(
       connectorId,
       egressAllowedTargets: c?.egressPolicy ?? "",
       logLevel: await resolvedConnectorLogLevel(c?.logLevel ?? null),
+      // The recording half. The connector owns its files, so retention and erasure
+      // travel with the policy rather than as commands of their own: whenever a
+      // connector is reachable it learns the current window and what it still owes.
+      tenantId: currentTenantId(),
+      recordingRetentionDays: await resolvedRecordingRetentionDays(),
+      purgeRecordingKeys: (await pendingErasuresByConnector()).get(connectorId) ?? [],
     }),
   }).catch(() => null);
   if (!res || !res.ok) return { ok: false, reason: "unreachable" };

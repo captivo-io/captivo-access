@@ -99,3 +99,37 @@ func TestRecIndexReporterToleratesNilReceiverAndClient(t *testing.T) {
 	nilReporter.report("k", 0, 10)
 	(&recIndexReporter{}).report("k", 0, 10)
 }
+
+func TestPushPolicyCarriesTheRecordingFields(t *testing.T) {
+	// The whole point of taking a tunnel.Policy: a new field must reach the connector
+	// without threading it through this signature and every caller. If retention or
+	// the erasure list were dropped here, a connector would silently never sweep and
+	// an accepted erasure would stay pending forever.
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+
+	sess := &Session{}
+	sess.setControl(a)
+
+	got := make(chan tunnel.Policy, 1)
+	go func() {
+		frame, err := tunnel.ReadFrame(b)
+		if err != nil {
+			return
+		}
+		var p tunnel.Policy
+		_ = json.Unmarshal(frame, &p)
+		got <- p
+	}()
+
+	if err := sess.PushPolicy(tunnel.Policy{
+		TenantID: "acme", RecordingRetentionDays: 30, PurgeRecordingKeys: []string{"k1"},
+	}); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	p := <-got
+	if p.TenantID != "acme" || p.RecordingRetentionDays != 30 || len(p.PurgeRecordingKeys) != 1 {
+		t.Fatalf("policy lost its recording fields: %+v", p)
+	}
+}

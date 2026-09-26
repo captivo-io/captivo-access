@@ -202,9 +202,12 @@ func main() {
 			return
 		}
 		var body struct {
-			ConnectorID          string `json:"connectorId"`
-			EgressAllowedTargets string `json:"egressAllowedTargets"`
-			LogLevel             string `json:"logLevel"`
+			ConnectorID            string   `json:"connectorId"`
+			EgressAllowedTargets   string   `json:"egressAllowedTargets"`
+			LogLevel               string   `json:"logLevel"`
+			TenantID               string   `json:"tenantId"`
+			RecordingRetentionDays int      `json:"recordingRetentionDays"`
+			PurgeRecordingKeys     []string `json:"purgeRecordingKeys"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
@@ -215,7 +218,13 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "offline"})
 			return
 		}
-		if err := sess.PushPolicy(body.EgressAllowedTargets, body.LogLevel); err != nil {
+		if err := sess.PushPolicy(tunnel.Policy{
+			EgressAllowedTargets:   body.EgressAllowedTargets,
+			LogLevel:               body.LogLevel,
+			TenantID:               body.TenantID,
+			RecordingRetentionDays: body.RecordingRetentionDays,
+			PurgeRecordingKeys:     body.PurgeRecordingKeys,
+		}); err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "not_ready"})
 			return
 		}
