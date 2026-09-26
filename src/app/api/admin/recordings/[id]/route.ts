@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { appendAuditEvents } from "@/lib/audit/append";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { requestErasure } from "@/lib/recording/erasure";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,8 +26,11 @@ export const DELETE = withTenantRoute(async (req: Request, { params }: { params:
   // Resolve the vendor's email for a human-readable audit reason.
   const vendor = await db.user.findUnique({ where: { id: rec.userId }, select: { email: true } });
 
-  // RecordingChunk cascades on delete of the parent SessionRecording.
-  await db.sessionRecording.delete({ where: { id } });
+  // The bytes are on the customer's connector, so this is a REQUEST, not a delete.
+  // Removing the row here would orphan those bytes forever: nothing would be left to
+  // tell the connector which recording to erase. The row goes when the connector
+  // confirms; see src/lib/recording/erasure.ts.
+  await requestErasure(id);
 
   // Audit the deletion in the tamper-evident chain. Best-effort: the delete is
   // the primary action, so an audit failure is logged but does not fail the call.
@@ -40,7 +44,7 @@ export const DELETE = withTenantRoute(async (req: Request, { params }: { params:
         path: `/admin/recordings/${id}`,
         status: 200,
         decision: "ALLOW",
-        reason: `Deleted session recording (vendor ${vendor?.email ?? rec.userId}, ${rec.eventCount} events, ${rec.bytes} bytes, started ${rec.startedAt.toISOString()})`,
+        reason: `Requested erasure of session recording (vendor ${vendor?.email ?? rec.userId}, ${rec.eventCount} events, ${rec.bytes} bytes, started ${rec.startedAt.toISOString()}); the content is on the customer\u0027s connector and is removed when that connector confirms`,
         clientIp: clientIp(req.headers),
         userAgent: req.headers.get("user-agent") ?? undefined,
       },
@@ -51,10 +55,15 @@ export const DELETE = withTenantRoute(async (req: Request, { params }: { params:
 
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
-    action: "recording.delete",
+    action: "recording.erasure_requested",
     targetType: "recording", targetId: id,
-    summary: `Deleted recording ${id}`,
+    summary: `Requested erasure of recording ${id} (applied when its connector confirms)`,
     clientIp: clientIp(req.headers) ?? null,
   });
-  return NextResponse.json({ ok: true });
+  // 202, not 200: accepted and queued. An offline connector delays the erasure, and
+  // saying "ok" would be a compliance claim the system cannot yet support.
+  return NextResponse.json(
+    { ok: true, status: "erasure_pending", detail: "the recording is erased when its connector next connects" },
+    { status: 202 }
+  );
 });

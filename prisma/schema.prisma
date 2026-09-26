@@ -601,6 +601,12 @@ model SessionRecording {
   eventCount   Int              @default(0)
   bytes        Int              @default(0)
   format       RecordingFormat  @default(RRWEB)
+  // Set when an administrator asks for this recording to be erased. The bytes live
+  // on the customer's connector, so the control plane cannot delete them itself: it
+  // records the request, asks the connector on its next policy push, and removes
+  // this row only when the connector confirms. An offline connector therefore
+  // DELAYS erasure -- which the UI and the DPA must say rather than hide.
+  purgePendingAt DateTime?
   protocol     String?
   encrypted    Boolean          @default(false)
   chunks       RecordingChunk[]
