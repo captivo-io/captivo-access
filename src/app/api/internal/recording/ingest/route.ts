@@ -21,6 +21,10 @@ interface IngestBody {
   recordingKey?: string;
   seq?: number;
   bytes?: number;
+  /** "rrweb" | "guac" | "video" -- which player can replay this recording. */
+  format?: string;
+  /** "ssh" | "rdp" | "vnc" for gateway sessions; absent for web. */
+  protocol?: string;
 }
 
 async function tenantFromReq(req: NextRequest): Promise<string | null> {
@@ -43,6 +47,10 @@ async function handler(req: NextRequest) {
     // bytes}. Never accept or store an event payload again -- that is the central
     // copy connector-local recordings removed, and it would look correct.
     const bytes = typeof body.bytes === "number" && body.bytes >= 0 ? body.bytes : 0;
+    // The format decides which player the UI offers, so it has to reach the index.
+    // Defaults to RRWEB because that is the only source that omitted it historically.
+    const format =
+      body.format === "guac" ? "GUAC" : body.format === "video" ? "VIDEO" : "RRWEB";
 
     await db.$transaction(async (tx) => {
       await tx.sessionRecording.upsert({
@@ -54,6 +62,8 @@ async function handler(req: NextRequest) {
           host: body.host ?? "",
           eventCount: 1,
           bytes,
+          format,
+          protocol: body.protocol || null,
           // Encrypted, but with the CONNECTOR's key, which the control plane does
           // not hold. Kept true so replay knows the payload is sealed.
           encrypted: true,

@@ -16,6 +16,7 @@ import (
 // reached cap never blocks the session. Single-goroutine (the recording relay loop).
 type kasmRecWriter struct {
 	send     func(tunnel.RecWriteRequest) (int, error)
+	index    *recIndexReporter
 	tenantID string
 	key      string
 	siteID   string
@@ -31,9 +32,9 @@ type kasmRecWriter struct {
 	unsupportedLogged int
 }
 
-func newKasmRecWriter(send func(tunnel.RecWriteRequest) (int, error), tenantID, key, siteID, userID, host string, capBytes int) *kasmRecWriter {
+func newKasmRecWriter(send func(tunnel.RecWriteRequest) (int, error), index *recIndexReporter, tenantID, key, siteID, userID, host string, capBytes int) *kasmRecWriter {
 	return &kasmRecWriter{
-		send: send, tenantID: tenantID, key: key,
+		send: send, index: index, tenantID: tenantID, key: key,
 		siteID: siteID, userID: userID, host: host, capBytes: capBytes,
 		lastFlush: time.Now(),
 	}
@@ -76,6 +77,7 @@ func (w *kasmRecWriter) flush() {
 		Format:       "video",
 		Data:         chunk,
 	})
+	w.index.report(w.key, seq, len(chunk))
 	if err == nil {
 		return
 	}

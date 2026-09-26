@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"log"
 
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
@@ -47,4 +48,38 @@ func writeRecChunk(s *Session, req tunnel.RecWriteRequest) (int, error) {
 		return 0, errors.New(resp.Error)
 	}
 	return resp.Written, nil
+}
+
+// recIndexReporter reports a chunk's INDEX to the control plane so the recording
+// appears in the list. Without it a recording's bytes sit on the connector
+// invisible -- which is how Slice B first shipped, because only the rrweb path had
+// ever reported an index and the other two lost theirs with their POSTs.
+//
+// Best-effort and deliberately separate from the chunk write: an index that fails
+// must not stop capture, and a chunk that fails must still be counted as attempted.
+type recIndexReporter struct {
+	// send posts one index body. A seam rather than a *ControlClient so a test can
+	// observe what is reported; "the field is not nil" asserts nothing.
+	send                func(userID, siteID, host string, body []byte) error
+	userID, siteID      string
+	host, format, proto string
+}
+
+func (r *recIndexReporter) report(recordingKey string, seq, bytes int) {
+	if r == nil || r.send == nil {
+		return
+	}
+	body, err := json.Marshal(map[string]any{
+		"recordingKey": recordingKey,
+		"seq":          seq,
+		"bytes":        bytes,
+		"format":       r.format,
+		"protocol":     r.proto,
+	})
+	if err != nil {
+		return
+	}
+	if err := r.send(r.userID, r.siteID, r.host, body); err != nil {
+		log.Printf("recording index key=%s seq=%d: report failed err=%v", recordingKey, seq, err)
+	}
 }

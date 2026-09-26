@@ -90,3 +90,12 @@ func TestRecUnsupportedIsASentinel(t *testing.T) {
 		t.Fatal("errRecUnsupported must be a comparable sentinel")
 	}
 }
+
+func TestRecIndexReporterToleratesNilReceiverAndClient(t *testing.T) {
+	// The recorders hold this by pointer and call it on every flush. A nil reporter
+	// (tests, or a recorder built before the control client) must not panic a live
+	// session's relay goroutine.
+	var nilReporter *recIndexReporter
+	nilReporter.report("k", 0, 10)
+	(&recIndexReporter{}).report("k", 0, 10)
+}

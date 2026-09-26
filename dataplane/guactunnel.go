@@ -112,7 +112,8 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// The chunks go to the connector that is already carrying this session,
 		// so they never leave the customer's network.
 		send := func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess, req) }
-		rec = newRecWriter(send, tenantID, recKey, siteID, userID, conn.Hostname, conn.Protocol, recordingMaxBytes())
+		idx := &recIndexReporter{send: ctrl.SendRecording, userID: userID, siteID: siteID, host: conn.Hostname, format: "guac", proto: conn.Protocol}
+		rec = newRecWriter(send, idx, tenantID, recKey, siteID, userID, conn.Hostname, conn.Protocol, recordingMaxBytes())
 		defer rec.Close()
 		log.Printf("guac-tunnel site=%s: recording enabled key=%s", siteID, rec.key)
 	}

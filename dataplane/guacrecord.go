@@ -48,6 +48,7 @@ type recWriter struct {
 	// send ships one chunk. Injected so this file needs no registry or session,
 	// and so the recorder is testable without a tunnel.
 	send     func(tunnel.RecWriteRequest) (int, error)
+	index    *recIndexReporter
 	tenantID string
 	key      string
 	siteID   string
@@ -66,9 +67,10 @@ type recWriter struct {
 	unsupportedLogged int
 }
 
-func newRecWriter(send func(tunnel.RecWriteRequest) (int, error), tenantID, key, siteID, userID, host, protocol string, capBytes int) *recWriter {
+func newRecWriter(send func(tunnel.RecWriteRequest) (int, error), index *recIndexReporter, tenantID, key, siteID, userID, host, protocol string, capBytes int) *recWriter {
 	return &recWriter{
 		send:      send,
+		index:     index,
 		tenantID:  tenantID,
 		key:       key,
 		siteID:    siteID,
@@ -121,6 +123,9 @@ func (w *recWriter) flush() {
 		Protocol:     w.protocol,
 		Data:         chunk,
 	})
+	// Report the index whether or not the chunk landed: an admin must be able to
+	// see that a session was recorded even when its bytes did not reach the store.
+	w.index.report(w.key, seq, len(chunk))
 	if err == nil {
 		return
 	}

@@ -34,7 +34,7 @@ func (s *sendRecorder) count() int {
 }
 
 func newTestRecWriter(send func(tunnel.RecWriteRequest) (int, error), capBytes int) *recWriter {
-	return newRecWriter(send, "acme", "rec-key", "site-1", "user-1", "host", "ssh", capBytes)
+	return newRecWriter(send, nil, "acme", "rec-key", "site-1", "user-1", "host", "ssh", capBytes)
 }
 
 func TestRecWriterFlushesOnByteThreshold(t *testing.T) {
@@ -94,5 +94,50 @@ func TestRecWriterLogsUnsupportedOnlyOnce(t *testing.T) {
 	}
 	if w.unsupportedLogged != 1 {
 		t.Fatalf("want the unsupported notice logged once, got %d", w.unsupportedLogged)
+	}
+}
+
+// indexSpy observes what the recorder reports to the control plane, so the Slice-B
+// regression -- bytes on the connector with NO index row, leaving the recording
+// invisible in the list -- cannot return unnoticed.
+type indexSpy struct {
+	bodies []string
+}
+
+func (s *indexSpy) send(_, _, _ string, body []byte) error {
+	s.bodies = append(s.bodies, string(body))
+	return nil
+}
+
+func TestRecWriterReportsAnIndexForEveryChunk(t *testing.T) {
+	rec := &sendRecorder{}
+	spy := &indexSpy{}
+	w := newRecWriter(rec.send, &recIndexReporter{send: spy.send, format: "guac", proto: "ssh"},
+		"acme", "k", "s", "u", "h", "ssh", 10<<20)
+
+	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	w.Write([]byte(strings.Repeat("B", recFlushBytes+1)))
+
+	if len(spy.bodies) != 2 {
+		t.Fatalf("want one index report per chunk, got %d", len(spy.bodies))
+	}
+	if !strings.Contains(spy.bodies[0], `"format":"guac"`) {
+		t.Fatalf("index lost the format, so the UI cannot pick a player: %s", spy.bodies[0])
+	}
+	if !strings.Contains(spy.bodies[0], `"recordingKey":"k"`) {
+		t.Fatalf("index lost the recording key: %s", spy.bodies[0])
+	}
+}
+
+func TestRecWriterReportsTheIndexEvenWhenTheChunkFails(t *testing.T) {
+	// An admin must be able to see that a session was recorded even when the
+	// connector refused the bytes; otherwise a failed write looks like no session.
+	rec := &sendRecorder{err: errors.New("connector offline")}
+	spy := &indexSpy{}
+	w := newRecWriter(rec.send, &recIndexReporter{send: spy.send, format: "guac"},
+		"acme", "k", "s", "u", "h", "ssh", 10<<20)
+	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	if len(spy.bodies) != 1 {
+		t.Fatalf("no index reported for a failed chunk: %d", len(spy.bodies))
 	}
 }

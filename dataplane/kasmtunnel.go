@@ -258,7 +258,8 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 				// Chunks go to the connector already carrying this session, so the
 				// video never leaves the customer's network.
 				recSend := func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess, req) }
-				rw := newKasmRecWriter(recSend, d.TenantID,
+				kidx := &recIndexReporter{send: ctrl.SendRecording, userID: userID, siteID: siteID, host: d.NavigateUrl, format: "video"}
+				rw := newKasmRecWriter(recSend, kidx, d.TenantID,
 					newRecordingKey(siteID, userID), siteID, userID, d.NavigateUrl, recordingMaxBytes())
 				_, _ = io.WriteString(recConn, "GET /session/"+id+"/rec HTTP/1.0\r\nHost: "+d.KasmControlAddr+"\r\nConnection: close\r\n\r\n")
 				recDone := make(chan struct{})

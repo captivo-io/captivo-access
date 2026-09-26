@@ -9,7 +9,7 @@ import (
 )
 
 func newTestKasmWriter(send func(tunnel.RecWriteRequest) (int, error), capBytes int) *kasmRecWriter {
-	return newKasmRecWriter(send, "acme", "k1", "site1", "user1", "host1", capBytes)
+	return newKasmRecWriter(send, nil, "acme", "k1", "site1", "user1", "host1", capBytes)
 }
 
 func TestKasmRecWriterFlushesToConnector(t *testing.T) {
