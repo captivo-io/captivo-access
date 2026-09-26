@@ -12,7 +12,7 @@ func TestPolicyRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out != in {
+	if out.EgressAllowedTargets != in.EgressAllowedTargets || out.LogLevel != in.LogLevel {
 		t.Fatalf("mismatch: %+v != %+v", out, in)
 	}
 }

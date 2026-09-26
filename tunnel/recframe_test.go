@@ -66,3 +66,30 @@ func TestRecFetchResponseCarriesTotalBytes(t *testing.T) {
 		t.Fatal("Content-Range cannot be built without the total")
 	}
 }
+
+func TestPolicyCarriesRetentionAndPurgeList(t *testing.T) {
+	b, _ := json.Marshal(Policy{
+		TenantID: "acme", RecordingRetentionDays: 30,
+		PurgeRecordingKeys: []string{"k1", "k2"},
+	})
+	var out Policy
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.TenantID != "acme" || out.RecordingRetentionDays != 30 || len(out.PurgeRecordingKeys) != 2 {
+		t.Fatalf("policy lost fields: %+v", out)
+	}
+}
+
+func TestPolicyAckReportsWhatHappened(t *testing.T) {
+	// Without the ack the control plane cannot trim its index or clear a pending
+	// erasure, so both would drift from what the connector actually holds.
+	b, _ := json.Marshal(PolicyAck{RetentionRemoved: 3, PurgedKeys: []string{"k1"}})
+	var out PolicyAck
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.RetentionRemoved != 3 || len(out.PurgedKeys) != 1 {
+		t.Fatalf("ack lost fields: %+v", out)
+	}
+}
