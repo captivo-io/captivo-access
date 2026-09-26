@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
 // qInt reads an integer query param, clamped to [lo,hi], defaulting to def.
@@ -46,7 +47,7 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		return
 	}
 
-	conn, guacdAddr, connectorID, record, keystrokeLogging, err := ctrl.GatewayDescriptor(userID, siteID)
+	conn, guacdAddr, connectorID, tenantID, record, keystrokeLogging, err := ctrl.GatewayDescriptor(userID, siteID)
 	if err != nil {
 		log.Printf("guac-tunnel site=%s user=%s: descriptor failed err=%v", siteID, userID, err)
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -108,7 +109,10 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	recKey := newRecordingKey(siteID, userID)
 	var rec *recWriter
 	if record {
-		rec = newRecWriter(ctrl.BaseURL, ctrl.Secret, recKey, siteID, userID, conn.Hostname, conn.Protocol, recordingMaxBytes())
+		// The chunks go to the connector that is already carrying this session,
+		// so they never leave the customer's network.
+		send := func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess, req) }
+		rec = newRecWriter(send, tenantID, recKey, siteID, userID, conn.Hostname, conn.Protocol, recordingMaxBytes())
 		defer rec.Close()
 		log.Printf("guac-tunnel site=%s: recording enabled key=%s", siteID, rec.key)
 	}

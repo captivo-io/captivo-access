@@ -91,7 +91,7 @@ func (c *ControlClient) ViewAuthz(userID string) (bool, error) {
 // descriptor with the decrypted credential + the guacd address to reach. On a
 // denied grant / missing credential the control plane returns an HTTP status,
 // surfaced here as an error so the tunnel closes.
-func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn, guacdAddress, connectorID string, record, keystrokeLogging bool, err error) {
+func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn, guacdAddress, connectorID, tenantID string, record, keystrokeLogging bool, err error) {
 	var out struct {
 		Protocol         string            `json:"protocol"`
 		TargetHost       string            `json:"targetHost"`
@@ -101,12 +101,13 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		SecretKind       string            `json:"secretKind"`
 		GuacdAddress     string            `json:"guacdAddress"`
 		ConnectorID      string            `json:"connectorId"`
+		TenantID         string            `json:"tenantId"`
 		Record           bool              `json:"record"`
 		KeystrokeLogging bool              `json:"keystrokeLogging"`
 		Params           map[string]string `json:"params"`
 	}
 	if err := c.post("/api/internal/gateway/descriptor", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
-		return GuacConn{}, "", "", false, false, err
+		return GuacConn{}, "", "", "", false, false, err
 	}
 	return GuacConn{
 		Protocol:   out.Protocol,
@@ -116,7 +117,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		Secret:     out.Secret,
 		SecretKind: out.SecretKind,
 		Params:     out.Params,
-	}, out.GuacdAddress, out.ConnectorID, out.Record, out.KeystrokeLogging, nil
+	}, out.GuacdAddress, out.ConnectorID, out.TenantID, out.Record, out.KeystrokeLogging, nil
 }
 
 // SiteByHost resolves a browser-facing hostname to the site/connector it's

@@ -6,6 +6,7 @@ import { recordingEnabled } from "@/lib/recording/enabled";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { resolvedWatermarkDefault, resolvedClipboardDefault, resolvedGuacParamDefaults, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
 import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
+import { currentTenantId } from "@/lib/tenant/context";
 import { parseGuacParams, resolveGuacParams, toGuacArgs } from "@/lib/gateway/guac-params";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { db } from "@/lib/db";
@@ -62,6 +63,7 @@ async function handler(req: NextRequest) {
     return NextResponse.json({
       transport: "kasm",
       navigateUrl: site.upstreamUrl ?? "",
+      tenantId: currentTenantId(),
       kasmAddr: (process.env.ISOLATED_KASM_ADDR ?? "captivo-kasm:6901").trim(),
       kasmControlAddr: (process.env.ISOLATED_KASM_CONTROL_ADDR ?? "captivo-kasm:7900").trim(),
       connectorId: site.connectorId,
@@ -80,6 +82,7 @@ async function handler(req: NextRequest) {
   const params = toGuacArgs(resolved, clipboardMode, cred.protocol as "RDP" | "SSH" | "VNC", cred.username);
 
   return NextResponse.json({
+    tenantId: currentTenantId(),
     protocol: cred.protocol.toLowerCase(),
     params,
     targetHost: cred.targetHost,
