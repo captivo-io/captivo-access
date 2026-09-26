@@ -49,7 +49,9 @@ func (w *keyWriter) post(events []keyEvent) {
 		// "keys" is what makes these chunks searchable on the connector; any other
 		// format is skipped by search on purpose.
 		Format: "keys",
-		Data:   payload,
+		// Newline-terminated for the same reason as rrweb: replay concatenates
+		// chunks, and NDJSON survives that where bare JSON arrays do not.
+		Data: append(payload, '\n'),
 	}); err != nil {
 		if errors.Is(err, errRecUnsupported) {
 			if w.unsupportedLogged == 0 {

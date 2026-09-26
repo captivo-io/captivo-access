@@ -42,22 +42,45 @@ export async function searchOnConnector(input: {
   }
 }
 
-/** Stream one recording's chunks from its connector. Returns null when unreachable. */
+export type RecFetch = {
+  body: ReadableStream<Uint8Array>;
+  /** The recording's full plaintext length, from the connector. 0 when unknown. */
+  totalBytes: number;
+};
+
+/**
+ * Stream one recording's bytes from its connector. Returns null when the connector
+ * cannot be reached, which callers must surface rather than render as an empty
+ * recording.
+ *
+ * fromByte/toByte carry an HTTP Range through so a video player can scrub without
+ * the control plane buffering the recording.
+ */
 export async function fetchFromConnector(input: {
   connectorId: string;
   tenantId: string;
   recordingKey: string;
   fromSeq?: number;
-}): Promise<ReadableStream<Uint8Array> | null> {
+  fromByte?: number;
+  toByte?: number;
+}): Promise<RecFetch | null> {
   try {
     const res = await fetch(`${BASE()}/rec-fetch`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-dataplane-secret": SECRET() },
-      body: JSON.stringify({ ...input, fromSeq: input.fromSeq ?? 0 }),
+      body: JSON.stringify({
+        ...input,
+        fromSeq: input.fromSeq ?? 0,
+        fromByte: input.fromByte ?? 0,
+        toByte: input.toByte ?? 0,
+      }),
       cache: "no-store",
     });
     if (!res.ok || !res.body) return null;
-    return res.body;
+    return {
+      body: res.body,
+      totalBytes: Number(res.headers.get("x-recording-total-bytes") ?? 0) || 0,
+    };
   } catch {
     return null;
   }

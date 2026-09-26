@@ -37,7 +37,9 @@ func (p *BrowserProxy) sendRrwebToConnector(connectorID, tenantID, userID, siteI
 			RecordingKey: batch.RecordingKey,
 			Seq:          batch.Seq,
 			Format:       "rrweb",
-			Data:         batch.Events,
+			// Newline-terminated: chunks come back concatenated on replay, and
+			// "[...][...]" is not JSON while "[...]\n[...]" is NDJSON.
+			Data: append([]byte(batch.Events), '\n'),
 		}); err != nil {
 			// Fall through: the index is still worth recording, so an admin can see
 			// that a session happened even when its bytes did not land.

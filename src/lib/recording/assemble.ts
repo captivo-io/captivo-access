@@ -1,21 +1,28 @@
-import { gunzipSync } from "node:zlib";
-import { decryptBytes } from "@/lib/crypto";
-
-// Reverse of the ingest storage: order chunks by seq, (decrypt if the recording is
-// encrypted) + gunzip each, JSON.parse, and concatenate into the full rrweb event
-// array. A chunk that fails to decode/parse is skipped (a corrupt chunk must not
-// break the whole replay). `encrypted` reflects SessionRecording.encrypted, so
-// legacy unencrypted recordings still replay.
-export function assembleEvents(chunks: { seq: number; data: Buffer | Uint8Array }[], encrypted: boolean): unknown[] {
+/**
+ * Reassemble an rrweb recording from what the connector streams back.
+ *
+ * The connector holds the bytes, decrypts them with its own key and returns the
+ * chunks in order, concatenated. Each chunk is one newline-terminated JSON batch
+ * (NDJSON), because "[...][...]" is not parseable while "[...]\n[...]" is -- see
+ * dataplane/recrrweb.go, which adds the newline.
+ *
+ * Neither decryption nor gunzip happens here any more: the control plane holds no
+ * key, and it is not supposed to. A line that fails to parse is skipped, so one
+ * corrupt batch cannot break a whole replay -- the same tolerance the old
+ * per-chunk version had.
+ */
+export function assembleEvents(raw: Buffer | Uint8Array | string): unknown[] {
+  const text = typeof raw === "string" ? raw : Buffer.from(raw).toString("utf8");
   const out: unknown[] = [];
-  for (const c of [...chunks].sort((a, b) => a.seq - b.seq)) {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
     try {
-      const buf = Buffer.from(c.data);
-      const gz = encrypted ? decryptBytes(buf) : buf;
-      const parsed = JSON.parse(gunzipSync(gz).toString("utf8"));
+      const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) out.push(...parsed);
+      else out.push(parsed);
     } catch {
-      /* skip a corrupt chunk */
+      /* skip a corrupt batch */
     }
   }
   return out;

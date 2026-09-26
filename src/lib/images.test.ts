@@ -65,7 +65,17 @@ describe("image namespace", () => {
       .filter((f) => /\.(ts|tsx|md|yml|yaml|sh|json)$/.test(f));
     expect(tracked.length, "git ls-files bos").toBeGreaterThan(100);
 
-    const stale = tracked.filter((f) => readFileSync(path.join(ROOT, f), "utf-8").includes("kurtserdar"));
+    // A file git tracks but that is missing from the working tree is a normal
+    // mid-edit state (a deletion not yet staged). Crashing the whole scan on it
+    // hides every real violation, so read defensively and skip what is not there.
+    const readIfPresent = (f: string): string => {
+      try {
+        return readFileSync(path.join(ROOT, f), "utf8");
+      } catch {
+        return "";
+      }
+    };
+    const stale = tracked.filter((f) => readIfPresent(f).includes("kurtserdar"));
     expect(stale).toEqual([]);
   });
 
