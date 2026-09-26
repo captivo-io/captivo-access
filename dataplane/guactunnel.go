@@ -123,7 +123,8 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	var kw *keyWriter
 	if record && keystrokeLogging {
 		keys = newKeyObserver(conn.Protocol, time.Now())
-		kw = newKeyWriter(ctrl.BaseURL, ctrl.Secret, recKey)
+		// Keystrokes go to the same connector store as the video.
+		kw = newKeyWriter(func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess, req) }, tenantID, recKey)
 		log.Printf("guac-tunnel site=%s: keystroke logging enabled key=%s", siteID, recKey)
 	}
 
