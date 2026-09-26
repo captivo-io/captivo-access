@@ -30,6 +30,12 @@ func handleRecWrite(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		writeRecFrame(st, tunnel.RecWriteResponse{Error: err.Error()})
 		return
 	}
+	// Persist the format from the frame rather than making callers set it
+	// separately: search reads it to decide whether a recording is text at all,
+	// and a recording whose format never landed would be silently unsearchable.
+	if req.Format != "" {
+		_ = store.SetFormat(req.TenantID, req.RecordingKey, req.Format)
+	}
 	writeRecFrame(st, tunnel.RecWriteResponse{Written: n})
 }
 

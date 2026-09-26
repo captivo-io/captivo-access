@@ -64,8 +64,13 @@ func TestHandleRecWriteRejectsTraversal(t *testing.T) {
 
 func TestHandleRecSearchReturnsMatches(t *testing.T) {
 	store := newRecStore(t.TempDir(), testKey())
-	if _, err := store.Append("t1", "rec-1", 0, []byte("sudo rm -rf /")); err != nil {
+	if _, err := store.Append("t1", "rec-1", 0, keysChunk(t,
+		keyEventPayload{AtMs: 1, Kind: "command", Text: "sudo rm -rf /"},
+	)); err != nil {
 		t.Fatalf("seed: %v", err)
+	}
+	if err := store.SetFormat("t1", "rec-1", "keys"); err != nil {
+		t.Fatalf("format: %v", err)
 	}
 	req, _ := json.Marshal(tunnel.RecSearchRequest{
 		Kind: "recsearch", TenantID: "t1", Query: "RM -RF", RecordingKeys: []string{"rec-1"}, MaxDecrypt: 10,

@@ -133,6 +133,36 @@ func (s *recStore) Read(tenantID, recordingKey string, fromSeq int) ([]recChunk,
 	return out, nil
 }
 
+// SetFormat records a recording's format beside its chunks. Search needs it: a
+// guac stream is protocol bytes, not text, and matching a query against it
+// produces meaningless hits. Written once per recording, on the first chunk.
+func (s *recStore) SetFormat(tenantID, recordingKey, format string) error {
+	if !safeSegment.MatchString(format) {
+		return fmt.Errorf("invalid format")
+	}
+	d, err := s.dir(tenantID, recordingKey)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(d, "format"), []byte(format), 0o600)
+}
+
+// Format reports a recording's format, or "" when it was never set.
+func (s *recStore) Format(tenantID, recordingKey string) string {
+	d, err := s.dir(tenantID, recordingKey)
+	if err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(d, "format"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 // Bytes reports what the disk actually holds for one recording (sealed sizes).
 func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 	d, err := s.dir(tenantID, recordingKey)
@@ -148,7 +178,11 @@ func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 	}
 	var total int64
 	for _, e := range entries {
-		if info, err := e.Info(); err == nil && !e.IsDir() {
+		// Only chunks count; the "format" sidecar is metadata, not recording data.
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
+			continue
+		}
+		if info, err := e.Info(); err == nil {
 			total += info.Size()
 		}
 	}

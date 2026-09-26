@@ -14,9 +14,10 @@ func TestRecordingLifecycleStaysLocal(t *testing.T) {
 	root := t.TempDir()
 	store := newRecStore(root, testKey())
 
+	payload := keysChunk(t, keyEventPayload{AtMs: 12, Kind: "command", Text: "admin@host:~$ sudo rm -rf /var/tmp"})
 	w, _ := json.Marshal(tunnel.RecWriteRequest{
 		Kind: "recwrite", TenantID: "acme", RecordingKey: "s1-u1-9-ab",
-		Seq: 0, Format: "guac", Protocol: "ssh", Data: []byte("admin@host:~$ sudo rm -rf /var/tmp"),
+		Seq: 0, Format: "keys", Protocol: "ssh", Data: payload,
 	})
 	handleRecWrite(newRWC(), store, w)
 
@@ -49,7 +50,7 @@ func TestRecordingLifecycleStaysLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch body: %v", err)
 	}
-	if string(body) != "admin@host:~$ sudo rm -rf /var/tmp" {
+	if string(body) != string(payload) {
 		t.Fatalf("fetch corrupted: %q", body)
 	}
 }
