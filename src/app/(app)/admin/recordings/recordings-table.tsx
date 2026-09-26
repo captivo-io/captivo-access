@@ -70,6 +70,8 @@ export function RecordingsTable({
   const [rows, setRows] = useState<RecordingRowJSON[]>(initialRows);
   const [total, setTotal] = useState(initialTotal);
   const [tooBroad, setTooBroad] = useState(false);
+  const [partial, setPartial] = useState(false);
+  const [unreachable, setUnreachable] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -98,11 +100,19 @@ export function RecordingsTable({
       sp.set("offset", String(nextOffset));
       const res = await fetch(`/api/admin/recordings?${sp.toString()}`);
       if (!res.ok) return;
-      const body = (await res.json()) as { rows: RecordingRowJSON[]; total: number; tooBroad?: boolean };
+      const body = (await res.json()) as {
+        rows: RecordingRowJSON[];
+        total: number;
+        tooBroad?: boolean;
+        partial?: boolean;
+        unreachableConnectors?: string[];
+      };
       if (requestId !== requestIdRef.current) return; // stale response, a newer request has since been issued
       setRows(body.rows);
       setTotal(body.total);
       setTooBroad(body.tooBroad ?? false);
+      setPartial(body.partial ?? false);
+      setUnreachable(body.unreachableConnectors ?? []);
       setFilters(nextFilters);
       setOffset(nextOffset);
     } finally {
@@ -227,6 +237,21 @@ export function RecordingsTable({
           </button>
         </div>
       )}
+
+      {/* An incomplete answer is shown ABOVE the results, not instead of them: the
+          rows that did come back are real, and hiding them would be its own
+          inaccuracy. Reading "no matches" when a connector could not be searched is
+          the failure this banner exists to prevent -- in an investigation that reads
+          as proof nothing happened. */}
+      {partial ? (
+        <div className="warn" role="status">
+          This answer is incomplete: {unreachable.length > 0
+            ? `${unreachable.length} connector${unreachable.length === 1 ? "" : "s"} could not be searched`
+            : "some recordings could not be reached"}
+          . Recordings are stored on their connector, so anything they hold is not
+          included here. Results below are accurate for the connectors that answered.
+        </div>
+      ) : null}
 
       {tooBroad ? (
         <div className="empty">Too many recordings to search by command — narrow by vendor, resource, or date and try again.</div>

@@ -15,7 +15,7 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
   if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const filter = parseRecordingFilter(req.nextUrl.searchParams, { defaultLimit: 50, maxLimit: 200 });
-  const { rows, total, tooBroad } = await listRecordings(filter);
+  const { rows, total, tooBroad, partial, unreachableConnectors } = await listRecordings(filter);
 
   const userIds = [...new Set(rows.map((r) => r.userId))];
   const siteIds = [...new Set(rows.map((r) => r.siteId))];
@@ -38,5 +38,14 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
     protocol: r.protocol,
   }));
 
-  return NextResponse.json({ rows: out, total, tooBroad: tooBroad ?? false });
+  // partial is not cosmetic: it is the difference between "nothing matched" and "we
+  // could not look". A command search now runs on the connectors that hold the text,
+  // so an offline one means the answer is incomplete.
+  return NextResponse.json({
+    rows: out,
+    total,
+    tooBroad: tooBroad ?? false,
+    partial: partial ?? false,
+    unreachableConnectors: unreachableConnectors ?? [],
+  });
 });
