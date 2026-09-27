@@ -15,7 +15,6 @@ const POOL = 8;
 
 export async function POST(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  await recordCronRun("site-health");
 
   // The probes themselves are network calls, not DB reads — tenant-agnostic.
   // But the site list (findMany) and the result writes (site.update) are RLS
@@ -24,6 +23,15 @@ export async function POST(req: NextRequest) {
   // site count is small enough that per-tenant probing costs nothing extra a
   // single global pass wouldn't have paid anyway.
   const results = await forEachTenantId(async (tenantId) => {
+    // Stamped INSIDE the tenant scope, deliberately. CronRun is a per-tenant table
+    // behind RLS, so an upsert from outside a scope is rejected by the row policy
+    // and swallowed by the best-effort catch: the heartbeat simply never landed in
+    // cloud mode. Since cronHealth() treats site-health as the scheduler's pulse,
+    // every tenant's console showed "Background jobs haven't run yet." while the
+    // jobs were in fact running -- and the real stale-job warning could never fire,
+    // because that branch is only reached once the pulse is healthy.
+    await inTenant(tenantId, () => recordCronRun("site-health"));
+
     // THREE PHASES, and the split is the fix, not a tidy-up.
     //
     // This job used to run whole inside forEachTenant, which establishes the

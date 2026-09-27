@@ -20,12 +20,19 @@ function cronAuthorized(req: NextRequest): boolean {
 // valid CRON_SECRET. Intended to run daily.
 export async function POST(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  await recordCronRun("recording-retention");
 
   // The retention window, the deleteMany, and the audit append all run inside
   // each tenant's own scope (fanned out via forEachTenant) — a tenant's
   // recordings are only ever deleted/appended against its own rows.
   const results = await forEachTenant(async () => {
+    // Stamped INSIDE the tenant scope, deliberately. CronRun is a per-tenant table
+    // behind RLS, so an upsert from outside a scope is rejected by the row policy
+    // and swallowed by the best-effort catch: the heartbeat simply never landed in
+    // cloud mode. Since cronHealth() treats site-health as the scheduler's pulse,
+    // every tenant's console showed "Background jobs haven't run yet." while the
+    // jobs were in fact running -- and the real stale-job warning could never fire,
+    // because that branch is only reached once the pulse is healthy.
+    await recordCronRun("recording-retention");
     const days = await resolvedRecordingRetentionDays();
     if (days <= 0) return { deleted: 0, note: "retention_disabled" as const };
 

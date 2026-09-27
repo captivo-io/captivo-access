@@ -12,7 +12,6 @@ function cronAuthorized(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  await recordCronRun("audit-retention");
 
   // CRITICAL: seq is per-tenant-chain (AuditEvent is unique on [tenantId, seq]),
   // so both the cutoffSeq lookup AND the deleteMany must run INSIDE each
@@ -21,6 +20,14 @@ export async function POST(req: NextRequest) {
   // across chains by an unrelated seq number and punch a hole the
   // tamper-evidence verifier reads as tampering.
   const results = await forEachTenant(async () => {
+    // Stamped INSIDE the tenant scope, deliberately. CronRun is a per-tenant table
+    // behind RLS, so an upsert from outside a scope is rejected by the row policy
+    // and swallowed by the best-effort catch: the heartbeat simply never landed in
+    // cloud mode. Since cronHealth() treats site-health as the scheduler's pulse,
+    // every tenant's console showed "Background jobs haven't run yet." while the
+    // jobs were in fact running -- and the real stale-job warning could never fire,
+    // because that branch is only reached once the pulse is healthy.
+    await recordCronRun("audit-retention");
     // Retention days come from PlatformSettings (UI), falling back to the
     // AUDIT_RETENTION_DAYS env then 730. resolvedAuditRetentionDays already
     // guards against the empty/NaN footgun (which would purge everything).

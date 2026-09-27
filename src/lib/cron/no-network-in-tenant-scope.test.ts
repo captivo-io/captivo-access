@@ -71,3 +71,24 @@ describe("cron jobs keep slow work out of the tenant transaction", () => {
     }
   });
 });
+
+/**
+ * CronRun is a per-tenant table behind RLS, so its heartbeat has to be written
+ * from inside a tenant scope. Stamped outside one, the row policy rejects the
+ * upsert and `recordCronRun`'s best-effort catch hides it -- so in cloud mode no
+ * heartbeat ever landed, every console reported "Background jobs haven't run yet."
+ * while the jobs ran fine, and the genuine stale-job warning could never fire
+ * because that branch needs a healthy pulse first.
+ */
+describe("cron heartbeats are stamped inside the tenant scope", () => {
+  for (const job of ["site-health", "audit-retention", "recording-retention", "audit-anchor"]) {
+    it(`${job} records its run inside the fan-out`, () => {
+      const src = readFileSync(`${CRON_DIR}/${job}/route.ts`, "utf8");
+      const stamp = src.indexOf("recordCronRun(");
+      const fanOut = src.search(/await forEachTenant(?:Id)?\(/);
+      expect(stamp, `${job} never records a run`).toBeGreaterThan(-1);
+      expect(fanOut, `${job} does not fan out over tenants`).toBeGreaterThan(-1);
+      expect(fanOut, "the heartbeat is stamped before the tenant scope; RLS drops it").toBeLessThan(stamp);
+    });
+  }
+});

@@ -14,10 +14,17 @@ function cronAuthorized(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  await recordCronRun("audit-anchor");
   // Each chain (access/admin) is per-tenant, so the anchor read/write pair must
   // run inside each tenant's own scope — fanned out via forEachTenant.
   const results = await forEachTenant(async () => {
+    // Stamped INSIDE the tenant scope, deliberately. CronRun is a per-tenant table
+    // behind RLS, so an upsert from outside a scope is rejected by the row policy
+    // and swallowed by the best-effort catch: the heartbeat simply never landed in
+    // cloud mode. Since cronHealth() treats site-health as the scheduler's pulse,
+    // every tenant's console showed "Background jobs haven't run yet." while the
+    // jobs were in fact running -- and the real stale-job warning could never fire,
+    // because that branch is only reached once the pulse is healthy.
+    await recordCronRun("audit-anchor");
     // Always 200 — each run is fail-open and reports its own status; a failure
     // in one chain never blocks the other or the next run.
     const access = await runAnchor();
