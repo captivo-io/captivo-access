@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { consoleDomain, slugFromHost } from "@/lib/tenant/console-domain";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { withTenant, type TenantScopeOptions } from "@/lib/tenant/scope";
+import { inTenant } from "@/lib/cron/for-each-tenant";
 import { multiTenantEnabled } from "@/lib/tenant/enabled";
 
 // Resolves the request's tenant from its host: <slug>.<consoleDomain> → slug →
@@ -57,3 +58,30 @@ export async function withRequestTenant<T>(fn: () => Promise<T>, opts?: TenantSc
   if (!tenantId) notFound();
   return withTenant(tenantId, fn, opts);
 }
+
+/**
+ * Resolves the request's tenant and hands it to the handler WITHOUT opening a
+ * scope. The handler wraps its own DB phases with `inTenant`.
+ *
+ * For a route whose slow part cannot be covered by any sane transaction budget: an
+ * isolated-browser file transfer may legitimately run for minutes, and a recording
+ * replay streams. Raising a scope budget to match would hold a pooled database
+ * connection for the whole transfer -- and a budget SHORTER than the transfer
+ * simply breaks it, which is what a 300 s upload ceiling inside a 30 s scope did.
+ *
+ * The shape is read-scoped, work-unscoped, write-scoped, the same split that fixed
+ * the site-health cron. Self-host (flag off) passes null and the handler runs
+ * unscoped, exactly as before.
+ */
+export function withDeferredTenantRoute<A extends unknown[]>(
+  handler: (tenantId: string | null, ...a: A) => Promise<Response>,
+): (...a: A) => Promise<Response> {
+  return async (...a: A) => {
+    if (!multiTenantEnabled()) return handler(null, ...a);
+    const tenantId = await resolveRequestTenant();
+    if (!tenantId) return NextResponse.json({ error: "unknown_tenant" }, { status: 404 });
+    return handler(tenantId, ...a);
+  };
+}
+
+export { inTenant };

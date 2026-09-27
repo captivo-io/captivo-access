@@ -18,8 +18,28 @@ export function isClientComponent(src: string): boolean {
 
 // True when the source references the named tenant wrapper (import or call) —
 // a cheap textual check, not a full parse.
-export function referencesWrapper(src: string, name: "withRequestTenant" | "withTenantRoute"): boolean {
+export function referencesWrapper(
+  src: string,
+  name: "withRequestTenant" | "withTenantRoute" | "withDeferredTenantRoute",
+): boolean {
   return new RegExp(`\\b${name}\\b`).test(src);
+}
+
+/**
+ * True when a route's DB work runs under the acting tenant, whichever way it gets
+ * there.
+ *
+ * withTenantRoute opens the scope around the whole handler. withDeferredTenantRoute
+ * opens none -- for a route whose slow part must not hold a transaction, like a
+ * multi-minute file transfer -- and hands the tenant id over instead, so the
+ * handler has to scope its own phases with inTenant. Accepting the deferred wrapper
+ * ALONE would let a route resolve a tenant and then query outside any scope, which
+ * is the isolation hole this whole invariant exists to prevent. Both halves, or it
+ * does not count.
+ */
+export function routeIsTenantScoped(src: string): boolean {
+  if (referencesWrapper(src, "withTenantRoute")) return true;
+  return referencesWrapper(src, "withDeferredTenantRoute") && /\binTenant\b/.test(src);
 }
 
 // Names of HTTP-method handlers exported as a bare `export [async] function

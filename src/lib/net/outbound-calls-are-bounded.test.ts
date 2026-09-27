@@ -106,10 +106,32 @@ describe("the slow-route budget outlasts what those routes wait on", () => {
     expect(SLOW_SCOPE_BUDGET_MS).toBeGreaterThan(DEFAULT_SCOPE_BUDGET_MS);
   });
 
-  it("outlasts every ceiling a route can await", () => {
-    // Highest downstream ceiling in the codebase. A budget below it would pre-empt
-    // a call that was still within its own limit -- which is the original bug: the
-    // LDAP probe allows 12 s (dataplane/ldap.go) and the 5 s default killed it.
+  it("a ceiling longer than the budget belongs to a route that holds NO scope", () => {
+    // The rule, and the hole this replaces. The first version of this test skipped
+    // every ceiling above 60 s -- which quietly exempted the one case that was
+    // actually broken: the isolated-browser upload allowed its transfer 300 s while
+    // its route held a 30 s scope, so a large upload died at thirty seconds. An
+    // exemption in a guard is the guard failing silently.
+    //
+    // So: for each route file, every ceiling it defines must either fit inside the
+    // scope it holds, or the route must hold no scope at all (withDeferredTenantRoute).
+    const offenders: string[] = [];
+    for (const f of serverSources("src/app/api")) {
+      const code = stripCommentsAndStrings(readFileSync(f, "utf8"));
+      const ceilings = [...code.matchAll(/TIMEOUT_MS\s*=\s*([0-9_]+)/g)].map((m) => Number(m[1].replace(/_/g, "")));
+      if (ceilings.length === 0) continue;
+      const longest = Math.max(...ceilings);
+      const holdsScope = /= withTenantRoute\(/.test(code);
+      if (!holdsScope) continue; // deferred: nothing is held while it waits
+      const budget = /budgetMs: SLOW_SCOPE_BUDGET_MS/.test(code) ? SLOW_SCOPE_BUDGET_MS : DEFAULT_SCOPE_BUDGET_MS;
+      if (longest >= budget) offenders.push(`${f} (waits up to ${longest}ms inside a ${budget}ms scope)`);
+    }
+    expect(offenders, "this call is cut off by the scope it runs in").toEqual([]);
+  });
+
+  it("the slow budget outlasts every shared-library ceiling", () => {
+    // Library ceilings are awaited by routes that DO hold a scope, so all of them
+    // must fit. No exemptions here either.
     const ceilings: number[] = [];
     for (const f of serverSources("src/lib")) {
       const code = stripCommentsAndStrings(readFileSync(f, "utf8"));
@@ -118,10 +140,9 @@ describe("the slow-route budget outlasts what those routes wait on", () => {
       }
     }
     expect(ceilings.length, "no ceilings found to compare against").toBeGreaterThan(3);
-    // File transfer is deliberately far longer and is head-bounded at the scope
-    // level, so compare against the rest.
-    const relevant = ceilings.filter((c) => c <= 60_000);
-    expect(SLOW_SCOPE_BUDGET_MS).toBeGreaterThan(Math.max(...relevant));
+    // The LDAP probe allows 12 s (dataplane/ldap.go); a budget below the longest
+    // library ceiling pre-empts a call still inside its own limit.
+    expect(SLOW_SCOPE_BUDGET_MS).toBeGreaterThan(Math.max(...ceilings));
   });
 
   it("every route that awaits a third party opts in", () => {
@@ -147,5 +168,21 @@ describe("the slow-route budget outlasts what those routes wait on", () => {
       if (wrappers !== opted) missing.push(`${r} (${opted}/${wrappers})`);
     }
     expect(missing, "these routes still run on the 5 s default").toEqual([]);
+  });
+});
+
+/**
+ * The decision to keep the tenant GUC inside a long transaction is deliberate and
+ * conditional: it is leak-proof by construction, and costs one pooled connection
+ * per scope. The condition is measurable, so it must be measured -- otherwise the
+ * question gets answered later by guesswork.
+ */
+describe("long scopes are observable", () => {
+  it("withTenant reports a scope that held its connection a long time", () => {
+    const src = readFileSync("src/lib/tenant/scope.ts", "utf8");
+    expect(src, "no long-scope threshold").toMatch(/LONG_SCOPE_LOG_MS/);
+    // .finally, not .then: an EXPIRED scope is the most interesting one to see, and
+    // logging only on success would hide precisely those.
+    expect(src, "a failed scope would go unlogged").toMatch(/\.finally\(/);
   });
 });

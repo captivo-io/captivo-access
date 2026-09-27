@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/current-user";
 import { evaluateAccess } from "@/lib/access/evaluate";
 import { dataplaneFilesUrl, dataplaneSecretHeader } from "@/lib/dataplane/client";
-import { withTenantRoute } from "@/lib/tenant/request";
+import { inTenant, withDeferredTenantRoute } from "@/lib/tenant/request";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
-import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
-/** An isolated-browser file transfer through the data plane. */
+/**
+ * An isolated-browser file transfer through the data plane. Minutes, legitimately,
+ * for a large file -- which is why this route holds NO database transaction while
+ * it runs (withDeferredTenantRoute). No scope budget could both allow this and be
+ * a sane length to hold a pooled connection for.
+ */
 const FILE_TRANSFER_TIMEOUT_MS = 300_000;
 
 export const runtime = "nodejs";
@@ -14,14 +18,19 @@ export const dynamic = "force-dynamic";
 
 const MAX_BYTES = Number(process.env.ISOLATED_FT_MAX_BYTES ?? 100 * 1024 * 1024);
 
-export const POST = withTenantRoute(async (req: Request) => {
-  const user = await requireUser();
+export const POST = withDeferredTenantRoute(async (tenantId, req: Request) => {
   const url = new URL(req.url);
   const siteId = url.searchParams.get("site") ?? "";
   const name = url.searchParams.get("name") ?? "";
   if (!siteId || !name) return NextResponse.json({ error: "site_and_name_required" }, { status: 400 });
-  const decision = await evaluateAccess(user.id, siteId, new Date());
-  if (!decision.allow) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // Authorise inside a scope, transfer outside one.
+  const gate = await inTenant(tenantId, async () => {
+    const user = await requireUser();
+    const decision = await evaluateAccess(user.id, siteId, new Date());
+    return { userId: user.id, allow: decision.allow };
+  });
+  if (!gate.allow) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const user = { id: gate.userId };
   const len = Number(req.headers.get("content-length") ?? "0");
   if (!len || Number.isNaN(len)) return NextResponse.json({ error: "length_required" }, { status: 411 });
   if (len > MAX_BYTES) return NextResponse.json({ error: "too_large" }, { status: 413 });
@@ -38,4 +47,4 @@ export const POST = withTenantRoute(async (req: Request) => {
     body,
   });
   return NextResponse.json(res.ok ? { ok: true } : { ok: false }, { status: res.status });
-}, { budgetMs: SLOW_SCOPE_BUDGET_MS });
+});

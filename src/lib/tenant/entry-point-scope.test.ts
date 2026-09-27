@@ -1,6 +1,6 @@
 import { sep } from "node:path";
 import { describe, it, expect } from "vitest";
-import { isClientComponent, referencesWrapper, bareMethodExports, listFiles, readSrc } from "./entry-point-scope";
+import { isClientComponent, referencesWrapper, routeIsTenantScoped, bareMethodExports, listFiles, readSrc } from "./entry-point-scope";
 
 describe("entry-point-scope helpers", () => {
   it("detects a client component", () => {
@@ -11,6 +11,19 @@ describe("entry-point-scope helpers", () => {
   it("finds a referenced wrapper", () => {
     expect(referencesWrapper(`import { withRequestTenant } from "@/lib/tenant/request";`, "withRequestTenant")).toBe(true);
     expect(referencesWrapper(`const x = 1;`, "withRequestTenant")).toBe(false);
+  });
+  it("accepts the deferred wrapper only when the route scopes its own phases", () => {
+    // The deferred wrapper opens no scope; inTenant is what applies the tenant.
+    // Accepting it alone would let a route resolve a tenant and then query outside
+    // any scope -- the exact hole this invariant exists to close.
+    const both = `import { inTenant, withDeferredTenantRoute } from "@/lib/tenant/request";
+export const POST = withDeferredTenantRoute(async (tenantId, req) => inTenant(tenantId, async () => new Response()));`;
+    const wrapperOnly = `import { withDeferredTenantRoute } from "@/lib/tenant/request";
+export const POST = withDeferredTenantRoute(async (tenantId, req) => new Response());`;
+    expect(routeIsTenantScoped(both)).toBe(true);
+    expect(routeIsTenantScoped(wrapperOnly)).toBe(false);
+    expect(routeIsTenantScoped(`export const POST = withTenantRoute(async () => {});`)).toBe(true);
+    expect(routeIsTenantScoped(`export async function POST(){}`)).toBe(false);
   });
   it("flags bare method exports, ignores wrapped ones", () => {
     expect(bareMethodExports(`export async function POST(req){}`)).toEqual(["POST"]);
@@ -67,7 +80,7 @@ describe("all /api tenant route handlers are scoped or explicitly exempt", () =>
       if (EXEMPT_PREFIXES.some(([p]) => f.startsWith(p))) continue;
       const src = readSrc(file);
       const bare = bareMethodExports(src);
-      if (bare.length || !referencesWrapper(src, "withTenantRoute")) unwrapped.push(`${f} [${bare.join(",")}]`);
+      if (bare.length || !routeIsTenantScoped(src)) unwrapped.push(`${f} [${bare.join(",")}]`);
     }
     expect(unwrapped).toEqual([]);
   });

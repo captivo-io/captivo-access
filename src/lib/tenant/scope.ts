@@ -48,17 +48,44 @@ export type TenantScopeOptions = {
   budgetMs?: number;
 };
 
+/**
+ * Above this, a scope is worth a line in the log.
+ *
+ * Not an error -- a slow admin action is allowed to be slow. It is the number that
+ * decides a question this design defers: a scope holds one pooled connection for
+ * its whole life, so if long scopes become frequent or concurrent, the tenant GUC
+ * has to stop living in a long transaction (set per query instead). That change
+ * replaces an isolation boundary that is leak-proof BY CONSTRUCTION -- a
+ * transaction-local GUC cannot ride a pooled connection into another request --
+ * with one that has to be proven not to leak, so it should be made when the
+ * measurements demand it and not before.
+ *
+ * Measured 2026-09-27: pool of 25 (12 CPUs), one active connection, longest
+ * transaction under a second. This log is how we would notice that changing.
+ */
+const LONG_SCOPE_LOG_MS = 5_000;
+
 export function withTenant<T>(
   tenantId: string,
   fn: () => Promise<T>,
   opts?: TenantScopeOptions,
 ): Promise<T> {
   if (!multiTenantEnabled()) return withScope({ tenantId }, fn);
-  return base.$transaction(
-    async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.current_tenant', ${tenantId}, true)`;
-      return withScope({ tenantId, tx }, fn);
-    },
-    { timeout: opts?.budgetMs ?? DEFAULT_SCOPE_BUDGET_MS },
-  );
+  const startedAt = Date.now();
+  return base
+    .$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.current_tenant', ${tenantId}, true)`;
+        return withScope({ tenantId, tx }, fn);
+      },
+      { timeout: opts?.budgetMs ?? DEFAULT_SCOPE_BUDGET_MS },
+    )
+    .finally(() => {
+      const heldMs = Date.now() - startedAt;
+      if (heldMs >= LONG_SCOPE_LOG_MS) {
+        // finally, not then: a scope that EXPIRED is the most interesting one to
+        // see, and logging only on success would hide exactly those.
+        console.warn(`tenant scope held a connection for ${heldMs}ms (budget ${opts?.budgetMs ?? DEFAULT_SCOPE_BUDGET_MS}ms)`);
+      }
+    });
 }
