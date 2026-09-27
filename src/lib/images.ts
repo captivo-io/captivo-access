@@ -39,3 +39,30 @@ export type PublishedImage = (typeof PUBLISHED_IMAGES)[number];
 export function accessImage(name: PublishedImage, tag = "latest"): string {
   return `${IMAGE_PREFIX}-${name}:${tag}`;
 }
+
+/**
+ * The `docker image prune` filter that keeps a prune to images WE published.
+ *
+ * Which prune it belongs to depends on how the tag moves, and the two paths differ:
+ *
+ *   * The connector command pulls `:latest`, so a new pull MOVES the tag and the
+ *     superseded image becomes dangling. `docker image prune -f --filter <this>`
+ *     is enough there.
+ *   * Compose pins `:<version>`, so a superseded image KEEPS its version tag and
+ *     never becomes dangling. A plain prune reclaims nothing on that path -- which
+ *     is how 66 unused images / 21 GB accumulated on the hosted stack by
+ *     2026-09-27. Those need `prune -a` (unused, not merely untagged).
+ *
+ * `docker image prune` takes no repository filter -- only `label` and `until` --
+ * so an unscoped `docker image prune -f` deletes every dangling image on the host
+ * it runs on. That command runs as root on a CUSTOMER's machine, which may serve
+ * other software; reclaiming our own superseded layers must not reach theirs.
+ *
+ * The value is the `org.opencontainers.image.title` label that
+ * docker/metadata-action puts on every image the publish workflow builds, and it
+ * is the REPOSITORY NAME. Deliberately not `image.source`: that one carries the
+ * owner, and the owner already changed once (2026-09-24, personal account ->
+ * captivo-io), so a filter built on it would have silently stopped matching every
+ * image published before the move -- a prune that reclaims nothing is invisible.
+ */
+export const PRUNE_LABEL_FILTER = "label=org.opencontainers.image.title=captivo-access";

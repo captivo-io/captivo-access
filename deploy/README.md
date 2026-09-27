@@ -319,6 +319,20 @@ git pull                                   # picks up a newer default version + 
 # or, to choose a version explicitly, set CAPTIVO_VERSION=<release> in .env
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
+
+# Reclaim the disk the replaced images were using. Run it AFTER `up -d`.
+#
+#   -a          Not optional here. Compose pins `:<version>`, so a replaced image
+#               keeps its version tag and never becomes "dangling" -- a plain
+#               `docker image prune` reclaims nothing at all on this path.
+#   label=...   Keeps the prune to Captivo Access images; other software on this
+#               host is untouched.
+#
+# Images a container still uses are never removed -- including the stopped
+# `access-migrate` one -- so this cannot take the version you are running. It does
+# remove the PREVIOUS version, so going back means pulling it again; released
+# images stay in the registry, so that costs a download, not a rebuild.
+docker image prune -a -f --filter label=org.opencontainers.image.title=captivo-access
 ```
 
 Check the latest release tags at

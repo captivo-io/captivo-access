@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { PRUNE_LABEL_FILTER } from "@/lib/images";
 import {
   canRepairConnector,
   buildReconfigureCommand,
@@ -45,13 +46,38 @@ describe("buildConnectorRunCommand", () => {
     expect(buildConnectorRunCommand("C", "M", "T")).not.toContain("docker volume rm");
     expect(buildConnectorUpdateCommand("M", "T")).not.toContain("docker volume rm");
   });
-  it("is resilient: connector comes up before the guacd/kasm bundle, no busybox, prune first", () => {
+  it("is resilient: connector comes up before the guacd/kasm bundle, no busybox", () => {
     const cmd = buildConnectorUpdateCommand("M", "T");
     expect(cmd).not.toContain("busybox");
-    expect(cmd).toContain("docker image prune -f");
     // The connector (access lifeline) is recreated before the heavier bundle so a
     // bundle failure can't leave it down.
     expect(cmd.indexOf("--name access-connector")).toBeLessThan(cmd.indexOf("--name captivo-guacd"));
+  });
+
+  // The prune used to run FIRST, and a test that only asserted it was present
+  // could not see the bug: before the pulls the superseded images are still tagged
+  // :latest, nothing is dangling, and the prune reclaims nothing. It cleaned the
+  // previous upgrade's leavings instead -- one release behind, 1.5 GB left on a
+  // real host until an operator pruned by hand.
+  it("prunes AFTER every pull, so it reclaims what this upgrade superseded", () => {
+    for (const cmd of [
+      buildConnectorRunCommand("C", "M", "T"),
+      buildConnectorUpdateCommand("M", "T"),
+      buildReconfigureCommand("C", "M", "T"),
+    ]) {
+      const prune = cmd.indexOf("docker image prune");
+      expect(prune, "no prune at all").toBeGreaterThan(-1);
+      expect(cmd.lastIndexOf("docker pull"), "prune runs before a pull that orphans an image")
+        .toBeLessThan(prune);
+    }
+  });
+
+  // An unscoped prune runs as root on a CUSTOMER's host and would delete every
+  // dangling image there, including from software we do not ship.
+  it("scopes the prune to images this product published", () => {
+    const cmd = buildConnectorUpdateCommand("M", "T");
+    expect(cmd).toContain(`docker image prune -f --filter ${PRUNE_LABEL_FILTER}`);
+    expect(PRUNE_LABEL_FILTER).toContain("org.opencontainers.image.title");
   });
 });
 

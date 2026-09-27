@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "fs";
 import { execSync } from "child_process";
 import path from "path";
-import { IMAGE_OWNER, IMAGE_PREFIX, PUBLISHED_IMAGES, accessImage } from "./images";
+import { IMAGE_OWNER, IMAGE_PREFIX, PRUNE_LABEL_FILTER, PUBLISHED_IMAGES, accessImage } from "./images";
 
 const ROOT = path.join(__dirname, "..", "..");
 const read = (p: string) => (existsSync(path.join(ROOT, p)) ? readFileSync(path.join(ROOT, p), "utf-8") : null);
@@ -149,6 +149,31 @@ describe("image namespace", () => {
       expect(fallbacks.length, `${f}: fallback bulunamadi`).toBeGreaterThan(0);
       for (const v of fallbacks) expect(v, `${f}: ${v} != ${version}`).toBe(version);
     }
+  });
+
+  /**
+   * A prune that reclaims nothing is indistinguishable from a host with no garbage,
+   * so both halves of the documented command are asserted.
+   *
+   * `-a` is the half that is easy to get wrong and was got wrong: compose pins
+   * `:<version>`, so a replaced image keeps its tag and is never dangling. A plain
+   * `docker image prune` there is a no-op that reads as housekeeping -- 66 unused
+   * images / 21 GB accumulated behind exactly that illusion.
+   */
+  it("the documented compose prune is scoped to our images and uses -a", () => {
+    const docs = ["deploy/README.md", ...presentUntracked().filter((f) => f.endsWith(".md"))];
+    let checked = 0;
+    for (const f of docs) {
+      const src = read(f);
+      if (!src || !src.includes("docker image prune")) continue;
+      checked += 1;
+      expect(src, `${f}: prune is not scoped to our images`).toContain(PRUNE_LABEL_FILTER);
+      expect(src, `${f}: compose pins a version tag, so a prune without -a reclaims nothing`)
+        .toMatch(/docker image prune -a -f --filter/);
+      expect(src, `${f}: an unscoped prune would delete a customer's other images`)
+        .not.toMatch(/docker image prune (-a )?-f(?! --filter)/);
+    }
+    expect(checked, "no documented prune found to check").toBeGreaterThan(0);
   });
 
   it("a fresh install pins the version rather than trusting the fallback", () => {
