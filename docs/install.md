@@ -351,6 +351,13 @@ cd captivo-access/deploy
 git pull
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
+
+# Reclaim the disk the replaced images were using. AFTER `up -d`, and `-a` is not
+# optional: the compose file pins `:<version>`, so a replaced image keeps its tag
+# and is never "dangling" -- a plain `docker image prune` reclaims nothing here.
+# The label filter keeps this to Captivo Access images; the version you are running
+# is never removed, the previous one is, so going back means pulling it again.
+docker image prune -a -f --filter label=org.opencontainers.image.title=captivo-access
 ```
 
 The schema is migrated automatically on `up -d` (the `access-migrate` service) —

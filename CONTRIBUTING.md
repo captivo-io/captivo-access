@@ -39,6 +39,13 @@ pnpm build:recorder  # regenerate src/recorder/rec.bundle.ts after editing
                      # src/recorder/record-init.ts (commit the generated output)
 ```
 
+`pnpm build` needs no network access. The four typefaces are committed as `.woff2`
+under `src/app/fonts/` rather than fetched from Google at build time, because that
+fetch failed builds for reasons unrelated to the code — and reported itself as a
+missing module, which sends you looking in the wrong place. If you touch them, read
+the comment in `src/app/fonts.ts` first: the weight lists there look redundant and
+are not, and `src/app/fonts/README.md` carries the licence obligations.
+
 For the Go services (from the repo root, spanning the `go.work` modules):
 
 ```bash

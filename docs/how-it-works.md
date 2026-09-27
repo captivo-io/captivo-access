@@ -19,7 +19,7 @@ The whole thing is **two pieces**:
 | Piece | Where it runs | What it is |
 |---|---|---|
 | **Manager** | your cloud (internet-facing) | The front door: identity (passkey/SSO), the admin console, and the access policy. Admins sign in at this address; vendors don't — they reach per-app hostnames served by a companion identity-aware proxy (below). |
-| **Connector** | deep inside your network | A small agent that dials **outbound only** — no inbound port is ever opened to it. It's the only thing that reaches your internal apps, and their real addresses never leave your network. |
+| **Connector** | deep inside your network | A small agent that dials **outbound only** — no inbound port is ever opened to it. It's the only thing that reaches your internal apps, and their real addresses never leave your network. It also **stores the session recordings**, encrypted with a key it generates and never sends anywhere. |
 
 Setting it up:
 
@@ -116,7 +116,7 @@ Step by step:
 
 > **A few variations on the same path.** WebSocket apps (e.g. a browser-based
 > console) are relayed the same way; **web sessions can be recorded** per Resource
-> (AES-256-GCM at rest) and replayed in the console; internal staff/admins can optionally sign in via
+> (AES-256-GCM at rest **on the connector's own disk**, never in the control plane) and replayed in the console; internal staff/admins can optionally sign in via
 > **SSO/OIDC** instead of a passkey; and **RDP/SSH/VNC** sessions take
 > [the remote-desktop path](#the-remote-desktop-path-gateway) below. Who can do
 > what in the console is governed by five roles (`ADMIN`, `OPERATOR`, `AUDITOR`,
@@ -166,8 +166,11 @@ flowchart TD
 - **Credential injection.** The RDP/SSH/VNC username and secret are stored
   encrypted in the vault; the data-plane decrypts them only to build the guacd
   handshake — they never reach the vendor's browser.
-- **Recording.** With **Record sessions** on, the guacd stream is captured
-  (AES-256-GCM at rest) and replayable at `/admin/recordings`.
+- **Recording.** With **Record sessions** on, the guacd stream is captured and
+  replayable at `/admin/recordings`. The bytes are written to the **connector's own
+  disk**, AES-256-GCM-encrypted with a key only that connector holds; replay and
+  command search reach into it on demand, so the control plane never receives the
+  content (see [where recordings are stored](install.md#where-session-recordings-are-stored)).
 - **Live view.** An admin or auditor can watch an in-progress session at
   `/admin/live`: the viewer **joins the same guacd connection by its ID**, so
   guacd sends the current screen immediately (not just future changes), and an

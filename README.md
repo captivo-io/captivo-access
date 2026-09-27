@@ -159,11 +159,16 @@ Shipped and working today:
   (Caddy On-Demand), configured from the console.
 - **WebSocket passthrough** — the proxy relays WebSocket upgrades transparently,
   so WS/streaming internal apps (e.g. a Proxmox noVNC console) work end-to-end.
-- **Session recording** — on by default (disable with `RECORDING_ENABLED=0`); with a
-  per-Resource toggle, both **web sessions** (an injected rrweb DOM recorder) and
-  **remote-desktop sessions** (captured natively from the guacd stream,
-  AES-256-GCM-encrypted at rest) are replayable at `/admin/recordings`; admins
-  filter, replay, and delete them (each deletion is written to the audit log).
+- **Session recording, stored on your side** — on by default (disable with
+  `RECORDING_ENABLED=0`); with a per-Resource toggle, both **web sessions** (an
+  injected rrweb DOM recorder) and **remote-desktop sessions** (captured natively
+  from the guacd stream) are replayable at `/admin/recordings`; admins filter,
+  replay, and delete them (each deletion is written to the audit log). The
+  recordings themselves are written to **the connector's own disk inside your
+  network**, encrypted with a key the connector generates and never sends
+  anywhere — so a recording of what a vendor did on your systems never leaves
+  them, even on the hosted service. Command search runs on the connector too.
+  See [where recordings are stored](./docs/install.md#where-session-recordings-are-stored).
 - **Native remote-desktop gateway (RDP/SSH/VNC)** — console protocols are served
   in-browser with no separate pack: every connector runs sessions out of the box,
   its install command also deploying the session engines (guacd for RDP/SSH/VNC,
@@ -386,6 +391,14 @@ instead, replicate that routing and forward those headers.
   itself. To constrain what a connector may reach regardless of what a Resource
   requests, set `ALLOWED_TARGETS` (CIDRs/hosts) on its container; a target
   outside that boundary is rejected and the stream is closed.
+- **Recordings never reach the control plane.** A session recording is the most
+  revealing thing this product produces — the screen, and what was typed on it.
+  It is written to the connector's disk on your own machine, encrypted with a key
+  that connector generates and keeps (`/data/recording.key`); the control plane
+  stores only an index (who, which resource, when, how large). Search and replay
+  reach into the connector on demand, so even the hosted service holds no copy and
+  could not decrypt one. The trade is explicit: back up that volume and that key,
+  because nobody else has them.
 - **Passkey-only identity.** No password exists anywhere in the system —
   WebAuthn passkeys for normal login, TOTP only as a break-glass recovery
   path (itself encrypted at rest, AES-256-GCM).

@@ -59,6 +59,31 @@ The connector token issued at enrollment is written to `TOKEN_FILE`
 needing `PAIR_CODE` again. Mount `/data` as a volume so the token survives
 container recreation.
 
+### Session recordings live here
+
+Since 2.0.0 the connector **stores the session recordings itself** — screen
+streams, keystroke logs and isolated-browser video — under
+`/data/recordings/<tenant>/<recording>/<stream>/`. They are encrypted with
+AES-256-GCM using a key the connector generates on first start and keeps at
+`/data/recording.key` (mode 0600). **That key never leaves this machine**, so the
+control plane holds neither the content nor any way to read it. Search runs here
+too, over the connector's own store.
+
+What that means for whoever runs this container:
+
+- **`/data` must be a mounted volume.** The connector warns in its log at start-up
+  if it is not, because a `docker rm` would then destroy every recording.
+- **Back up the volume, `recording.key` included.** Nobody else has a copy. Without
+  the key the recordings cannot be read, and it cannot be reissued.
+- **Size the disk for the recordings, not just the token.** A single recording is
+  capped at 500 MiB (`RECORDING_MAX_BYTES` on the data plane); the number kept is
+  governed by the retention window set in the console, which this connector applies
+  to its own files.
+- **A recording is searchable and playable only while this connector is online.**
+  The console says an answer is incomplete rather than reporting no matches.
+- **An erasure completes on the next connection.** The console records the request
+  at once; the bytes go when this connector confirms.
+
 ## Building
 
 The Docker build context is the **repository root** (not this directory),

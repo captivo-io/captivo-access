@@ -152,28 +152,32 @@ describe("image namespace", () => {
   });
 
   /**
-   * A prune that reclaims nothing is indistinguishable from a host with no garbage,
-   * so both halves of the documented command are asserted.
+   * Every doc that tells an operator how to update must include the cleanup step.
+   *
+   * Checked by NAME, not by "files that happen to mention prune". The first version
+   * of this test only inspected files already containing the command, so when
+   * docs/install.md -- the doc most installers actually follow -- was missing it
+   * entirely, the test passed. A guard that only examines what already complies
+   * cannot report an omission.
    *
    * `-a` is the half that is easy to get wrong and was got wrong: compose pins
    * `:<version>`, so a replaced image keeps its tag and is never dangling. A plain
    * `docker image prune` there is a no-op that reads as housekeeping -- 66 unused
    * images / 21 GB accumulated behind exactly that illusion.
    */
-  it("the documented compose prune is scoped to our images and uses -a", () => {
-    const docs = ["deploy/README.md", ...presentUntracked().filter((f) => f.endsWith(".md"))];
-    let checked = 0;
-    for (const f of docs) {
+  const UPDATE_DOCS = ["deploy/README.md", "docs/install.md"];
+
+  it("every update doc documents the scoped, -a cleanup", () => {
+    for (const f of [...UPDATE_DOCS, ...presentUntracked().filter((x) => x.endsWith(".md"))]) {
       const src = read(f);
-      if (!src || !src.includes("docker image prune")) continue;
-      checked += 1;
-      expect(src, `${f}: prune is not scoped to our images`).toContain(PRUNE_LABEL_FILTER);
-      expect(src, `${f}: compose pins a version tag, so a prune without -a reclaims nothing`)
+      expect(src, `${f} is missing`).not.toBeNull();
+      expect(src!, `${f}: no cleanup step at all`).toContain("docker image prune");
+      expect(src!, `${f}: prune is not scoped to our images`).toContain(PRUNE_LABEL_FILTER);
+      expect(src!, `${f}: compose pins a version tag, so a prune without -a reclaims nothing`)
         .toMatch(/docker image prune -a -f --filter/);
-      expect(src, `${f}: an unscoped prune would delete a customer's other images`)
+      expect(src!, `${f}: an unscoped prune would delete a customer's other images`)
         .not.toMatch(/docker image prune (-a )?-f(?! --filter)/);
     }
-    expect(checked, "no documented prune found to check").toBeGreaterThan(0);
   });
 
   it("a fresh install pins the version rather than trusting the fallback", () => {
