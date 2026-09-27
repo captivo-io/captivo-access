@@ -27,7 +27,6 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
     startedAt: r.startedAt.toISOString(),
     lastEventAt: r.lastEventAt.toISOString(),
     host: r.host,
-    eventCount: r.eventCount,
     bytes: r.bytes,
     userId: r.userId,
     userName: users.get(r.userId)?.name ?? null,

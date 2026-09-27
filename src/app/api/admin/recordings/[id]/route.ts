@@ -44,7 +44,7 @@ export const DELETE = withTenantRoute(async (req: Request, { params }: { params:
         path: `/admin/recordings/${id}`,
         status: 200,
         decision: "ALLOW",
-        reason: `Requested erasure of session recording (vendor ${vendor?.email ?? rec.userId}, ${rec.eventCount} events, ${rec.bytes} bytes, started ${rec.startedAt.toISOString()}); the content is on the customer\u0027s connector and is removed when that connector confirms`,
+        reason: `Requested erasure of session recording (vendor ${vendor?.email ?? rec.userId}, ${rec.eventCount} chunks, ${rec.bytes} bytes, started ${rec.startedAt.toISOString()}); the content is on the customer\u0027s connector and is removed when that connector confirms`,
         clientIp: clientIp(req.headers),
         userAgent: req.headers.get("user-agent") ?? undefined,
       },

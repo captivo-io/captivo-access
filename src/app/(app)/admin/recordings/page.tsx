@@ -24,7 +24,6 @@ async function AdminRecordingsPageImpl() {
     startedAt: r.startedAt.toISOString(),
     lastEventAt: r.lastEventAt.toISOString(),
     host: r.host,
-    eventCount: r.eventCount,
     bytes: r.bytes,
     userId: r.userId,
     userName: userMap.get(r.userId)?.name ?? null,

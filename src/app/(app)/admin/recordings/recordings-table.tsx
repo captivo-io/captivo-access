@@ -14,7 +14,6 @@ export interface RecordingRowJSON {
   startedAt: string;
   lastEventAt: string;
   host: string;
-  eventCount: number;
   bytes: number;
   userId: string;
   userName: string | null;
@@ -268,10 +267,6 @@ export function RecordingsTable({
                 <th>Resource</th>
                 <th>Type</th>
                 <th>Duration</th>
-                {/* Stored chunks, not events: the index increments once per chunk
-                    the connector commits (api/internal/recording/ingest). Labelling it
-                    "Events" read as a keystroke count and did not match the timeline. */}
-                <th>Chunks</th>
                 <th>Size</th>
                 <th></th>
               </tr>
@@ -288,7 +283,6 @@ export function RecordingsTable({
                   <td>{r.siteName ?? r.host}</td>
                   <td><span className="pill">{formatBadge(r)}</span></td>
                   <td className="cell-sub">{duration(r.startedAt, r.lastEventAt)}</td>
-                  <td className="cell-sub">{r.eventCount}</td>
                   <td className="cell-sub">{humanBytes(r.bytes)}</td>
                   <td className="row-actions">
                     <Link href={`/admin/recordings/${r.id}`} className="btn sm">Watch</Link>
