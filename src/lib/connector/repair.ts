@@ -42,6 +42,11 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // Own guacd's volumes as uid 1000 (guacd runs non-root) using the pinned guacd
   // image itself (ships chown) — cached after first install, no Docker Hub busybox.
   // Runs before the connector so the connector mounts already-1000-owned volumes.
+  // NOTE on captivo_guacd_recordings: it is EMPTY and always has been. guacd is
+  // never given a recording-path, so it writes nothing there -- session recordings
+  // are captured by the data plane and stored on the connector under /data/recordings
+  // (see connector/recstore.go). The volume is vestigial, kept only because removing
+  // it from a live upgrade command buys nothing. Do not read its name as a location.
   const chown = `docker run --rm --user 0 --entrypoint chown -v captivo_guacd_recordings:/rec -v captivo_guacd_logs:/log -v captivo_guacd_drive:/drive2 ${GUACD} -R 1000:1000 /rec /log /drive2; `;
   // Re-pair only: drop the token volume so the Go agent re-enrolls with the new code.
   const clear = clearVolume
