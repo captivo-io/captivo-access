@@ -25,16 +25,17 @@ func handleRecWrite(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		writeRecFrame(st, tunnel.RecWriteResponse{Error: "bad request"})
 		return
 	}
-	n, err := store.Append(req.TenantID, req.RecordingKey, req.Seq, req.Data)
+	// The format is part of the chunk's address, not metadata beside it: two
+	// writers on one recording key (guac + keystrokes) both count from zero, and
+	// storing by seq alone made them overwrite each other.
+	if req.Format == "" {
+		writeRecFrame(st, tunnel.RecWriteResponse{Error: "missing format"})
+		return
+	}
+	n, err := store.Append(req.TenantID, req.RecordingKey, req.Format, req.Seq, req.Data)
 	if err != nil {
 		writeRecFrame(st, tunnel.RecWriteResponse{Error: err.Error()})
 		return
-	}
-	// Persist the format from the frame rather than making callers set it
-	// separately: search reads it to decide whether a recording is text at all,
-	// and a recording whose format never landed would be silently unsearchable.
-	if req.Format != "" {
-		_ = store.SetFormat(req.TenantID, req.RecordingKey, req.Format)
 	}
 	writeRecFrame(st, tunnel.RecWriteResponse{Written: n})
 }
@@ -58,7 +59,11 @@ func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		writeRecFrame(st, tunnel.RecFetchResponse{Error: "bad request"})
 		return
 	}
-	total, err := store.TotalPlaintextBytes(req.TenantID, req.RecordingKey)
+	if req.Format == "" {
+		writeRecFrame(st, tunnel.RecFetchResponse{Error: "missing format"})
+		return
+	}
+	total, err := store.TotalPlaintextBytes(req.TenantID, req.RecordingKey, req.Format)
 	if err != nil {
 		writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
 		return
@@ -76,7 +81,7 @@ func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 			writeRecFrame(st, tunnel.RecFetchResponse{Error: "range not satisfiable"})
 			return
 		}
-		part, err := store.ReadRange(req.TenantID, req.RecordingKey, req.FromByte, to)
+		part, err := store.ReadRange(req.TenantID, req.RecordingKey, req.Format, req.FromByte, to)
 		if err != nil {
 			writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
 			return
@@ -86,7 +91,7 @@ func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		return
 	}
 
-	chunks, err := store.Read(req.TenantID, req.RecordingKey, req.FromSeq)
+	chunks, err := store.Read(req.TenantID, req.RecordingKey, req.Format, req.FromSeq)
 	if err != nil {
 		writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
 		return

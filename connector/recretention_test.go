@@ -10,7 +10,7 @@ import (
 func TestApplyRecordingPolicySweepsExpiredRecordings(t *testing.T) {
 	s := newRecStore(t.TempDir(), testKey())
 	for _, k := range []string{"old", "fresh"} {
-		if _, err := s.Append("acme", k, 0, []byte("x")); err != nil {
+		if _, err := s.Append("acme", k, "guac", 0, []byte("x")); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -22,7 +22,7 @@ func TestApplyRecordingPolicySweepsExpiredRecordings(t *testing.T) {
 	if ack.RetentionRemoved != 1 {
 		t.Fatalf("want 1 removed, got %d", ack.RetentionRemoved)
 	}
-	if got, _ := s.Read("acme", "fresh", 0); len(got) != 1 {
+	if got, _ := s.Read("acme", "fresh", "guac", 0); len(got) != 1 {
 		t.Fatal("swept a recording inside the retention window")
 	}
 }
@@ -31,7 +31,7 @@ func TestApplyRecordingPolicyZeroDaysDeletesNothing(t *testing.T) {
 	// Zero means "no retention configured". Treating it as "delete everything" would
 	// wipe a customer's recordings the first time a policy arrived without the field.
 	s := newRecStore(t.TempDir(), testKey())
-	if _, err := s.Append("acme", "k", 0, []byte("x")); err != nil {
+	if _, err := s.Append("acme", "k", "guac", 0, []byte("x")); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if err := s.setModTimeForTest("acme", "k", time.Now().Add(-1000*time.Hour)); err != nil {
@@ -41,7 +41,7 @@ func TestApplyRecordingPolicyZeroDaysDeletesNothing(t *testing.T) {
 	if ack.RetentionRemoved != 0 {
 		t.Fatalf("zero days deleted %d recordings", ack.RetentionRemoved)
 	}
-	if got, _ := s.Read("acme", "k", 0); len(got) != 1 {
+	if got, _ := s.Read("acme", "k", "guac", 0); len(got) != 1 {
 		t.Fatal("recording was deleted with no retention configured")
 	}
 }
@@ -49,7 +49,7 @@ func TestApplyRecordingPolicyZeroDaysDeletesNothing(t *testing.T) {
 func TestApplyRecordingPolicyPurgesNamedKeys(t *testing.T) {
 	s := newRecStore(t.TempDir(), testKey())
 	for _, k := range []string{"erase-me", "keep-me"} {
-		if _, err := s.Append("acme", k, 0, []byte("x")); err != nil {
+		if _, err := s.Append("acme", k, "guac", 0, []byte("x")); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -59,10 +59,10 @@ func TestApplyRecordingPolicyPurgesNamedKeys(t *testing.T) {
 	if len(ack.PurgedKeys) != 1 || ack.PurgedKeys[0] != "erase-me" {
 		t.Fatalf("want erase-me confirmed, got %+v", ack.PurgedKeys)
 	}
-	if got, _ := s.Read("acme", "erase-me", 0); len(got) != 0 {
+	if got, _ := s.Read("acme", "erase-me", "guac", 0); len(got) != 0 {
 		t.Fatal("named recording survived the purge")
 	}
-	if got, _ := s.Read("acme", "keep-me", 0); len(got) != 1 {
+	if got, _ := s.Read("acme", "keep-me", "guac", 0); len(got) != 1 {
 		t.Fatal("purge took a recording it was not asked for")
 	}
 }
@@ -84,7 +84,7 @@ func TestApplyRecordingPolicyIgnoresAPolicyWithNoTenant(t *testing.T) {
 	// Without a tenant a sweep would have to guess which subtree to walk, and
 	// guessing here deletes a customer's recordings.
 	s := newRecStore(t.TempDir(), testKey())
-	if _, err := s.Append("acme", "k", 0, []byte("x")); err != nil {
+	if _, err := s.Append("acme", "k", "guac", 0, []byte("x")); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	if err := s.setModTimeForTest("acme", "k", time.Now().Add(-1000*time.Hour)); err != nil {

@@ -41,7 +41,7 @@ func TestHandleRecWriteStoresAndAcks(t *testing.T) {
 	if resp.Error != "" || resp.Written != len("payload") {
 		t.Fatalf("unexpected ack: %+v", resp)
 	}
-	got, _ := store.Read("t1", "rec-1", 0)
+	got, _ := store.Read("t1", "rec-1", "guac", 0)
 	if len(got) != 1 || string(got[0].Data) != "payload" {
 		t.Fatalf("not stored: %+v", got)
 	}
@@ -64,13 +64,10 @@ func TestHandleRecWriteRejectsTraversal(t *testing.T) {
 
 func TestHandleRecSearchReturnsMatches(t *testing.T) {
 	store := newRecStore(t.TempDir(), testKey())
-	if _, err := store.Append("t1", "rec-1", 0, keysChunk(t,
+	if _, err := store.Append("t1", "rec-1", "keys", 0, keysChunk(t,
 		keyEventPayload{AtMs: 1, Kind: "command", Text: "sudo rm -rf /"},
 	)); err != nil {
 		t.Fatalf("seed: %v", err)
-	}
-	if err := store.SetFormat("t1", "rec-1", "keys"); err != nil {
-		t.Fatalf("format: %v", err)
 	}
 	req, _ := json.Marshal(tunnel.RecSearchRequest{
 		Kind: "recsearch", TenantID: "t1", Query: "RM -RF", RecordingKeys: []string{"rec-1"}, MaxDecrypt: 10,
@@ -88,12 +85,12 @@ func TestHandleRecSearchReturnsMatches(t *testing.T) {
 func TestHandleRecFetchStreamsChunks(t *testing.T) {
 	store := newRecStore(t.TempDir(), testKey())
 	for i, p := range []string{"one", "two"} {
-		if _, err := store.Append("t1", "rec-1", i, []byte(p)); err != nil {
+		if _, err := store.Append("t1", "rec-1", "guac", i, []byte(p)); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
 	req, _ := json.Marshal(tunnel.RecFetchRequest{
-		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromSeq: 0,
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", Format: "guac", FromSeq: 0,
 	})
 	c := newRWC()
 	handleRecFetch(c, store, req)
@@ -123,12 +120,12 @@ func TestHandleRecFetchStreamsChunks(t *testing.T) {
 func TestHandleRecFetchHonoursAByteRange(t *testing.T) {
 	store := newRecStore(t.TempDir(), testKey())
 	for i, p := range []string{"abc", "def", "ghi"} {
-		if _, err := store.Append("t1", "rec-1", i, []byte(p)); err != nil {
+		if _, err := store.Append("t1", "rec-1", "guac", i, []byte(p)); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
 	req, _ := json.Marshal(tunnel.RecFetchRequest{
-		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromByte: 2, ToByte: 5,
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", Format: "guac", FromByte: 2, ToByte: 5,
 	})
 	c := newRWC()
 	handleRecFetch(c, store, req)
@@ -155,12 +152,12 @@ func TestHandleRecFetchHonoursAByteRange(t *testing.T) {
 
 func TestHandleRecFetchOpenEndedRangeReachesTheEnd(t *testing.T) {
 	store := newRecStore(t.TempDir(), testKey())
-	if _, err := store.Append("t1", "rec-1", 0, []byte("abcdef")); err != nil {
+	if _, err := store.Append("t1", "rec-1", "guac", 0, []byte("abcdef")); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	// "bytes=3-" is what a browser sends when it resumes; ToByte arrives as 0.
 	req, _ := json.Marshal(tunnel.RecFetchRequest{
-		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromByte: 3,
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", Format: "guac", FromByte: 3,
 	})
 	c := newRWC()
 	handleRecFetch(c, store, req)
@@ -173,11 +170,11 @@ func TestHandleRecFetchOpenEndedRangeReachesTheEnd(t *testing.T) {
 
 func TestHandleRecFetchRefusesAnUnsatisfiableRange(t *testing.T) {
 	store := newRecStore(t.TempDir(), testKey())
-	if _, err := store.Append("t1", "rec-1", 0, []byte("abc")); err != nil {
+	if _, err := store.Append("t1", "rec-1", "guac", 0, []byte("abc")); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	req, _ := json.Marshal(tunnel.RecFetchRequest{
-		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", FromByte: 99, ToByte: 200,
+		Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", Format: "guac", FromByte: 99, ToByte: 200,
 	})
 	c := newRWC()
 	handleRecFetch(c, store, req)

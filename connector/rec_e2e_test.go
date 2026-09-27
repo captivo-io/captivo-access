@@ -39,7 +39,7 @@ func TestRecordingLifecycleStaysLocal(t *testing.T) {
 	}
 
 	fq, _ := json.Marshal(tunnel.RecFetchRequest{
-		Kind: "recfetch", TenantID: "acme", RecordingKey: "s1-u1-9-ab",
+		Kind: "recfetch", TenantID: "acme", RecordingKey: "s1-u1-9-ab", Format: "keys",
 	})
 	fc := newRWC()
 	handleRecFetch(fc, store, fq)

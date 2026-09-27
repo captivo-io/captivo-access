@@ -13,9 +13,13 @@ type RecWriteRequest struct {
 	TenantID     string `json:"tenantId"`
 	RecordingKey string `json:"recordingKey"`
 	Seq          int    `json:"seq"`
-	Format       string `json:"format"`   // "guac" | "rrweb" | "video"
-	Protocol     string `json:"protocol"` // "ssh" | "rdp" | "vnc" | "" for web
-	Data         []byte `json:"data"`
+	// Format names the STREAM this chunk belongs to, and the connector stores it
+	// under that name. One session writes several streams under one recording key
+	// (a guac session records its instructions and its keystrokes at once), each
+	// numbering its chunks from zero, so without this they overwrite one another.
+	Format   string `json:"format"`   // "guac" | "rrweb" | "video" | "keys"
+	Protocol string `json:"protocol"` // "ssh" | "rdp" | "vnc" | "" for web
+	Data     []byte `json:"data"`
 }
 
 // RecWriteResponse reports bytes committed so the caller can keep the central byte
@@ -71,9 +75,13 @@ type RecFetchRequest struct {
 	Kind         string `json:"kind"` // "recfetch"
 	TenantID     string `json:"tenantId"`
 	RecordingKey string `json:"recordingKey"`
-	FromSeq      int    `json:"fromSeq"`
-	FromByte     int64  `json:"fromByte"`
-	ToByte       int64  `json:"toByte"`
+	// Format selects which stream of the recording to replay -- a recording holds
+	// more than one. Required: guessing a default would hand a player the wrong
+	// stream, which is the bug this field exists to close.
+	Format   string `json:"format"`
+	FromSeq  int    `json:"fromSeq"`
+	FromByte int64  `json:"fromByte"`
+	ToByte   int64  `json:"toByte"`
 }
 
 // RecFetchResponse precedes the streamed chunks. Empty Error = the stream follows.

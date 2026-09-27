@@ -60,6 +60,15 @@ export async function fetchFromConnector(input: {
   connectorId: string;
   tenantId: string;
   recordingKey: string;
+  /**
+   * Which stream of the recording to replay: "guac" | "rrweb" | "video" | "keys".
+   *
+   * Required, deliberately. A recording holds more than one stream -- a guac
+   * session records its instruction stream and its keystrokes under one key -- so
+   * a caller that does not say which one it wants cannot be served a right answer,
+   * and a default here would silently hand a player the wrong stream.
+   */
+  format: "guac" | "rrweb" | "video" | "keys";
   fromSeq?: number;
   fromByte?: number;
   toByte?: number;

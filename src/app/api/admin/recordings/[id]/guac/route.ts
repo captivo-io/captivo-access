@@ -36,6 +36,7 @@ export const GET = withTenantRoute(async (_req: Request, { params }: { params: P
   }
 
   const got = await fetchFromConnector({
+    format: "guac",
     connectorId,
     tenantId: currentTenantId(),
     recordingKey: rec.recordingKey,

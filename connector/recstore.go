@@ -17,7 +17,14 @@ import (
 
 // recStore is the connector's own recording store: chunks live on this host's disk,
 // encrypted with the connector's key, and are never shipped to the control plane.
-// Layout: <root>/<tenantID>/<recordingKey>/<seq>.bin
+// Layout: <root>/<tenantID>/<recordingKey>/<format>/<seq>.bin
+//
+// The FORMAT segment is load-bearing, not tidiness. One session writes several
+// independent streams under a single recording key -- a guac session records its
+// instruction stream and its keystrokes at the same time -- and each writer numbers
+// its own chunks from zero. Addressing a chunk by seq alone made those writers
+// overwrite each other file for file: the guac stream came back with JSON spliced
+// into it and no player could start. The stream is part of a chunk's address.
 type recStore struct {
 	root string
 	key  []byte
@@ -34,7 +41,9 @@ func newRecStore(root string, key []byte) *recStore { return &recStore{root: roo
 // Both arrive over the tunnel, so neither is trusted.
 var safeSegment = regexp.MustCompile(`^[A-Za-z0-9_.:@-]{1,200}$`)
 
-func (s *recStore) dir(tenantID, recordingKey string) (string, error) {
+// recDir is one recording: every stream it holds lives underneath. Deletion and
+// retention work at this level, so erasing a recording erases its keystrokes too.
+func (s *recStore) recDir(tenantID, recordingKey string) (string, error) {
 	if !safeSegment.MatchString(tenantID) || strings.Contains(tenantID, "..") {
 		return "", fmt.Errorf("invalid tenant id")
 	}
@@ -42,6 +51,19 @@ func (s *recStore) dir(tenantID, recordingKey string) (string, error) {
 		return "", fmt.Errorf("invalid recording key")
 	}
 	return filepath.Join(s.root, tenantID, recordingKey), nil
+}
+
+// dir is one stream of one recording. format is validated like the other segments
+// because it arrives over the tunnel untrusted.
+func (s *recStore) dir(tenantID, recordingKey, format string) (string, error) {
+	base, err := s.recDir(tenantID, recordingKey)
+	if err != nil {
+		return "", err
+	}
+	if !safeSegment.MatchString(format) || strings.Contains(format, "..") {
+		return "", fmt.Errorf("invalid format")
+	}
+	return filepath.Join(base, format), nil
 }
 
 func (s *recStore) seal(plain []byte) ([]byte, error) {
@@ -77,8 +99,8 @@ func (s *recStore) open(sealed []byte) ([]byte, error) {
 
 // Append seals one chunk and writes it. Returns the plaintext byte count so the
 // caller can keep the central byte counter honest.
-func (s *recStore) Append(tenantID, recordingKey string, seq int, plain []byte) (int, error) {
-	d, err := s.dir(tenantID, recordingKey)
+func (s *recStore) Append(tenantID, recordingKey, format string, seq int, plain []byte) (int, error) {
+	d, err := s.dir(tenantID, recordingKey, format)
 	if err != nil {
 		return 0, err
 	}
@@ -98,8 +120,8 @@ func (s *recStore) Append(tenantID, recordingKey string, seq int, plain []byte) 
 // Read returns the decrypted chunks from fromSeq onward, in sequence order. A chunk
 // that fails to decrypt is skipped rather than failing the whole read: one corrupt
 // chunk must not make an otherwise good recording unplayable.
-func (s *recStore) Read(tenantID, recordingKey string, fromSeq int) ([]recChunk, error) {
-	d, err := s.dir(tenantID, recordingKey)
+func (s *recStore) Read(tenantID, recordingKey, format string, fromSeq int) ([]recChunk, error) {
+	d, err := s.dir(tenantID, recordingKey, format)
 	if err != nil {
 		return nil, err
 	}
@@ -133,42 +155,35 @@ func (s *recStore) Read(tenantID, recordingKey string, fromSeq int) ([]recChunk,
 	return out, nil
 }
 
-// SetFormat records a recording's format beside its chunks. Search needs it: a
-// guac stream is protocol bytes, not text, and matching a query against it
-// produces meaningless hits. Written once per recording, on the first chunk.
-func (s *recStore) SetFormat(tenantID, recordingKey, format string) error {
-	if !safeSegment.MatchString(format) {
-		return fmt.Errorf("invalid format")
-	}
-	d, err := s.dir(tenantID, recordingKey)
+// Formats lists the streams a recording holds, e.g. ["guac", "keys"]. It replaces
+// the former single "format" sidecar file, which could only name one stream and was
+// overwritten by whichever writer flushed last. Search uses this to find the
+// keystroke stream; a recording with no keystroke stream is simply skipped.
+func (s *recStore) Formats(tenantID, recordingKey string) []string {
+	d, err := s.recDir(tenantID, recordingKey)
 	if err != nil {
-		return err
+		return nil
 	}
-	if err := os.MkdirAll(d, 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(d, "format"), []byte(format), 0o600)
-}
-
-// Format reports a recording's format, or "" when it was never set.
-func (s *recStore) Format(tenantID, recordingKey string) string {
-	d, err := s.dir(tenantID, recordingKey)
+	entries, err := os.ReadDir(d)
 	if err != nil {
-		return ""
+		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(d, "format"))
-	if err != nil {
-		return ""
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
 	}
-	return strings.TrimSpace(string(b))
+	sort.Strings(out)
+	return out
 }
 
 // TotalPlaintextBytes reports the length of the concatenated plaintext -- what a
 // player actually receives. It is NOT the on-disk size: every chunk carries a nonce
 // and a GCM tag, so the sealed total is larger and using it would put a wrong
 // Content-Length on every Range response.
-func (s *recStore) TotalPlaintextBytes(tenantID, recordingKey string) (int64, error) {
-	chunks, err := s.Read(tenantID, recordingKey, 0)
+func (s *recStore) TotalPlaintextBytes(tenantID, recordingKey, format string) (int64, error) {
+	chunks, err := s.Read(tenantID, recordingKey, format, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -183,11 +198,11 @@ func (s *recStore) TotalPlaintextBytes(tenantID, recordingKey string) (int64, er
 // concatenated recording, mapping the request onto whichever chunks it spans. `to`
 // beyond the end is clamped rather than refused: an open-ended HTTP Range is normal
 // and erroring on it would surface as a broken video.
-func (s *recStore) ReadRange(tenantID, recordingKey string, from, to int64) ([]byte, error) {
+func (s *recStore) ReadRange(tenantID, recordingKey, format string, from, to int64) ([]byte, error) {
 	if from < 0 || to < from {
 		return nil, fmt.Errorf("invalid range")
 	}
-	chunks, err := s.Read(tenantID, recordingKey, 0)
+	chunks, err := s.Read(tenantID, recordingKey, format, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -217,13 +232,14 @@ func (s *recStore) ReadRange(tenantID, recordingKey string, from, to int64) ([]b
 	return out, nil
 }
 
-// Bytes reports what the disk actually holds for one recording (sealed sizes).
+// Bytes reports what the disk actually holds for one recording (sealed sizes),
+// summed across every stream it holds.
 func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
-	d, err := s.dir(tenantID, recordingKey)
+	d, err := s.recDir(tenantID, recordingKey)
 	if err != nil {
 		return 0, err
 	}
-	entries, err := os.ReadDir(d)
+	streams, err := os.ReadDir(d)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return 0, nil
@@ -231,13 +247,21 @@ func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 		return 0, err
 	}
 	var total int64
-	for _, e := range entries {
-		// Only chunks count; the "format" sidecar is metadata, not recording data.
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
+	for _, sd := range streams {
+		if !sd.IsDir() {
 			continue
 		}
-		if info, err := e.Info(); err == nil {
-			total += info.Size()
+		entries, err := os.ReadDir(filepath.Join(d, sd.Name()))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
+				continue
+			}
+			if info, err := e.Info(); err == nil {
+				total += info.Size()
+			}
 		}
 	}
 	return total, nil
@@ -246,7 +270,7 @@ func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 // Delete removes one recording and everything under it. An already-absent recording
 // is not an error: the caller's goal is "these bytes are gone", which already holds.
 func (s *recStore) Delete(tenantID, recordingKey string) error {
-	d, err := s.dir(tenantID, recordingKey)
+	d, err := s.recDir(tenantID, recordingKey)
 	if err != nil {
 		return err
 	}
@@ -287,7 +311,7 @@ func (s *recStore) Purge(tenantID string, olderThan time.Time) (int, error) {
 // setModTimeForTest ages a recording directory so retention can be tested without
 // sleeping. Test-only, but it lives here because it needs the layout.
 func (s *recStore) setModTimeForTest(tenantID, recordingKey string, t time.Time) error {
-	d, err := s.dir(tenantID, recordingKey)
+	d, err := s.recDir(tenantID, recordingKey)
 	if err != nil {
 		return err
 	}

@@ -45,6 +45,7 @@ export const GET = withTenantRoute(async (req: Request, { params }: { params: Pr
   const toByte = m && m[2] ? parseInt(m[2], 10) : 0;
 
   const got = await fetchFromConnector({
+    format: "video",
     connectorId,
     tenantId: currentTenantId(),
     recordingKey: rec.recordingKey,

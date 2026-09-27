@@ -50,10 +50,11 @@ func searchStore(s *recStore, req tunnel.RecSearchRequest) tunnel.RecSearchRespo
 			out.Truncated = true
 			break
 		}
-		if s.Format(req.TenantID, key) != "keys" {
-			continue
-		}
-		chunks, err := s.Read(req.TenantID, key, 0)
+		// Read the recording's KEYSTROKE stream specifically. A recording holds
+		// several streams; the guac and video ones are protocol or media bytes and
+		// substring-matching them yields meaningless hits. A recording with no
+		// keystroke stream simply has nothing to search.
+		chunks, err := s.Read(req.TenantID, key, "keys", 0)
 		if err != nil {
 			continue
 		}

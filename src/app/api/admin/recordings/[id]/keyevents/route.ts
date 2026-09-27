@@ -44,6 +44,7 @@ export const GET = withTenantRoute(async (_req: Request, { params }: { params: P
   }
 
   const got = await fetchFromConnector({
+    format: "keys",
     connectorId,
     tenantId: currentTenantId(),
     recordingKey: rec.recordingKey,

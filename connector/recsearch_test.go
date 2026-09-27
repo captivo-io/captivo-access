@@ -21,21 +21,15 @@ func keysChunk(t *testing.T, evs ...keyEventPayload) []byte {
 func seedSearch(t *testing.T) *recStore {
 	t.Helper()
 	s := newRecStore(t.TempDir(), testKey())
-	if _, err := s.Append("t1", "rec-a", 0, keysChunk(t,
+	if _, err := s.Append("t1", "rec-a", "keys", 0, keysChunk(t,
 		keyEventPayload{AtMs: 10, Kind: "command", Text: "ls -la /etc"},
 	)); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	if err := s.SetFormat("t1", "rec-a", "keys"); err != nil {
-		t.Fatalf("format: %v", err)
-	}
-	if _, err := s.Append("t1", "rec-b", 0, keysChunk(t,
+	if _, err := s.Append("t1", "rec-b", "keys", 0, keysChunk(t,
 		keyEventPayload{AtMs: 20, Kind: "command", Text: "sudo RM -RF /tmp/x"},
 	)); err != nil {
 		t.Fatalf("seed: %v", err)
-	}
-	if err := s.SetFormat("t1", "rec-b", "keys"); err != nil {
-		t.Fatalf("format: %v", err)
 	}
 	return s
 }
@@ -88,13 +82,10 @@ func TestSearchSkipsMaskedText(t *testing.T) {
 	// masked because it is a password prompt. Matching it here would leak exactly
 	// what masking exists to hide.
 	s := newRecStore(t.TempDir(), testKey())
-	if _, err := s.Append("t1", "rec-m", 0, keysChunk(t,
+	if _, err := s.Append("t1", "rec-m", "keys", 0, keysChunk(t,
 		keyEventPayload{AtMs: 5, Kind: "text", Text: "hunter2", Masked: true},
 	)); err != nil {
 		t.Fatalf("seed: %v", err)
-	}
-	if err := s.SetFormat("t1", "rec-m", "keys"); err != nil {
-		t.Fatalf("format: %v", err)
 	}
 	res := searchStore(s, tunnel.RecSearchRequest{
 		TenantID: "t1", Query: "hunter2", RecordingKeys: []string{"rec-m"}, MaxDecrypt: 100,
@@ -109,11 +100,8 @@ func TestSearchIgnoresNonKeystrokeFormats(t *testing.T) {
 	// meaningless hits (and could match a query against binary), which the central
 	// search never did because it only read keystroke rows.
 	s := newRecStore(t.TempDir(), testKey())
-	if _, err := s.Append("t1", "rec-v", 0, []byte("4.sync,13.rm -rf /tmp/x;")); err != nil {
+	if _, err := s.Append("t1", "rec-v", "guac", 0, []byte("4.sync,13.rm -rf /tmp/x;")); err != nil {
 		t.Fatalf("seed: %v", err)
-	}
-	if err := s.SetFormat("t1", "rec-v", "guac"); err != nil {
-		t.Fatalf("format: %v", err)
 	}
 	res := searchStore(s, tunnel.RecSearchRequest{
 		TenantID: "t1", Query: "rm -rf", RecordingKeys: []string{"rec-v"}, MaxDecrypt: 100,
@@ -131,11 +119,8 @@ func TestSearchFormatGateIsLoadBearingForRrweb(t *testing.T) {
 	// keyEventPayload with a populated Text field.
 	s := newRecStore(t.TempDir(), testKey())
 	rrweb := []byte(`[{"atMs":1,"kind":"text","text":"hunter2","masked":false}]`)
-	if _, err := s.Append("t1", "rec-w", 0, rrweb); err != nil {
+	if _, err := s.Append("t1", "rec-w", "rrweb", 0, rrweb); err != nil {
 		t.Fatalf("seed: %v", err)
-	}
-	if err := s.SetFormat("t1", "rec-w", "rrweb"); err != nil {
-		t.Fatalf("format: %v", err)
 	}
 	res := searchStore(s, tunnel.RecSearchRequest{
 		TenantID: "t1", Query: "hunter2", RecordingKeys: []string{"rec-w"}, MaxDecrypt: 100,

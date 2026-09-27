@@ -121,7 +121,9 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 			}
 		}
 	}()
-	// viewer browser -> guacd (only while this viewer holds control).
+	// viewer browser -> guacd. Input only while this viewer holds control, but
+	// protocol liveness always: see viewerMayForward -- guacd disconnects a user it
+	// hears nothing from, and a watching viewer's only traffic is its sync echo.
 	go func() {
 		for {
 			_, data, rerr := c.Read(ctx)
@@ -129,7 +131,7 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 				errc <- rerr
 				return
 			}
-			if !ls.viewerInputAllowed(viewerUserID) {
+			if !viewerMayForward(instructionOpcode(data), ls.viewerInputAllowed(viewerUserID)) {
 				continue
 			}
 			if _, werr := guac.Write(data); werr != nil {
@@ -138,5 +140,10 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 			}
 		}
 	}()
-	<-errc
+	// Log why the view ended. Without this a dropped viewer was indistinguishable
+	// from a finished session in the log, and the browser shows the same sentence
+	// for both.
+	if err := <-errc; err != nil {
+		log.Printf("guac-view session=%s viewer=%s: view ended err=%v", sessionID, viewerUserID, err)
+	}
 }

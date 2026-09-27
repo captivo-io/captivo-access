@@ -53,9 +53,13 @@ func registerRecEndpoints(mux *http.ServeMux, secret string, reg *Registry) {
 			ConnectorID  string `json:"connectorId"`
 			TenantID     string `json:"tenantId"`
 			RecordingKey string `json:"recordingKey"`
-			FromSeq      int    `json:"fromSeq"`
-			FromByte     int64  `json:"fromByte"`
-			ToByte       int64  `json:"toByte"`
+			// Which stream of the recording to replay. A recording holds several
+			// (a guac session stores its instructions and its keystrokes), so this
+			// is required: without it the connector cannot know what to send.
+			Format   string `json:"format"`
+			FromSeq  int    `json:"fromSeq"`
+			FromByte int64  `json:"fromByte"`
+			ToByte   int64  `json:"toByte"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
@@ -76,8 +80,13 @@ func registerRecEndpoints(mux *http.ServeMux, secret string, reg *Registry) {
 		// nothing has to be buffered here: a 500 MiB recording streams straight
 		// through. Once bytes flow the status is fixed, and a mid-stream failure can
 		// only truncate -- which the caller detects against the advertised total.
+		if body.Format == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing_format"})
+			return
+		}
 		if err := RecFetch(sess, tunnel.RecFetchRequest{
-			TenantID: body.TenantID, RecordingKey: body.RecordingKey, FromSeq: body.FromSeq,
+			TenantID: body.TenantID, RecordingKey: body.RecordingKey,
+			Format: body.Format, FromSeq: body.FromSeq,
 			FromByte: body.FromByte, ToByte: body.ToByte,
 		}, func(total int64) {
 			w.Header().Set("Content-Type", "application/octet-stream")

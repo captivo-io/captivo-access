@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -162,4 +163,51 @@ func buildConnect(argNames []string, c GuacConn) []byte {
 		}
 	}
 	return encodeInstruction(elems...)
+}
+
+// instructionOpcode returns the opcode of one raw Guacamole instruction, or "" when
+// it cannot be read. The length prefix counts RUNES, not bytes.
+func instructionOpcode(raw []byte) string {
+	dot := bytes.IndexByte(raw, '.')
+	if dot <= 0 {
+		return ""
+	}
+	n, err := strconv.Atoi(string(raw[:dot]))
+	if err != nil || n <= 0 {
+		return ""
+	}
+	s := string(raw[dot+1:])
+	runes := 0
+	for idx := range s {
+		if runes == n {
+			// A well-formed element is followed by a separator. Without this check a
+			// malformed instruction yields a bogus opcode -- and a bogus opcode that
+			// happened to read as "sync" would pass the viewer gate.
+			if s[idx] == ',' || s[idx] == ';' {
+				return s[:idx]
+			}
+			return ""
+		}
+		runes++
+	}
+	return ""
+}
+
+// viewerUpstreamAlways are the instructions a WATCHING viewer must still be able to
+// send even though it holds no control.
+//
+// guacd polls every connected user and disconnects one that sends nothing for
+// GUACD_USEC_TIMEOUT (15 s by default). An idle read-only viewer's only traffic is
+// its echo of guacd's own `sync`, so gating the whole upstream direction made a
+// monitoring admin's view die seconds after it opened, reported to them as "The
+// session ended or is no longer available." while the session was in fact live.
+//
+// Only protocol liveness is exempt. Everything else a browser sends -- key, mouse,
+// size, clipboard, file transfer -- is either input or would mutate the session the
+// vendor is sharing, and stays gated on actually holding control.
+var viewerUpstreamAlways = map[string]bool{"sync": true, "nop": true}
+
+// viewerMayForward decides whether one instruction from a viewer reaches guacd.
+func viewerMayForward(op string, hasControl bool) bool {
+	return viewerUpstreamAlways[op] || hasControl
 }
