@@ -1,6 +1,7 @@
-import { promises as dns } from "node:dns";
 import tls from "node:tls";
 import { consoleDomain } from "@/lib/tenant/console-domain";
+// Shared and BOUNDED -- see lib/site/verify-domain.ts.
+import { resolve4 } from "@/lib/site/verify-domain";
 
 // Self-contained provisioning checks for a tenant's namespace — no coupling to
 // the host's DNS/cert scripts. Cached per slug for CACHE_MS so a tenants table
@@ -19,10 +20,6 @@ export interface TenantHealth {
 const CACHE_MS = 60_000;
 const cache = new Map<string, { h: TenantHealth; at: number }>();
 let expectedIps: { ips: string[]; at: number } | null = null;
-
-async function resolve4(host: string): Promise<string[]> {
-  try { return await dns.resolve4(host); } catch { return []; }
-}
 
 // The server's public IPs = the platform host's A records.
 async function serverIps(domain: string): Promise<string[]> {

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { verifyResultFields } from "@/lib/admin/verify-result";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (req: NextRequest) => {
   const admin = await getCurrentUser();
@@ -19,4 +20,4 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     data: verifyResultFields(result.sent, result.sent ? null : (result.reason ?? "send_failed"), new Date()),
   });
   return NextResponse.json(result);
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

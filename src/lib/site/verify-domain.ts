@@ -5,9 +5,24 @@ export function verifyDecision(expectedIp: string, resolvedIps: string[]): Verif
   return classifyVerify(expectedIp, resolvedIps);
 }
 
+/**
+ * Ceiling for a DNS lookup.
+ *
+ * `dns.promises.resolve4` takes no per-call timeout: it uses the resolver's own,
+ * which on an unresponsive nameserver means seconds per try times several tries.
+ * A dedicated Resolver is the only place the limit can be set, and these lookups
+ * run on request paths (domain verification, the domain page's render).
+ */
+const DNS_TIMEOUT_MS = 5_000;
+const DNS_TRIES = 2;
+
+function boundedResolver(): dns.Resolver {
+  return new dns.Resolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES });
+}
+
 export async function resolve4(host: string): Promise<string[]> {
   try {
-    return await dns.resolve4(host);
+    return await boundedResolver().resolve4(host);
   } catch {
     return [];
   }

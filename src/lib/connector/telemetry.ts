@@ -1,3 +1,8 @@
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+
+/** Reads counters from a connector. Rendered in a page, so it must not hang a render. */
+const TELEMETRY_TIMEOUT_MS = 10_000;
+
 export interface ConnectorTelemetry {
   version: string;
   uptimeSec: number;
@@ -19,7 +24,7 @@ export async function getConnectorTelemetry(
 ): Promise<{ online: boolean; ageMs?: number; telemetry?: ConnectorTelemetry | null }> {
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
-  const res = await fetch(`${base}/connector-telemetry`, {
+  const res = await fetchWithTimeout(`${base}/connector-telemetry`, { timeoutMs: TELEMETRY_TIMEOUT_MS,
     method: "POST",
     headers: { "content-type": "application/json", "x-dataplane-secret": secret },
     body: JSON.stringify({ connectorId }),

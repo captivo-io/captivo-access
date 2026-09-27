@@ -11,6 +11,7 @@ import { approvalRequestEmail } from "@/lib/email/templates";
 import { notifyEmailEnabled } from "@/lib/notifications/gate";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { consoleBaseUrl } from "@/lib/tenant/console-url";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 function parseDate(value: unknown): { ok: true; value: Date | null } | { ok: false } {
   if (value === undefined || value === null || value === "") return { ok: true, value: null };
@@ -88,4 +89,4 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   }
 
   return NextResponse.json({ id: result.id }, { status: 201 });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

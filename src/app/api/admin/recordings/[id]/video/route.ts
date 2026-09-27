@@ -6,6 +6,7 @@ import { currentTenantId } from "@/lib/tenant/context";
 import { connectorForRecording } from "@/lib/recording/connector-of";
 import { fetchFromConnector } from "@/lib/dataplane/recordings";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,4 +72,4 @@ export const GET = withTenantRoute(async (req: Request, { params }: { params: Pr
   }
   if (got.totalBytes > 0) headers.set("Content-Length", String(got.totalBytes));
   return new NextResponse(got.body, { status: 200, headers });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

@@ -6,6 +6,7 @@ import { proxyThroughConnector } from "@/lib/connector/dataplane";
 import { probeSite, probeGatewaySite } from "@/lib/connector/health";
 import { classifyTransition, notifyTransition } from "@/lib/notifications";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (_req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -90,4 +91,4 @@ export const POST = withTenantRoute(async (_req: NextRequest, { params }: { para
   });
 
   return NextResponse.json(result);
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

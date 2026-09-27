@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/roles";
 import { getUpdateCheckConfig, saveUpdateCheckResult } from "@/lib/updates/update-check-config";
 import { parseLatestRelease } from "@/lib/updates/github";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 const RELEASES_URL = "https://api.github.com/repos/captivo-io/captivo-access/releases/latest";
 
@@ -34,4 +35,4 @@ export const POST = withTenantRoute(async () => {
     await saveUpdateCheckResult({ latestVersion: null, latestUrl: null, ok: false });
     return NextResponse.json({ ok: false });
   }
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

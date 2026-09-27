@@ -7,6 +7,7 @@ import { managerBaseUrl } from "@/lib/url";
 import { getSmtpConfig, sendMail } from "@/lib/email/mailer";
 import { inviteEmail } from "@/lib/email/templates";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -46,4 +47,4 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
     // best-effort: email must never fail the resend
   }
   return NextResponse.json({ link, emailed });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

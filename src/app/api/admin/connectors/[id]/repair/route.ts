@@ -10,6 +10,7 @@ import { kickConnector } from "@/lib/connector/dataplane";
 import { canRepairConnector, buildReconfigureCommand } from "@/lib/connector/repair";
 import { managerBaseUrl, connectorTunnelUrl, isLocalManagerUrl } from "@/lib/url";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -49,4 +50,4 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
     clientIp: clientIp(req.headers) ?? null,
   });
   return NextResponse.json({ code, reconfigureCommand, managerUrlIsLocal });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

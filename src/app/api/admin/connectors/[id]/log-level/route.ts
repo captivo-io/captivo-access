@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { pushConnectorPolicy } from "@/lib/connector/policy";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,4 +35,4 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     clientIp: clientIp(req.headers) ?? null,
   });
   return NextResponse.json({ ok: true, live: push.ok });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

@@ -12,6 +12,7 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (req: NextRequest) => {
   const admin = await getCurrentUser();
@@ -85,4 +86,4 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     clientIp: clientIp(req.headers) ?? null,
   });
   return NextResponse.json({ link, emailed: sendEmail ? emailed : null });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

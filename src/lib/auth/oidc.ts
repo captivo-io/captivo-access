@@ -1,3 +1,11 @@
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+
+/**
+ * Token exchange with the CUSTOMER's identity provider. A sign-in cannot wait
+ * forever on it, and failing with a clear error beats a hung page.
+ */
+export const IDP_TIMEOUT_MS = 10_000;
+
 import { createHash, randomBytes } from "node:crypto";
 
 export function normalizeIssuer(issuer: string): string {
@@ -124,7 +132,7 @@ export async function discover(issuer: string): Promise<Discovery> {
   const norm = normalizeIssuer(issuer);
   const cached = discoveryCache.get(norm);
   if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return cached.doc;
-  const res = await fetch(`${norm}/.well-known/openid-configuration`, { headers: { accept: "application/json" } });
+  const res = await fetchWithTimeout(`${norm}/.well-known/openid-configuration`, { timeoutMs: IDP_TIMEOUT_MS, headers: { accept: "application/json" } });
   if (!res.ok) throw new Error(`discovery_failed_${res.status}`);
   const doc = (await res.json()) as Discovery;
   // `issuer` is the authoritative value the IdP stamps into every token's `iss`

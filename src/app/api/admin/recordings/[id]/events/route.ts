@@ -7,6 +7,7 @@ import { connectorForRecording } from "@/lib/recording/connector-of";
 import { fetchFromConnector } from "@/lib/dataplane/recordings";
 import { assembleEvents } from "@/lib/recording/assemble";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,4 +59,4 @@ export const GET = withTenantRoute(async (_req: Request, { params }: { params: P
   const events = assembleEvents(raw);
 
   return NextResponse.json({ id: rec.id, startedAt: rec.startedAt, events });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

@@ -1,20 +1,15 @@
 import { NextResponse } from "next/server";
-import { promises as dns } from "node:dns";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { accessDomain, wildcardRecord, classifyVerify } from "@/lib/domain/custom-domain";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { multiTenantEnabled } from "@/lib/tenant/enabled";
+// Shared and BOUNDED: dns.promises.resolve4 takes no per-call timeout, and this
+// route runs inside a request. See lib/site/verify-domain.ts.
+import { resolve4 } from "@/lib/site/verify-domain";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const dynamic = "force-dynamic";
-
-async function resolve4(host: string): Promise<string[]> {
-  try {
-    return await dns.resolve4(host);
-  } catch {
-    return [];
-  }
-}
 
 export const POST = withTenantRoute(async () => {
   const user = await getCurrentUser();
@@ -44,4 +39,4 @@ export const POST = withTenantRoute(async () => {
     expectedIp,
     resolvedIp: resolved[0] ?? null,
   });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

@@ -3,6 +3,11 @@ import { requireUser } from "@/lib/current-user";
 import { evaluateAccess } from "@/lib/access/evaluate";
 import { dataplaneFilesUrl, dataplaneSecretHeader } from "@/lib/dataplane/client";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+
+/** An isolated-browser file transfer through the data plane. */
+const FILE_TRANSFER_TIMEOUT_MS = 300_000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,10 +28,14 @@ export const POST = withTenantRoute(async (req: Request) => {
 
   const body = await req.arrayBuffer(); // bounded by the MAX_BYTES check above
   const qs = `op=upload&userId=${encodeURIComponent(user.id)}&siteId=${encodeURIComponent(siteId)}&name=${encodeURIComponent(name)}`;
-  const res = await fetch(dataplaneFilesUrl(qs), {
+  // The whole request is bounded, upload included: here the body IS the slow
+  // part, so a head-only ceiling would bound nothing. Generous rather than tight
+  // -- a real transfer must be able to finish.
+  const res = await fetchWithTimeout(dataplaneFilesUrl(qs), {
+    timeoutMs: FILE_TRANSFER_TIMEOUT_MS,
     method: "POST",
     headers: { ...dataplaneSecretHeader(), "content-type": "application/octet-stream", "content-length": String(body.byteLength) },
     body,
   });
   return NextResponse.json(res.ok ? { ok: true } : { ok: false }, { status: res.status });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

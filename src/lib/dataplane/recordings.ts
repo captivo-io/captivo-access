@@ -1,3 +1,19 @@
+import { fetchStreamWithHeaderTimeout, fetchWithTimeout } from "@/lib/net/fetch-timeout";
+
+/**
+ * Search runs on the connector across its own store, so it is allowed real work --
+ * but not an unbounded wait, which is what no ceiling meant.
+ */
+const REC_SEARCH_TIMEOUT_MS = 20_000;
+
+/**
+ * Replay is bounded on its HEAD ONLY. A recording can be 500 MB, and a ceiling on
+ * the whole transfer would abort a legitimate download mid-stream -- which reaches
+ * the viewer as a corrupt recording, not as a timeout. Once the connector has
+ * answered, the body streams for as long as it needs.
+ */
+const REC_HEAD_TIMEOUT_MS = 20_000;
+
 /**
  * Manager to dataplane, for recordings that live on connectors.
  *
@@ -23,7 +39,8 @@ export async function searchOnConnector(input: {
   maxDecrypt: number;
 }): Promise<RecSearchResult> {
   try {
-    const res = await fetch(`${BASE()}/rec-search`, {
+    const res = await fetchWithTimeout(`${BASE()}/rec-search`, {
+      timeoutMs: REC_SEARCH_TIMEOUT_MS,
       method: "POST",
       headers: { "content-type": "application/json", "x-dataplane-secret": SECRET() },
       body: JSON.stringify(input),
@@ -74,7 +91,8 @@ export async function fetchFromConnector(input: {
   toByte?: number;
 }): Promise<RecFetch | null> {
   try {
-    const res = await fetch(`${BASE()}/rec-fetch`, {
+    const res = await fetchStreamWithHeaderTimeout(`${BASE()}/rec-fetch`, {
+      headerTimeoutMs: REC_HEAD_TIMEOUT_MS,
       method: "POST",
       headers: { "content-type": "application/json", "x-dataplane-secret": SECRET() },
       body: JSON.stringify({

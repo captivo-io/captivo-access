@@ -7,6 +7,7 @@ import { connectorForRecording } from "@/lib/recording/connector-of";
 import { fetchFromConnector } from "@/lib/dataplane/recordings";
 import { assembleKeyEvents } from "@/lib/recording/assemble-keys";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,4 +59,4 @@ export const GET = withTenantRoute(async (_req: Request, { params }: { params: P
 
   const raw = Buffer.from(await new Response(got.body).arrayBuffer());
   return NextResponse.json(assembleKeyEvents(raw));
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

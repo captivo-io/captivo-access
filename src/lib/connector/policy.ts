@@ -1,3 +1,8 @@
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+
+/** Pushes a policy down a connector tunnel; the connector acknowledges from memory. */
+const POLICY_PUSH_TIMEOUT_MS = 10_000;
+
 import { db } from "@/lib/db";
 import { resolvedConnectorLogLevel, resolvedRecordingRetentionDays } from "@/lib/settings/platform";
 import { currentTenantId } from "@/lib/tenant/context";
@@ -17,7 +22,7 @@ export async function pushConnectorPolicy(
   });
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
-  const res = await fetch(`${base}/connector-policy`, {
+  const res = await fetchWithTimeout(`${base}/connector-policy`, { timeoutMs: POLICY_PUSH_TIMEOUT_MS,
     method: "POST",
     headers: { "content-type": "application/json", "x-dataplane-secret": secret },
     body: JSON.stringify({

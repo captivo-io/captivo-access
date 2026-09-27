@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { resolve4, expectedServerIp, verifyDecision } from "@/lib/site/verify-domain";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -29,4 +30,4 @@ export const POST = withTenantRoute(async (_req: Request, ctx: { params: Promise
   if (status === "ok") await db.site.update({ where: { id }, data: { domainVerifiedAt: new Date() } });
 
   return NextResponse.json({ status, expectedIp: expected, resolvedIp: resolved[0] ?? null });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

@@ -1,11 +1,12 @@
 import { requireCapability } from "@/lib/current-user";
-import { promises as dns } from "node:dns";
 import { accessDomain, wildcardRecord } from "@/lib/domain/custom-domain";
 import { DomainVerifier } from "./domain-verifier";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { multiTenantEnabled } from "@/lib/tenant/enabled";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
+// Shared and BOUNDED: this runs during the page render.
+import { resolve4 } from "@/lib/site/verify-domain";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Custom domain" };
@@ -44,7 +45,7 @@ async function AdminDomainPageImpl() {
   let serverIp: string | null = null;
   if (domain) {
     try {
-      serverIp = (await dns.resolve4(`manager.${domain}`))[0] ?? null;
+      serverIp = (await resolve4(`manager.${domain}`))[0] ?? null;
     } catch {
       serverIp = null;
     }

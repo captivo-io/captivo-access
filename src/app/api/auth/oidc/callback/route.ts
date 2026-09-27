@@ -14,6 +14,9 @@ import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
 import { tenantSlugByOrg } from "@/lib/platform/sql";
 import { consoleDomain } from "@/lib/tenant/console-domain";
 import { currentTenantId } from "@/lib/tenant/context";
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+import { IDP_TIMEOUT_MS } from "@/lib/auth/oidc";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +67,10 @@ async function handler(req: NextRequest) {
   });
   let tokens: { id_token?: string; access_token?: string };
   try {
-    const res = await fetch(disc.token_endpoint, {
+    // Bounded: the token endpoint is the customer's IdP. Without a ceiling a
+    // sign-in can hang indefinitely on it.
+    const res = await fetchWithTimeout(disc.token_endpoint, {
+      timeoutMs: IDP_TIMEOUT_MS,
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body,
@@ -204,4 +210,6 @@ async function handler(req: NextRequest) {
   return NextResponse.redirect(new URL(safeReturnTo(saved.returnTo), managerBaseUrl(req)));
 }
 
-export const GET = withTenantRoute(handler);
+// Waits on the customer's identity provider for the token exchange, so the tenant
+// scope (a transaction) needs a budget that outlasts it -- see SLOW_SCOPE_BUDGET_MS.
+export const GET = withTenantRoute(handler, { budgetMs: SLOW_SCOPE_BUDGET_MS });

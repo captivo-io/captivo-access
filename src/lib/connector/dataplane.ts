@@ -1,7 +1,26 @@
+import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 // Control-plane client for the data-plane's internal /proxy API. Used to
 // round-trip an HTTP request through a connector's tunnel (e.g. the
 // admin "test connection" button) without the Manager ever dialing the
 // customer's network directly.
+/**
+ * Ceilings for calls that cross a customer's network through a connector tunnel.
+ *
+ * Each has to sit ABOVE the ceiling the far end applies, or it pre-empts a probe
+ * that would have succeeded. The directory test is the one that taught this: the
+ * data plane allows the LDAP bind + search 12 s (dataplane/ldap.go), and a
+ * controller answering in 6.6 s -- measured on a real customer's DC -- is well
+ * within that. Anything shorter here would call it a failure.
+ *
+ * They also have to sit BELOW the scope budget of any route that awaits them; see
+ * SLOW_SCOPE_BUDGET_MS in lib/tenant/scope.ts.
+ */
+const CONNECTOR_PROBE_TIMEOUT_MS = 15_000;
+/** Above dataplane/ldap.go's 12 s bind+search budget. */
+const DIRECTORY_TEST_TIMEOUT_MS = 20_000;
+/** Fire-and-forget control message to our own data plane. */
+const CONTROL_TIMEOUT_MS = 5_000;
+
 export async function proxyThroughConnector(input: {
   connectorId: string;
   upstreamUrl: string;
@@ -11,7 +30,8 @@ export async function proxyThroughConnector(input: {
 }): Promise<{ status: number; bodyPreview: string; truncated: boolean } | { error: string }> {
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
-  const res = await fetch(`${base}/proxy`, {
+  const res = await fetchWithTimeout(`${base}/proxy`, {
+    timeoutMs: CONNECTOR_PROBE_TIMEOUT_MS,
     method: "POST",
     headers: { "content-type": "application/json", "x-dataplane-secret": secret },
     body: JSON.stringify({
@@ -37,7 +57,8 @@ export async function probeConnector(input: {
 }): Promise<{ ok: boolean; latencyMs: number } | { error: string }> {
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
-  const res = await fetch(`${base}/probe`, {
+  const res = await fetchWithTimeout(`${base}/probe`, {
+    timeoutMs: CONNECTOR_PROBE_TIMEOUT_MS,
     method: "POST",
     headers: { "content-type": "application/json", "x-dataplane-secret": secret },
     body: JSON.stringify({ connectorId: input.connectorId, upstreamUrl: input.upstreamUrl }),
@@ -66,7 +87,8 @@ export async function testDirectory(input: {
 }): Promise<{ ok: boolean; baseDnFound?: boolean; error?: string }> {
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
-  const res = await fetch(`${base}/ldap-test`, {
+  const res = await fetchWithTimeout(`${base}/ldap-test`, {
+    timeoutMs: DIRECTORY_TEST_TIMEOUT_MS,
     method: "POST",
     headers: { "content-type": "application/json", "x-dataplane-secret": secret },
     body: JSON.stringify(input),
@@ -124,7 +146,8 @@ export async function resolveDirectoryUser(input: {
 export async function kickConnector(connectorId: string): Promise<void> {
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
-  await fetch(`${base}/kick`, {
+  await fetchWithTimeout(`${base}/kick`, {
+    timeoutMs: CONTROL_TIMEOUT_MS,
     method: "POST",
     headers: { "content-type": "application/json", "x-dataplane-secret": secret },
     body: JSON.stringify({ connectorId }),

@@ -6,6 +6,7 @@ import { resolveDirectoryUser } from "@/lib/connector/dataplane";
 import { listGroupMappingsLite } from "@/lib/directory/mappings";
 import { computeReconcile } from "@/lib/directory/reconcile";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,4 +54,4 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     groups,
     decision,
   });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

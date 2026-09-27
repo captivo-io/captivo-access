@@ -11,6 +11,7 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { consoleBaseUrl } from "@/lib/tenant/console-url";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -56,4 +57,4 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
   }
 
   return NextResponse.json({ ok: true });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });
