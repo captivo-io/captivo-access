@@ -268,7 +268,10 @@ export function RecordingsTable({
                 <th>Resource</th>
                 <th>Type</th>
                 <th>Duration</th>
-                <th>Events</th>
+                {/* Stored chunks, not events: the index increments once per chunk
+                    the connector commits (api/internal/recording/ingest). Labelling it
+                    "Events" read as a keystroke count and did not match the timeline. */}
+                <th>Chunks</th>
                 <th>Size</th>
                 <th></th>
               </tr>
