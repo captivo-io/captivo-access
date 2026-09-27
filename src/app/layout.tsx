@@ -1,11 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Sans, IBM_Plex_Mono, Public_Sans, Space_Grotesk } from "next/font/google";
+import { grotesk, plexMono, plexSans, publicSans } from "./fonts";
 import "./globals.css";
-
-const plexSans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "600", "700"], variable: "--font-plex-sans", display: "swap" });
-const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["500"], variable: "--font-plex-mono", display: "swap" });
-const publicSans = Public_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-public-sans", display: "swap" });
-const grotesk = Space_Grotesk({ subsets: ["latin"], weight: ["600"], variable: "--font-grotesk", display: "swap" });
 
 export const metadata: Metadata = {
   title: { default: "Captivo Access", template: "%s · Captivo Access" },
