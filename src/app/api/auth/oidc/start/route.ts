@@ -43,6 +43,10 @@ async function handler(req: NextRequest) {
   url.searchParams.set("nonce", nonce);
   url.searchParams.set("code_challenge", codeChallengeS256(codeVerifier));
   url.searchParams.set("code_challenge_method", "S256");
+  // This product has one language, so say so. Without ui_locales the identity centre
+  // fell back to its own default (Turkish) and rendered a Turkish sign-in form to
+  // someone who had just been reading an English console.
+  url.searchParams.set("ui_locales", "en");
   return NextResponse.redirect(url);
 }
 
