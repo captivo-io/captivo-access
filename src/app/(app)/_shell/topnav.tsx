@@ -56,7 +56,7 @@ export function TopNav({ model, records, role, userName, roleLabel, showLive, pr
 
   return (
     <header className="topnav" ref={rootRef}>
-      <button className="tn-burger" aria-label="Menu" aria-expanded={drawer} onClick={() => setDrawer((v) => !v)}>
+      <button className="tn-burger" aria-label="Menu" aria-expanded={drawer} aria-controls="app-drawer" onClick={() => setDrawer((v) => !v)}>
         <span /><span /><span />
       </button>
       <Link href="/" className="tn-brand">
@@ -176,7 +176,7 @@ export function TopNav({ model, records, role, userName, roleLabel, showLive, pr
 
       {/* Mobile drawer (shown via html[data-nav-open] in CSS) */}
       <div className="tn-scrim" onClick={() => setDrawer(false)} />
-      <div className="tn-drawer">
+      <div className="tn-drawer" id="app-drawer">
         {model.primary.map((it) => (
           <Link key={it.href} href={it.href} className={isActive(it.href) ? "tn-dlink active" : "tn-dlink"}>{it.label}{it.badge ? <span className="tn-badge">{it.badge}</span> : null}</Link>
         ))}

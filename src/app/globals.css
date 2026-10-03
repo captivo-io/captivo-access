@@ -900,6 +900,10 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .vp-burger { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1px solid #eceae6; border-radius: 9px; background: #fff; color: #1c1917; cursor: pointer; }
 .vp-burger svg { width: 20px; height: 20px; }
 .vp-mscrim { position: fixed; inset: 0; z-index: 30; }
+/* `.vp-mmenu` sets display:flex, and an author rule beats the user agent's
+   [hidden]{display:none}. Without this line the hidden attribute would be
+   inert and the menu would stay on screen while closed. */
+.vp-mmenu[hidden] { display: none; }
 .vp-mmenu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 210px; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: #fff; border: 1px solid #eceae6; border-radius: 12px; box-shadow: 0 20px 50px rgba(28,25,23,.18); z-index: 40; }
 .vp-muser { display: flex; align-items: center; padding: 4px 8px 8px; }
 .vp-mlink { padding: 10px 12px; border-radius: 8px; font-size: 14px; color: #57534e; text-decoration: none; }
