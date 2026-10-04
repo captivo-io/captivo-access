@@ -40,3 +40,15 @@ export async function pushConnectorPolicy(
   if (!res || !res.ok) return { ok: false, reason: "unreachable" };
   return res.json();
 }
+
+// Re-push policy (which carries pending erasures + the retention window) to every
+// connector in the current tenant scope that still owes an erasure. The source of
+// truth is the index: a recording stays pending until its connector confirms, so
+// this is idempotent -- safe to run on a schedule to catch connectors that were
+// offline when the erasure was requested. No-op when nothing is pending.
+export async function reconcilePendingErasures(): Promise<{ connectors: number }> {
+  const byConnector = await pendingErasuresByConnector();
+  if (byConnector.size === 0) return { connectors: 0 };
+  await Promise.all([...byConnector.keys()].map((id) => pushConnectorPolicy(id).catch(() => null)));
+  return { connectors: byConnector.size };
+}

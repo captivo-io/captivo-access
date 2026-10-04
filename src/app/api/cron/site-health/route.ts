@@ -5,6 +5,7 @@ import { probeSite, probeGatewaySite } from "@/lib/connector/health";
 import { classifyTransition, notifyTransition } from "@/lib/notifications";
 import { recordCronRun } from "@/lib/cron/heartbeat";
 import { forEachTenantId, inTenant } from "@/lib/cron/for-each-tenant";
+import { reconcilePendingErasures } from "@/lib/connector/policy";
 
 function cronAuthorized(req: NextRequest): boolean {
   const s = process.env.CRON_SECRET;
@@ -127,6 +128,15 @@ export async function POST(req: NextRequest) {
       } catch {
         // Best-effort, as before: a failed notification never breaks the cron.
       }
+    }
+
+    // 5. RECONCILE erasures — re-push pending deletions to their connectors so an
+    // offline-at-delete connector still erases on a later pass. Own scope; never
+    // breaks the health pass.
+    try {
+      await inTenant(tenantId, () => reconcilePendingErasures());
+    } catch {
+      /* best-effort */
     }
 
     return {

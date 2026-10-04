@@ -45,14 +45,33 @@ func (c *ControlClient) AuthConnector(token string) (string, error) {
 // ReportStatus tells the control plane a connector went ONLINE/OFFLINE.
 // Best-effort: errors are swallowed since this must never block tunnel
 // teardown/setup.
-func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version string) (egressPolicy, logLevel string) {
+func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version string) (egressPolicy, logLevel string, rec RecordingPolicy) {
 	var out struct {
-		EgressPolicy string `json:"egressPolicy"`
-		LogLevel     string `json:"logLevel"`
+		EgressPolicy           string   `json:"egressPolicy"`
+		LogLevel               string   `json:"logLevel"`
+		TenantID               string   `json:"tenantId"`
+		RecordingRetentionDays int      `json:"recordingRetentionDays"`
+		PurgeRecordingKeys     []string `json:"purgeRecordingKeys"`
 	}
 	_ = c.post("/api/internal/connector/status",
 		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version}, &out)
-	return out.EgressPolicy, out.LogLevel
+	return out.EgressPolicy, out.LogLevel, RecordingPolicy{TenantID: out.TenantID, RetentionDays: out.RecordingRetentionDays, PurgeKeys: out.PurgeRecordingKeys}
+}
+
+// RecordingPolicy is the recording half of a connector's policy, returned on
+// connect so the on-connect push resumes retention + carries pending erasures.
+type RecordingPolicy struct {
+	TenantID      string
+	RetentionDays int
+	PurgeKeys     []string
+}
+
+// ReportErasureAck relays a connector's PolicyAck (what a pushed recording policy
+// actually erased/swept) to the control plane, which then drops the matching index
+// rows. Best-effort — the connector will re-report on the next push if this fails.
+func (c *ControlClient) ReportErasureAck(connectorID string, retentionRemoved int, purgedKeys []string) {
+	_ = c.post("/api/internal/recording/erasure-ack",
+		map[string]any{"connectorId": connectorID, "retentionRemoved": retentionRemoved, "purgedKeys": purgedKeys}, nil)
 }
 
 // ResolveSession exchanges a browser session token for the userId/email it

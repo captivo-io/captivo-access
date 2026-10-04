@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { db } from "@/lib/db";
-import { resolvedConnectorLogLevel } from "@/lib/settings/platform";
+import { resolvedConnectorLogLevel, resolvedRecordingRetentionDays } from "@/lib/settings/platform";
+import { pendingErasuresByConnector } from "@/lib/recording/erasure";
+import { currentTenantId } from "@/lib/tenant/context";
 import { requireDataplaneSecret, resolveTenantByConnector, withTenantFrom } from "@/lib/tenant/internal";
 
 function dataplaneAuthorized(req: NextRequest): boolean {
@@ -34,10 +36,17 @@ async function handler(req: NextRequest) {
     },
   });
   const c = await db.connector.findUnique({ where: { id: connectorId }, select: { egressPolicy: true, logLevel: true } });
+  // Carry the recording policy on connect too, so a reconnecting connector resumes
+  // its retention sweep and learns any erasures it still owes — previously the
+  // on-connect push omitted these, so deletions only ever reached a connector via
+  // a later egress/log-level change.
   return NextResponse.json({
     ok: true,
     egressPolicy: c?.egressPolicy ?? "",
     logLevel: await resolvedConnectorLogLevel(c?.logLevel ?? null),
+    tenantId: currentTenantId(),
+    recordingRetentionDays: await resolvedRecordingRetentionDays(),
+    purgeRecordingKeys: (await pendingErasuresByConnector()).get(connectorId) ?? [],
   });
 }
 
