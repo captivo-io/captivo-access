@@ -7,6 +7,7 @@ import { appendAuditEvents } from "@/lib/audit/append";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { requestErasure } from "@/lib/recording/erasure";
+import { pushConnectorPolicy } from "@/lib/connector/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,13 @@ export const DELETE = withTenantRoute(async (req: Request, { params }: { params:
   // tell the connector which recording to erase. The row goes when the connector
   // confirms; see src/lib/recording/erasure.ts.
   await requestErasure(id);
+
+  // Push the erasure to the owning connector now (best-effort). It carries the
+  // pending-key list + retention window; an offline connector is retried by the
+  // site-health reconcile and on its next connect. The row clears when the
+  // connector confirms (see /api/internal/recording/erasure-ack).
+  const site = await db.site.findUnique({ where: { id: rec.siteId }, select: { connectorId: true } });
+  if (site?.connectorId) await pushConnectorPolicy(site.connectorId).catch(() => null);
 
   // Audit the deletion in the tamper-evident chain. Best-effort: the delete is
   // the primary action, so an audit failure is logged but does not fail the call.
