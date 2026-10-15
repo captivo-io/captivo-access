@@ -1,0 +1,27 @@
+# Warns when a release ships without written notes.
+#
+# A warning, not a failure: the note is written by hand AFTER the tag is pushed,
+# so failing the build would punish the wrong step. Measured 2026-10-15: 23 of
+# 294 releases carry only the automatic "Full Changelog" line, and two of those
+# were the newest ones on the current line.
+name: Release notes check
+
+on:
+  release:
+    types: [published, edited]
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warn when the body is only the automatic changelog line
+        env:
+          BODY: ${{ github.event.release.body }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          stripped=$(printf '%s' "$BODY" | sed '/^\*\*Full Changelog\*\*:/d' | tr -d '[:space:]')
+          if [ -z "$stripped" ]; then
+            echo "::warning title=No release notes::$TAG has no written notes. Add them with: gh release edit $TAG --notes-file <file>"
+          else
+            echo "$TAG has written notes (${#stripped} characters)."
+          fi
