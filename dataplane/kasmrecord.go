@@ -41,15 +41,18 @@ func newKasmRecWriter(send func(tunnel.RecWriteRequest) (int, error), index *rec
 }
 
 // Write appends WebM bytes and flushes when the buffer reaches recFlushBytes or
-// recFlushInterval has elapsed. Once the cumulative total exceeds capBytes, capture
-// stops (logged once) and further writes are dropped.
+// recFlushInterval has elapsed. With a cap set (capBytes > 0), reaching it stops
+// capture: the buffered tail is shipped, the index row is marked truncated, and
+// further writes are dropped. Zero means no cap (see recordingMaxBytes).
 func (w *kasmRecWriter) Write(b []byte) {
 	if w.stopped {
 		return
 	}
-	if w.total >= w.capBytes {
-		log.Printf("kasm-recording site=%s key=%s: size cap reached, stopping capture", w.siteID, w.key)
+	if w.capBytes > 0 && w.total >= w.capBytes {
+		log.Printf("kasm-recording site=%s key=%s: RECORDING_MAX_BYTES reached, stopping capture; the session continues unrecorded", w.siteID, w.key)
 		w.stopped = true
+		w.flush()
+		w.index.reportTruncated(w.key)
 		return
 	}
 	w.buf.Write(b)

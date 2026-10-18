@@ -609,6 +609,11 @@ model SessionRecording {
   purgePendingAt DateTime?
   protocol     String?
   encrypted    Boolean          @default(false)
+  // Capture stopped at the data plane's RECORDING_MAX_BYTES while the session went
+  // on. There is no cap unless an operator sets one (2.1.4), so this is rare; when it
+  // happens the console must say the recording is shorter than the session rather
+  // than let the player imply the session ended there.
+  truncated    Boolean          @default(false)
   chunks       RecordingChunk[]
 
   @@unique([tenantId, recordingKey])

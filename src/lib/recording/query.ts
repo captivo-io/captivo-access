@@ -14,6 +14,7 @@ const RECORDING_SELECT = {
   bytes: true,
   format: true,
   protocol: true,
+  truncated: true,
 } as const;
 
 export interface RecordingRow {
@@ -27,6 +28,8 @@ export interface RecordingRow {
   bytes: number;
   format: string;
   protocol: string | null;
+  /** Capture stopped at the data plane's size cap while the session continued. */
+  truncated: boolean;
 }
 
 export async function listRecordings(
