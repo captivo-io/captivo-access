@@ -83,3 +83,26 @@ func (r *recIndexReporter) report(recordingKey string, seq, bytes int) {
 		log.Printf("recording index key=%s seq=%d: report failed err=%v", recordingKey, seq, err)
 	}
 }
+
+// reportTruncated marks the recording's index row as cut short: capture stopped at
+// RECORDING_MAX_BYTES while the session went on. Without this the console shows a
+// recording shorter than its session and nothing says why -- in an investigation
+// that reads as "nothing else happened". Carries no chunk, so the control plane
+// moves no counters for it.
+func (r *recIndexReporter) reportTruncated(recordingKey string) {
+	if r == nil || r.send == nil {
+		return
+	}
+	body, err := json.Marshal(map[string]any{
+		"recordingKey": recordingKey,
+		"truncated":    true,
+		"format":       r.format,
+		"protocol":     r.proto,
+	})
+	if err != nil {
+		return
+	}
+	if err := r.send(r.userID, r.siteID, r.host, body); err != nil {
+		log.Printf("recording index key=%s: truncated report failed err=%v", recordingKey, err)
+	}
+}

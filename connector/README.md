@@ -75,10 +75,11 @@ What that means for whoever runs this container:
   if it is not, because a `docker rm` would then destroy every recording.
 - **Back up the volume, `recording.key` included.** Nobody else has a copy. Without
   the key the recordings cannot be read, and it cannot be reissued.
-- **Size the disk for the recordings, not just the token.** A single recording is
-  capped at 500 MiB (`RECORDING_MAX_BYTES` on the data plane); the number kept is
-  governed by the retention window set in the console, which this connector applies
-  to its own files.
+- **Size the disk for the recordings, not just the token.** A recording runs as long
+  as its session; nothing cuts it short unless the data plane sets an optional
+  `RECORDING_MAX_BYTES`. What bounds the disk is the retention window set in the
+  console, which this connector applies to its own files, and how long your sessions
+  tend to run.
 - **A recording is searchable and playable only while this connector is online.**
   The console says an answer is incomplete rather than reporting no matches.
 - **An erasure completes on the next connection.** The console records the request

@@ -35,6 +35,7 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
     siteName: sites.get(r.siteId)?.name ?? null,
     format: r.format,
     protocol: r.protocol,
+    truncated: r.truncated,
   }));
 
   // partial is not cosmetic: it is the difference between "nothing matched" and "we

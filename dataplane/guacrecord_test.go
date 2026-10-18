@@ -50,13 +50,72 @@ func TestRecWriterFlushesOnByteThreshold(t *testing.T) {
 	}
 }
 
-func TestRecWriterStopsAtSizeCap(t *testing.T) {
+func TestRecWriterHasNoCapByDefault(t *testing.T) {
+	// No RECORDING_MAX_BYTES means no cap: the recording runs as long as the
+	// session. The 500 MiB default that shipped until 2.1.3 cut recordings short
+	// without a word in the console; nothing may reintroduce a silent default.
+	t.Setenv("RECORDING_MAX_BYTES", "")
+	if got := recordingMaxBytes(); got != 0 {
+		t.Fatalf("default cap must be 0 (unlimited), got %d", got)
+	}
+	t.Setenv("RECORDING_MAX_BYTES", "not-a-number")
+	if got := recordingMaxBytes(); got != 0 {
+		t.Fatalf("an unparsable cap must mean no cap, got %d", got)
+	}
+	t.Setenv("RECORDING_MAX_BYTES", "4096")
+	if got := recordingMaxBytes(); got != 4096 {
+		t.Fatalf("an explicit cap must be honoured, got %d", got)
+	}
+}
+
+func TestRecWriterWithZeroCapNeverStops(t *testing.T) {
 	rec := &sendRecorder{}
+	spy := &indexSpy{}
+	w := newRecWriter(rec.send, &recIndexReporter{send: spy.send, format: "guac"},
+		"acme", "k", "s", "u", "h", "ssh", 0)
+	for i := 0; i < 5; i++ {
+		w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	}
+	if rec.count() != 5 {
+		t.Fatalf("cap 0 must mean unlimited: want 5 chunks, got %d", rec.count())
+	}
+	for _, b := range spy.bodies {
+		if strings.Contains(b, `"truncated":true`) {
+			t.Fatalf("an uncapped recording must never be marked truncated: %s", b)
+		}
+	}
+}
+
+func TestRecWriterStopsAtSizeCapAndSaysSo(t *testing.T) {
+	rec := &sendRecorder{}
+	spy := &indexSpy{}
 	// Cap of 256 KiB: the first 300 KiB write flushes once, then total > cap stops
-	// capture, so the second write is dropped.
-	w := newTestRecWriter(rec.send, 256*1024)
+	// capture, so the second write is dropped -- and the index is told, because a
+	// recording that ends before its session must not look like the session ended.
+	w := newRecWriter(rec.send, &recIndexReporter{send: spy.send, format: "guac", proto: "rdp"},
+		"acme", "k", "s", "u", "h", "rdp", 256*1024)
 	w.Write([]byte(strings.Repeat("B", 300*1024)))
 	w.Write([]byte(strings.Repeat("C", 300*1024)))
+	if rec.count() != 1 {
+		t.Fatalf("expected exactly 1 chunk before the cap, got %d", rec.count())
+	}
+	var marked int
+	for _, b := range spy.bodies {
+		if strings.Contains(b, `"truncated":true`) && strings.Contains(b, `"recordingKey":"k"`) {
+			marked++
+		}
+	}
+	if marked != 1 {
+		t.Fatalf("want exactly one truncated report for the index, got %d in %v", marked, spy.bodies)
+	}
+}
+
+func TestRecWriterStopsAtSizeCapWithoutAnIndex(t *testing.T) {
+	// A nil index reporter (older call sites, tests) must not panic at the cap.
+	rec := &sendRecorder{}
+	w := newTestRecWriter(rec.send, 10)
+	w.Write([]byte(strings.Repeat("B", recFlushBytes+1)))
+	w.Write([]byte(strings.Repeat("C", recFlushBytes+1)))
 	if rec.count() != 1 {
 		t.Fatalf("expected exactly 1 chunk before the cap, got %d", rec.count())
 	}

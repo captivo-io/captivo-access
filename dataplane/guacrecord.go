@@ -15,20 +15,24 @@ import (
 )
 
 const (
-	recFlushBytes      = 256 * 1024
-	recFlushInterval   = 2 * time.Second
-	recDefaultMaxBytes = 524288000 // 500 MiB
+	recFlushBytes    = 256 * 1024
+	recFlushInterval = 2 * time.Second
 )
 
-// recordingMaxBytes is the per-recording cumulative (pre-gzip) byte cap. Past it,
-// capture stops but the live session continues.
+// recordingMaxBytes is the OPTIONAL per-recording cumulative (pre-gzip) byte cap,
+// read from RECORDING_MAX_BYTES. Zero means no cap: a recording runs as long as its
+// session. There is no built-in default on purpose. The 500 MiB one that shipped
+// from 2026-08 to 2.1.3 guarded the control plane's own disk back when recordings
+// were stored centrally; since they moved to the connector (2.1.0) the disk being
+// protected is the customer's, and a recording that silently stops mid-session is
+// a worse outcome than a full disk they can see coming.
 func recordingMaxBytes() int {
 	if v := os.Getenv("RECORDING_MAX_BYTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}
 	}
-	return recDefaultMaxBytes
+	return 0
 }
 
 // newRecordingKey builds a globally-unique key for one session recording.
@@ -83,15 +87,19 @@ func newRecWriter(send func(tunnel.RecWriteRequest) (int, error), index *recInde
 }
 
 // Write appends one whole guac instruction and flushes when the buffer reaches
-// recFlushBytes or recFlushInterval has elapsed. Once the cumulative byte total
-// exceeds capBytes, capture stops (logged once) and further writes are dropped.
+// recFlushBytes or recFlushInterval has elapsed. With a cap set (capBytes > 0),
+// reaching it stops capture: the buffered tail is shipped, the index row is marked
+// truncated so the console can say the recording is shorter than the session, and
+// further writes are dropped. Zero means no cap.
 func (w *recWriter) Write(inst []byte) {
 	if w.stopped {
 		return
 	}
-	if w.total >= w.capBytes {
-		log.Printf("recording site=%s key=%s: size cap reached, stopping capture", w.siteID, w.key)
+	if w.capBytes > 0 && w.total >= w.capBytes {
+		log.Printf("recording site=%s key=%s: RECORDING_MAX_BYTES reached, stopping capture; the session continues unrecorded", w.siteID, w.key)
 		w.stopped = true
+		w.flush()
+		w.index.reportTruncated(w.key)
 		return
 	}
 	w.buf.Write(inst)

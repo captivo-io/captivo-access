@@ -28,6 +28,13 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
         </div>
         <Link href="/admin/recordings" className="btn sm">Back to recordings</Link>
       </div>
+      {rec.truncated ? (
+        <div className="warn" role="status">
+          This recording is incomplete. Capture stopped when it reached the size limit set on the
+          data plane (<code>RECORDING_MAX_BYTES</code>) while the session continued, so the replay
+          ends before the session did. What was captured up to that point plays normally.
+        </div>
+      ) : null}
       <div className="card">
         {rec.format === "GUAC"
           ? <GuacRecordingPlayer recordingId={rec.id} />

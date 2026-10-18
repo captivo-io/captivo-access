@@ -29,13 +29,35 @@ func TestKasmRecWriterFlushesToConnector(t *testing.T) {
 	}
 }
 
-func TestKasmRecWriterStopsAtSizeCap(t *testing.T) {
+func TestKasmRecWriterStopsAtSizeCapAndSaysSo(t *testing.T) {
 	rec := &sendRecorder{}
-	w := newTestKasmWriter(rec.send, 10) // 10-byte cap
+	spy := &indexSpy{}
+	w := newKasmRecWriter(rec.send, &recIndexReporter{send: spy.send, format: "video"},
+		"acme", "k1", "site1", "user1", "host1", 10) // 10-byte cap
 	w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
 	w.Write([]byte(strings.Repeat("B", recFlushBytes+1)))
 	if rec.count() != 1 {
 		t.Fatalf("expected exactly 1 chunk before the cap, got %d", rec.count())
+	}
+	var marked int
+	for _, b := range spy.bodies {
+		if strings.Contains(b, `"truncated":true`) {
+			marked++
+		}
+	}
+	if marked != 1 {
+		t.Fatalf("want exactly one truncated report, got %d", marked)
+	}
+}
+
+func TestKasmRecWriterWithZeroCapNeverStops(t *testing.T) {
+	rec := &sendRecorder{}
+	w := newTestKasmWriter(rec.send, 0)
+	for i := 0; i < 4; i++ {
+		w.Write([]byte(strings.Repeat("A", recFlushBytes+1)))
+	}
+	if rec.count() != 4 {
+		t.Fatalf("cap 0 must mean unlimited: want 4 chunks, got %d", rec.count())
 	}
 }
 

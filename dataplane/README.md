@@ -97,7 +97,7 @@ solely from other containers on the compose network (the Manager calls
 | `INTERNAL_ADDR`      | `:3102`                       | Listen address for the internal proxy/probe API. Keep this off any public port mapping. |
 | `AUDIT_QUEUE_CAP`    | `10000`                       | Bounded in-memory audit-event queue depth before the proxy drops events rather than blocking. |
 | `WEB_SESSION_IDLE_SECS` | `120`                      | Idle timeout (seconds) after which a web-app proxy session is considered ended for the activity feed. |
-| `RECORDING_MAX_BYTES` | `524288000` (500 MiB)        | Per-recording cumulative (pre-gzip) byte cap for gateway recordings; past it, capture stops but the live session continues. |
+| `RECORDING_MAX_BYTES` | unset (no cap)                | Optional per-recording cumulative (pre-gzip) byte cap. Unset, a recording runs as long as its session. When set and reached, capture stops, the session continues, and the console marks the recording as cut short. |
 
 ## Building
 

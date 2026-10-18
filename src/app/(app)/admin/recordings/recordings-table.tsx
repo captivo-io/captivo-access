@@ -22,6 +22,8 @@ export interface RecordingRowJSON {
   siteName: string | null;
   format: string;
   protocol: string | null;
+  /** Capture stopped at the data plane's size cap while the session continued. */
+  truncated: boolean;
 }
 
 function formatBadge(r: RecordingRowJSON): string {
@@ -283,7 +285,14 @@ export function RecordingsTable({
                   <td>{r.siteName ?? r.host}</td>
                   <td><span className="pill">{formatBadge(r)}</span></td>
                   <td className="cell-sub">{duration(r.startedAt, r.lastEventAt)}</td>
-                  <td className="cell-sub">{humanBytes(r.bytes)}</td>
+                  <td className="cell-sub">
+                    {humanBytes(r.bytes)}
+                    {r.truncated ? (
+                      // Said in the list, not only in the player: a recording shorter
+                      // than its session must not be mistaken for the whole session.
+                      <>{" "}<span className="pill warn" title="Capture stopped at the data plane's size limit (RECORDING_MAX_BYTES) while the session continued.">cut short</span></>
+                    ) : null}
+                  </td>
                   <td className="row-actions">
                     <Link href={`/admin/recordings/${r.id}`} className="btn sm">Watch</Link>
                     <DeleteRecordingButton id={r.id} />

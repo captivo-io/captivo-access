@@ -65,6 +65,30 @@ describe("recording ingest", () => {
     expect(arg.create.bytes).toBe(4096);
   });
 
+  it("marks the row cut short on a truncation report without moving the counters", async () => {
+    // The data plane sends this when RECORDING_MAX_BYTES stops capture mid-session.
+    // It carries no chunk, so bytes and chunk counts must stay where the last real
+    // chunk left them; only the flag changes.
+    const { POST } = await import("../ingest/route");
+    await POST(reqWith({ recordingKey: "k1", truncated: true, siteId: "s", format: "guac" }) as never);
+    const arg = upsert.mock.calls[0]?.[0] as unknown as {
+      create: { truncated: boolean; bytes: number; eventCount: number };
+      update: Record<string, unknown>;
+    };
+    expect(arg.create.truncated).toBe(true);
+    expect(arg.create.bytes).toBe(0);
+    expect(arg.create.eventCount).toBe(0);
+    expect(arg.update).toEqual({ truncated: true });
+  });
+
+  it("a plain chunk report leaves the row untruncated", async () => {
+    const { POST } = await import("../ingest/route");
+    await POST(reqWith({ recordingKey: "k1", seq: 0, bytes: 64, siteId: "s" }) as never);
+    const arg = upsert.mock.calls[0]?.[0] as unknown as { create: { truncated: boolean }; update: Record<string, unknown> };
+    expect(arg.create.truncated).toBe(false);
+    expect(arg.update).not.toHaveProperty("truncated");
+  });
+
   it("ignores a body with no recording key", async () => {
     const { POST } = await import("../ingest/route");
     const res = await POST(reqWith({ seq: 0, bytes: 10 }) as never);

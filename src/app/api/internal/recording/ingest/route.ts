@@ -25,6 +25,11 @@ interface IngestBody {
   format?: string;
   /** "ssh" | "rdp" | "vnc" for gateway sessions; absent for web. */
   protocol?: string;
+  /**
+   * The data plane stopped capturing at RECORDING_MAX_BYTES while the session went
+   * on. A report of its own, with no chunk behind it: it moves no counters.
+   */
+  truncated?: boolean;
 }
 
 async function tenantFromReq(req: NextRequest): Promise<string | null> {
@@ -52,6 +57,8 @@ async function handler(req: NextRequest) {
     const format =
       body.format === "guac" ? "GUAC" : body.format === "video" ? "VIDEO" : "RRWEB";
 
+    const truncated = body.truncated === true;
+
     await db.$transaction(async (tx) => {
       await tx.sessionRecording.upsert({
         where: { tenantId_recordingKey: { tenantId: currentTenantId(), recordingKey } },
@@ -60,20 +67,25 @@ async function handler(req: NextRequest) {
           userId: body.userId ?? "",
           siteId: body.siteId ?? "",
           host: body.host ?? "",
-          eventCount: 1,
-          bytes,
+          eventCount: truncated ? 0 : 1,
+          bytes: truncated ? 0 : bytes,
           format,
           protocol: body.protocol || null,
           // Encrypted, but with the CONNECTOR's key, which the control plane does
           // not hold. Kept true so replay knows the payload is sealed.
           encrypted: true,
+          truncated,
           lastEventAt: new Date(),
         },
-        update: {
-          eventCount: { increment: 1 },
-          bytes: { increment: bytes },
-          lastEventAt: new Date(),
-        },
+        // A truncation report carries no chunk: it marks the row and leaves the
+        // chunk and byte counters where the last real chunk put them.
+        update: truncated
+          ? { truncated: true }
+          : {
+              eventCount: { increment: 1 },
+              bytes: { increment: bytes },
+              lastEventAt: new Date(),
+            },
       });
     });
 

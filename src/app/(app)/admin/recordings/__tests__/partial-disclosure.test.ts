@@ -49,3 +49,33 @@ describe("partial search disclosure", () => {
     expect(table).toMatch(/stored on their connector/);
   });
 });
+
+/**
+ * A recording cut short by the data plane's size cap must say so wherever it is
+ * shown. Until 2.1.4 a 500 MiB default stopped capture silently: the list showed a
+ * shorter recording and the player simply ended, which in an investigation reads as
+ * the session having ended there.
+ */
+describe("cut-short recording disclosure", () => {
+  const player = readFileSync(path.join(ROOT, "[id]/page.tsx"), "utf8");
+  const query = readFileSync(path.join(process.cwd(), "src/lib/recording/query.ts"), "utf8");
+
+  it("the index carries the flag and the API passes it through", () => {
+    expect(query).toMatch(/truncated:\s*true/);
+    expect(api).toMatch(/truncated:\s*r\.truncated/);
+  });
+
+  it("the list labels the row", () => {
+    expect(table).toMatch(/r\.truncated\s*\?/);
+    expect(table).toContain("cut short");
+  });
+
+  it("the player says the replay ends before the session did", () => {
+    expect(player).toMatch(/rec\.truncated\s*\?/);
+    expect(player).toContain("RECORDING_MAX_BYTES");
+    const notice = player.indexOf("This recording is incomplete");
+    const card = player.indexOf('<div className="card">');
+    expect(notice).toBeGreaterThan(-1);
+    expect(notice, "the notice must come before the player, not after it").toBeLessThan(card);
+  });
+});
