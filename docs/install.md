@@ -1,5 +1,8 @@
 # Install Captivo Access — a complete, worked walkthrough
 
+> **Documentation has moved to captivo.io.** This file stays for readers on GitHub, but [the maintained version of this walkthrough](https://captivo.io/en/docs/access-kendi-sunucunuzda) is the one that is kept current, in English and Turkish, for both Cloud and self-hosted installs.  
+> **Türkçe:** [bu rehberin güncel sürümü](https://captivo.io/dokumanlar/access-kendi-sunucunuzda).
+
 This guide takes you from a **bare server** to a **working deployment with your
 first vendor connected to an internal app**, step by step, with a single running
 example you can follow line by line.

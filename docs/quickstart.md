@@ -1,5 +1,8 @@
 # Quickstart — see it work in ~5 minutes (zero DNS)
 
+> **Documentation has moved to captivo.io.** This file stays for readers on GitHub, but [the step-by-step install guide](https://captivo.io/en/docs/access-kendi-sunucunuzda) is the one that is kept current, in English and Turkish, for both Cloud and self-hosted installs. If you would rather not run a server at all, [Getting started on Cloud](https://captivo.io/en/docs/access-cloud) covers the hosted service.  
+> **Türkçe:** [adım adım kurulum rehberi](https://captivo.io/dokumanlar/access-kendi-sunucunuzda).
+
 This is the fastest way to watch a real end-to-end flow — a browser reaching an
 internal app through Captivo Access with real HTTPS — **without configuring any
 DNS**. It's for evaluation; for a real deployment see

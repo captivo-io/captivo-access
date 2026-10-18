@@ -1,5 +1,8 @@
 # How Captivo Access works
 
+> **Documentation has moved to captivo.io.** This file stays for readers on GitHub, but [the full Captivo Access documentation](https://captivo.io/en/docs#access) is the one that is kept current, in English and Turkish, for both Cloud and self-hosted installs. Resources, grants, policy, recording and troubleshooting each have their own page there.  
+> **Türkçe:** [Captivo Access dokümantasyonunun tamamı](https://captivo.io/dokumanlar#access).
+
 A plain walkthrough: first how the pieces fit together and how you set them up,
 then the exact path a single request takes from a vendor's browser to an
 internal web app — and every gate it passes through on the way.
