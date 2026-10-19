@@ -2,7 +2,7 @@ name: Security Audit
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # Pazartesi 06:00 UTC
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -21,3 +21,16 @@ jobs:
         with: { node-version: 20 }
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level=moderate --prod
+
+      # The failure used to reach one inbox and nowhere else; it failed three
+      # Mondays in a row (2026-10-05, -12, -19) before anyone looked. Slack is
+      # where the product's own alerts already go, so this joins them.
+      - name: Tell Slack
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.SLACK_ALERTS_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "SLACK_ALERTS_WEBHOOK is not set; nothing sent."; exit 0; fi
+          payload=$(printf '{"text":"*ERROR* Security audit failed in %s: pnpm audit found moderate+ advisories in production dependencies.\\n• Run: %s"}' "$GITHUB_REPOSITORY" "$RUN_URL")
+          curl -sS -X POST -H 'Content-Type: application/json' --data "$payload" "$WEBHOOK" >/dev/null
