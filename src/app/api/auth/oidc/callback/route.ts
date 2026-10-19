@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { db } from "@/lib/db";
 import { getOidcConfig, getOidcSecret } from "@/lib/auth/oidc-config";
-import { discover, checkClaims, accessGrant, type IdClaims } from "@/lib/auth/oidc";
+import { discover, checkClaims, accessGrant, accessGrantFor, accessRoleForGrant, type IdClaims } from "@/lib/auth/oidc";
 import { readAmr, secondFactorGate } from "@/lib/auth/amr";
 import { getSessionPolicy } from "@/lib/policy/session-policy";
 import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
@@ -187,6 +187,43 @@ async function handler(req: NextRequest) {
         httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 15 * 60,
       });
       return res;
+    }
+  }
+
+  // Fourth branch, on a TENANT console: no user and no invite, but the token
+  // carries an ACCESS grant for this tenant's own organisation -- someone an
+  // owner invited into the organisation at Captivo ID. They belong here by
+  // the organisation's word, with the role the organisation gave them; a
+  // console invite on top would be the same question asked twice. Only the
+  // platform's own identity provider can say this: a tenant IdP's token knows
+  // nothing about Captivo organisations and carries no such claim.
+  if (!invite && cfg.isPlatform && currentTenantId() !== PLATFORM_TENANT_ID) {
+    const tenant = await db.tenant.findUnique({ where: { id: currentTenantId() }, select: { captivoOrgId: true } });
+    const grant = tenant?.captivoOrgId ? accessGrantFor(claims, tenant.captivoOrgId) : null;
+    if (grant) {
+      let joined;
+      try {
+        joined = await db.user.create({
+          data: {
+            email,
+            name: claims.name || email.split("@")[0],
+            role: accessRoleForGrant(grant.role),
+            status: "ACTIVE",
+          },
+        });
+      } catch (e) {
+        return fail(req, "sso", `org_member_create_failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      console.info(`[oidc] organisation member joined tenant ${currentTenantId()} as ${joined.role}`);
+      const sync = await syncUserAtLogin({
+        id: joined.id,
+        email: joined.email,
+        role: joined.role,
+        directoryManaged: joined.directoryManaged,
+      });
+      if (sync.deprovisioned) return fail(req, "revoked");
+      await startSession(joined.id, req, amr);
+      return NextResponse.redirect(new URL(safeReturnTo(saved.returnTo), managerBaseUrl(req)));
     }
   }
 

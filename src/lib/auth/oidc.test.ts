@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeIssuer, codeChallengeS256, checkClaims, accessGrant, authorizationScope, type IdClaims } from "./oidc";
+import { normalizeIssuer, codeChallengeS256, checkClaims, accessGrant, accessGrantFor, accessRoleForGrant, authorizationScope, type IdClaims } from "./oidc";
 
 describe("normalizeIssuer", () => {
   it("strips a single trailing slash", () => {
@@ -155,5 +155,38 @@ describe("authorizationScope", () => {
       const scope = authorizationScope(advertised).split(" ");
       expect(scope).toEqual(expect.arrayContaining(["openid", "email", "profile"]));
     }
+  });
+});
+
+describe("accessGrantFor", () => {
+  const base = (captivo: unknown): IdClaims =>
+    ({ iss: "https://id.captivo.io", aud: "captivo-access", email: "a@b.co", captivo } as IdClaims);
+  const two = base({
+    grants: [
+      { org: "o1", orgName: "Acme", product: "ACCESS", role: "OWNER" },
+      { org: "o2", orgName: "Beta", product: "ACCESS", role: "MEMBER" },
+      { org: "o3", orgName: "Gamma", product: "PORTAL", role: "OWNER" },
+    ],
+  });
+
+  it("returns the grant for THIS organisation, not the first one", () => {
+    expect(accessGrantFor(two, "o2")).toEqual({ org: "o2", orgName: "Beta", role: "MEMBER" });
+    expect(accessGrantFor(two, "o1")?.role).toBe("OWNER");
+  });
+
+  it("a Portal grant for the organisation, or no grant for it, is null", () => {
+    // Belonging to the organisation for Portal says nothing about Access.
+    expect(accessGrantFor(two, "o3")).toBeNull();
+    expect(accessGrantFor(two, "o9")).toBeNull();
+    expect(accessGrantFor(two, "")).toBeNull();
+    expect(accessGrantFor(base(undefined), "o1")).toBeNull();
+  });
+
+  it("maps organisation roles to console roles, unknown to STAFF", () => {
+    expect(accessRoleForGrant("OWNER")).toBe("ADMIN");
+    expect(accessRoleForGrant("ADMIN")).toBe("ADMIN");
+    expect(accessRoleForGrant("MEMBER")).toBe("STAFF");
+    expect(accessRoleForGrant("ROOT")).toBe("STAFF");
+    expect(accessRoleForGrant(undefined)).toBe("STAFF");
   });
 });

@@ -94,6 +94,43 @@ export function accessGrant(claims: IdClaims): { org: string; orgName: string; r
 }
 
 /**
+ * The ACCESS grant for ONE organisation, or null.
+ *
+ * A person can belong to several organisations and carry a grant for each;
+ * on a tenant's console only the grant naming THAT tenant's organisation
+ * says anything about whether they belong here. `accessGrant` above picks
+ * the first usable one, which is right for "do they hold Access at all"
+ * (the platform host) and wrong for "may they enter this workspace".
+ */
+export function accessGrantFor(claims: IdClaims, org: string): { org: string; orgName: string; role: string } | null {
+  if (!org) return null;
+  const grants = claims?.captivo?.grants;
+  if (!Array.isArray(grants)) return null;
+  for (const g of grants) {
+    if (!g || typeof g !== "object") continue;
+    const rec = g as Record<string, unknown>;
+    if (rec.product !== "ACCESS") continue;
+    if (typeof rec.org !== "string" || rec.org.trim() !== org) continue;
+    const orgName = typeof rec.orgName === "string" ? rec.orgName.trim() : "";
+    if (!orgName) continue;
+    return { org, orgName, role: typeof rec.role === "string" ? rec.role : "" };
+  }
+  return null;
+}
+
+/**
+ * The console role an organisation member arrives with.
+ *
+ * The centre's roles are about the organisation; the console's are about the
+ * console. An owner or admin of the organisation runs its workspace; a member
+ * is STAFF -- a person who uses access through it, not one who configures it.
+ * Anything unknown reads as STAFF, never as ADMIN.
+ */
+export function accessRoleForGrant(role: unknown): "ADMIN" | "STAFF" {
+  return role === "OWNER" || role === "ADMIN" ? "ADMIN" : "STAFF";
+}
+
+/**
  * The scope Captivo ID exposes its grant claim under.
  *
  * WITHOUT IT THE TOKEN CARRIES NO GRANTS. An OpenID provider releases a claim
