@@ -3,6 +3,9 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 import { db } from "@/lib/db";
 import { getOidcConfig, getOidcSecret } from "@/lib/auth/oidc-config";
 import { discover, checkClaims, accessGrant, type IdClaims } from "@/lib/auth/oidc";
+import { readAmr, secondFactorGate } from "@/lib/auth/amr";
+import { getSessionPolicy } from "@/lib/policy/session-policy";
+import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
 import { readOidcState, clearOidcState } from "@/lib/auth/oidc-state";
 import { startSession } from "@/lib/auth/session";
 import { syncUserAtLogin } from "@/lib/directory/sync";
@@ -106,6 +109,29 @@ async function handler(req: NextRequest) {
   if (!checked.ok) return fail(req, "sso", `claim_check_failed: ${checked.reason}`);
   const email = checked.email;
 
+  // The workspace's second-factor requirement, decided BEFORE anything is
+  // provisioned or consumed below: an invite must not be spent, nor a
+  // workspace offered, on a sign-in that is about to be refused.
+  const amr = readAmr(claims);
+  const gate = secondFactorGate({
+    required: (await getSessionPolicy()).requireSecondFactor,
+    amr,
+    steppedUp: saved.stepUp === true,
+  });
+  if (gate === "step_up") {
+    console.info("[oidc] no second factor in amr; asking the provider to re-authenticate");
+    const again = new URL("/api/auth/oidc/start", managerBaseUrl(req));
+    again.searchParams.set("stepUp", "1");
+    again.searchParams.set("returnTo", saved.returnTo);
+    return NextResponse.redirect(again);
+  }
+  if (gate === "refuse") {
+    // The login page turns this into "turn two-step on in your Captivo
+    // account" when the provider is ours; the address is logged so an operator
+    // reading the manager log sees the same hint.
+    return fail(req, "mfa_required", `amr=${JSON.stringify(amr)}${cfg.isPlatform ? ` account=${captivoAccountUrl()}` : ""}`);
+  }
+
   // Provisioning (spec §5): existing ACTIVE user, else redeem an invite, else reject.
   const user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
   if (user) {
@@ -117,7 +143,7 @@ async function handler(req: NextRequest) {
       directoryManaged: user.directoryManaged,
     });
     if (sync.deprovisioned) return fail(req, "revoked");
-    await startSession(user.id, req);
+    await startSession(user.id, req, amr);
     return NextResponse.redirect(new URL(safeReturnTo(saved.returnTo), managerBaseUrl(req)));
   }
 
@@ -206,7 +232,7 @@ async function handler(req: NextRequest) {
     directoryManaged: created.directoryManaged,
   });
   if (sync.deprovisioned) return fail(req, "revoked");
-  await startSession(created.id, req);
+  await startSession(created.id, req, amr);
   return NextResponse.redirect(new URL(safeReturnTo(saved.returnTo), managerBaseUrl(req)));
 }
 

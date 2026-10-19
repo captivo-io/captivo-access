@@ -5,9 +5,11 @@ export interface SessionPolicy {
   idleTimeoutMinutes: number | null;
   maxSessionHours: number | null;
   maxConcurrentPerUser: number | null;
+  /** Refuse sign-ins whose `amr` proves no second factor (see lib/auth/amr.ts). */
+  requireSecondFactor: boolean;
 }
 
-const EMPTY: SessionPolicy = { idleTimeoutMinutes: null, maxSessionHours: null, maxConcurrentPerUser: null };
+const EMPTY: SessionPolicy = { idleTimeoutMinutes: null, maxSessionHours: null, maxConcurrentPerUser: null, requireSecondFactor: false };
 
 export function sessionTtlMs(policyHours: number | null | undefined, envHours: number): number {
   const h = policyHours && policyHours > 0 ? policyHours : envHours;
@@ -38,6 +40,7 @@ export async function getSessionPolicy(): Promise<SessionPolicy> {
     idleTimeoutMinutes: c?.idleTimeoutMinutes ?? null,
     maxSessionHours: c?.maxSessionHours ?? null,
     maxConcurrentPerUser: c?.maxConcurrentPerUser ?? null,
+    requireSecondFactor: c?.requireSecondFactor ?? false,
   };
   cache = { policy, at: Date.now() };
   return policy;

@@ -12,7 +12,18 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-type OidcState = { state: string; nonce: string; codeVerifier: string; returnTo: string };
+type OidcState = {
+  state: string;
+  nonce: string;
+  codeVerifier: string;
+  returnTo: string;
+  /**
+   * This round trip was started with `prompt=login` because the previous one
+   * came back without a second factor. The callback reads it to tell "ask the
+   * provider again" from "the provider was asked and the account has none".
+   */
+  stepUp?: boolean;
+};
 
 export async function setOidcState(data: OidcState): Promise<void> {
   const jwt = await new SignJWT({ ...data })
@@ -33,11 +44,11 @@ export async function readOidcState(): Promise<OidcState | null> {
   if (!c) return null;
   try {
     const { payload } = await jwtVerify(c, secret());
-    const { state, nonce, codeVerifier, returnTo } = payload as Record<string, unknown>;
+    const { state, nonce, codeVerifier, returnTo, stepUp } = payload as Record<string, unknown>;
     if (typeof state !== "string" || typeof nonce !== "string" || typeof codeVerifier !== "string" || typeof returnTo !== "string") {
       return null;
     }
-    return { state, nonce, codeVerifier, returnTo };
+    return { state, nonce, codeVerifier, returnTo, stepUp: stepUp === true };
   } catch {
     return null;
   }

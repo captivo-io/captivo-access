@@ -171,6 +171,11 @@ model Session {
   lastSeenAt DateTime @default(now())
   userAgent  String?
   ip         String?
+  /// What the sign-in proved, as the identity provider said it (RFC 8176:
+  /// "pwd", "otp", "mfa"...) or as Access saw it ("passkey", plus "mfa" when
+  /// the authenticator verified the user). Empty on support sessions and on
+  /// rows from before this column existed -- both read as "not proven".
+  amr        String[] @default([])
 
   @@unique([tenantId, tokenHash])
   @@index([userId])
@@ -524,6 +529,9 @@ model SessionPolicy {
   idleTimeoutMinutes   Int?
   maxSessionHours      Int?
   maxConcurrentPerUser Int?
+  /// Refuse console sign-ins whose `amr` does not prove a second factor.
+  /// Enforced at sign-in; sessions already open are left alone.
+  requireSecondFactor  Boolean  @default(false)
   updatedAt            DateTime @updatedAt
 }
 

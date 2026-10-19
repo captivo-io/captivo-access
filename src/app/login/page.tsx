@@ -7,6 +7,7 @@ import { resolveSetupRole } from "@/lib/auth/setup-role";
 import { LoginForm } from "./login-form";
 import { AuthShell } from "@/components/auth-shell";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
 
 // getCurrentUser() must be read fresh from the DB on every request.
 export const dynamic = "force-dynamic";
@@ -41,12 +42,31 @@ async function LoginPageImpl({
     : errorCode === "sso" ? "Sign-in with your identity provider failed. Please try again."
     : errorCode === "support" ? "This support link is invalid, expired or already used. Open the tenant again from the platform console."
     : errorCode === "revoked" ? "Your access has been revoked — you are no longer a member of an authorized directory group."
+    : errorCode === "mfa_required" ? mfaRequiredMessage(sso?.isPlatform === true ? captivoAccountUrl() : null)
     : null;
 
   return (
     <AuthShell>
       <LoginForm returnTo={returnTo} ssoEnabled={ssoEnabled} ssoLabel={ssoLabel} ssoError={errorMsg} />
     </AuthShell>
+  );
+}
+
+/**
+ * The refusal a workspace's two-step requirement produces. The provider is
+ * named only when it is ours: for a tenant's own IdP the remedy lives with
+ * their administrator, and a link into Captivo ID would be the wrong door.
+ */
+function mfaRequiredMessage(accountUrl: string | null) {
+  return (
+    <>
+      Your organization requires two-step verification, and this sign-in did not include it.{" "}
+      {accountUrl ? (
+        <>Turn it on under <a href={accountUrl}>Security in your Captivo account</a>, then sign in again.</>
+      ) : (
+        <>Turn it on with your identity provider, or use a passkey that asks for your PIN or fingerprint, then sign in again.</>
+      )}
+    </>
   );
 }
 

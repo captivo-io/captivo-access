@@ -6,6 +6,9 @@ import { verifyRegistration } from "@/lib/auth/webauthn";
 import { readChallenge, readChallengeUid, clearChallenge } from "@/lib/auth/challenge";
 import { db } from "@/lib/db";
 import { createSession, sessionCookieMaxAgeSeconds, SESSION_COOKIE } from "@/lib/auth/session";
+// Recorded, not gated: accepting an invite or recovering an account is not a
+// sign-in to an existing session policy; the next sign-in is.
+import { passkeyAmr } from "@/lib/auth/amr";
 import { cookieSecure, cookieDomain } from "@/lib/auth/cookies";
 import { hasAnyUser } from "@/lib/auth/bootstrap";
 import { verifyInvite } from "@/lib/auth/invite";
@@ -117,7 +120,7 @@ async function handler(req: NextRequest) {
       },
     });
 
-    const token = await createSession(user.id, requestMeta(req));
+    const token = await createSession(user.id, { ...requestMeta(req), amr: passkeyAmr(result.registrationInfo.userVerified) });
     (await cookies()).set(SESSION_COOKIE, token, {
       httpOnly: true,
       secure: await cookieSecure(),
@@ -220,7 +223,7 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "email_taken" }, { status: 409 });
     }
 
-    const token = await createSession(userId, requestMeta(req));
+    const token = await createSession(userId, { ...requestMeta(req), amr: passkeyAmr(result.registrationInfo.userVerified) });
     (await cookies()).set(SESSION_COOKIE, token, {
       httpOnly: true,
       secure: await cookieSecure(),
@@ -305,7 +308,7 @@ async function handler(req: NextRequest) {
     return NextResponse.json({ error: "email_taken" }, { status: 409 });
   }
 
-  const token = await createSession(userId, requestMeta(req));
+  const token = await createSession(userId, { ...requestMeta(req), amr: passkeyAmr(result.registrationInfo.userVerified) });
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: await cookieSecure(),
