@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { currentSessionId } from "@/lib/auth/session";
 import { SessionsTable, type SessionRow } from "./sessions-table";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { signInLabel } from "@/lib/auth/amr";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sessions" };
@@ -19,6 +20,7 @@ async function AdminSessionsPageImpl() {
         ip: true,
         userAgent: true,
         lastSeenAt: true,
+        amr: true,
         user: { select: { email: true, name: true } },
       },
       orderBy: { lastSeenAt: "desc" },
@@ -31,6 +33,7 @@ async function AdminSessionsPageImpl() {
     ip: s.ip,
     userAgent: s.userAgent,
     lastSeenAt: s.lastSeenAt.toISOString(),
+    signIn: signInLabel(s.amr),
     userName: s.user.name,
     userEmail: s.user.email,
   }));

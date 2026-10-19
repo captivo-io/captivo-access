@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { launchHref } from "@/lib/portal/launch-href";
@@ -19,7 +19,7 @@ export function LoginForm({
   returnTo?: string;
   ssoEnabled?: boolean;
   ssoLabel?: string;
-  ssoError?: string | null;
+  ssoError?: ReactNode;
 }) {
   const [state, setState] = useState<State>("rest");
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +42,9 @@ export function LoginForm({
       });
       const result = await verifyRes.json().catch(() => ({}));
       if (!verifyRes.ok || !result?.ok) {
-        setError(result?.error === "revoked"
+        setError(result?.error === "mfa_required"
+          ? "Your organization requires two-step verification. Use a passkey that asks for your PIN or fingerprint, or sign in with your identity provider."
+          : result?.error === "revoked"
           ? "Your access has been revoked — you are no longer a member of an authorized directory group."
           : GENERIC_ERROR);
         setState("rest");

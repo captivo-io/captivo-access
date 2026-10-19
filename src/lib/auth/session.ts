@@ -17,7 +17,10 @@ function envTtlHours(): number {
   return Number.isFinite(h) && h > 0 ? h : 12;
 }
 
-export async function createSession(userId: string, meta?: { userAgent?: string; ip?: string }): Promise<string> {
+export async function createSession(
+  userId: string,
+  meta?: { userAgent?: string; ip?: string; amr?: string[] },
+): Promise<string> {
   const token = generateToken();
   const policy = await getSessionPolicy();
   const ttl = sessionTtlMs(policy.maxSessionHours, envTtlHours());
@@ -40,6 +43,9 @@ export async function createSession(userId: string, meta?: { userAgent?: string;
       expiresAt: new Date(Date.now() + ttl),
       userAgent: meta?.userAgent ?? null,
       ip: meta?.ip ?? null,
+      // What the sign-in proved -- the policy that reads it is enforced BEFORE
+      // this row exists, so the value here is a record, not a gate.
+      amr: meta?.amr ?? [],
     },
   });
   // Every sign-in path funnels through here -- passkey and the OIDC callback
@@ -97,12 +103,13 @@ export async function sessionCookieMaxAgeSeconds(): Promise<number> {
 
 /** Create a DB-backed session for `userId` and set the `ca_session` cookie,
  *  identically to the passkey auth route. Used by non-passkey logins (OIDC). */
-export async function startSession(userId: string, req: NextRequest): Promise<void> {
+export async function startSession(userId: string, req: NextRequest, amr: string[] = []): Promise<void> {
   const meta = {
     userAgent: req.headers.get("user-agent") ?? undefined,
     // The FIRST X-Forwarded-For hop is whatever the caller typed; clientIp
     // reads the one our own proxy wrote (see lib/request-ip.ts).
     ip: clientIp(req.headers),
+    amr,
   };
   const token = await createSession(userId, meta);
   (await cookies()).set(SESSION_COOKIE, token, {

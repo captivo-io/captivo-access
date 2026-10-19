@@ -12,6 +12,8 @@ export type SessionRow = {
   ip: string | null;
   userAgent: string | null;
   lastSeenAt: string; // ISO
+  /** How the person got in: "Two-step", "Passkey", "Password", "—" (see lib/auth/amr.ts). */
+  signIn: string;
   userName: string | null;
   userEmail: string | null;
 };
@@ -92,6 +94,7 @@ export function SessionsTable({ sessions, currentSessionId }: { sessions: Sessio
               <th>User</th>
               <th>IP</th>
               <th>Browser</th>
+              <th>Sign-in</th>
               <th>Last seen</th>
               <th></th>
             </tr>
@@ -116,6 +119,7 @@ export function SessionsTable({ sessions, currentSessionId }: { sessions: Sessio
                   </td>
                   <td className="cell-sub">{s.ip ?? "—"}</td>
                   <td className="cell-sub">{s.userAgent ?? "—"}</td>
+                  <td className="cell-sub">{s.signIn}</td>
                   <td className="cell-sub"><LocalTime iso={s.lastSeenAt} /></td>
                   {/* No single-revoke on your own current session — use Log out. Matches
                       the bulk-revoke self-exclusion so this page can't lock you out. */}

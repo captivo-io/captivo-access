@@ -128,8 +128,11 @@ Step by step:
 > **Extra policy gates (optional).** Gate 2 can carry more than the grant: a
 > **source-IP allowlist** rejects access from networks you didn't approve, a
 > **maximum grant duration** stops anyone handing out never-expiring access, and
-> **session limits** (idle / max-lifetime / concurrency) bound the login itself.
-> All of these live on the console's **Policy** page and apply live.
+> **session limits** (idle / max-lifetime / concurrency) bound the login itself,
+> and **require two-step verification** refuses any console sign-in whose
+> identity provider did not confirm a second factor (or whose passkey did not
+> verify the person). All of these live on the console's **Policy** page and
+> apply live.
 
 ---
 

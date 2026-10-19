@@ -10,6 +10,7 @@ export function SessionPolicyForm({ initial }: { initial: SessionPolicy }) {
   const [idle, setIdle] = useState(str(initial.idleTimeoutMinutes));
   const [maxHours, setMaxHours] = useState(str(initial.maxSessionHours));
   const [maxConc, setMaxConc] = useState(str(initial.maxConcurrentPerUser));
+  const [requireSecondFactor, setRequireSecondFactor] = useState(initial.requireSecondFactor);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
@@ -19,11 +20,17 @@ export function SessionPolicyForm({ initial }: { initial: SessionPolicy }) {
     const res = await fetch("/api/admin/policy/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idleTimeoutMinutes: idle, maxSessionHours: maxHours, maxConcurrentPerUser: maxConc }),
+      body: JSON.stringify({ idleTimeoutMinutes: idle, maxSessionHours: maxHours, maxConcurrentPerUser: maxConc, requireSecondFactor }),
     });
     const body = await res.json().catch(() => ({}));
     setBusy(false);
-    setNotice(res.ok && body.ok ? { kind: "ok", msg: "Saved." } : { kind: "err", msg: "Could not save." });
+    if (res.ok && body.ok) setNotice({ kind: "ok", msg: "Saved." });
+    else if (body?.error === "own_session_lacks_second_factor") {
+      setNotice({
+        kind: "err",
+        msg: "Your own sign-in did not use a second factor, so this would lock you out too. Sign in again with two-step verification (or a passkey that asks for your PIN or fingerprint), then turn this on.",
+      });
+    } else setNotice({ kind: "err", msg: "Could not save." });
   }
 
   return (
@@ -57,6 +64,24 @@ export function SessionPolicyForm({ initial }: { initial: SessionPolicy }) {
           <div className="setting-ctl">
             <input type="number" min={1} className="input" style={{ width: "5rem" }} value={maxConc} onChange={(e) => setMaxConc(e.target.value)} placeholder="∞" aria-label="Max concurrent sessions per user" />
             <span className="unit">sessions</span>
+          </div>
+        </div>
+        <div className="setting">
+          <div className="setting-main">
+            <div className="setting-label">Require two-step verification</div>
+            <div className="setting-hint">
+              Refuse console sign-ins that did not prove a second factor: a one-time code with Captivo ID or your
+              identity provider, or a passkey that verified the person (PIN, fingerprint, face). Applies from the next
+              sign-in; sessions already open are not ended.
+            </div>
+          </div>
+          <div className="setting-ctl">
+            <input
+              type="checkbox"
+              checked={requireSecondFactor}
+              onChange={(e) => setRequireSecondFactor(e.target.checked)}
+              aria-label="Require two-step verification"
+            />
           </div>
         </div>
       </div>

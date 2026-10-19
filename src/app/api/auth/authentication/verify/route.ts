@@ -11,6 +11,8 @@ import { cookieSecure, cookieDomain } from "@/lib/auth/cookies";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getRpId, originMatchesRp, requestOrigin } from "@/lib/auth/rp";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { passkeyAmr, secondFactorGate } from "@/lib/auth/amr";
+import { getSessionPolicy } from "@/lib/policy/session-policy";
 
 function requestMeta(req: NextRequest) {
   return {
@@ -67,6 +69,15 @@ async function handler(req: NextRequest) {
     data: { counter: BigInt(result.authenticationInfo.newCounter), lastUsedAt: new Date() },
   });
 
+  // The workspace's second-factor requirement. A passkey that verified the
+  // person (PIN, fingerprint, face) is two factors; a bare possession is not.
+  // There is no provider to ask again, so this is the final answer.
+  const amr = passkeyAmr(result.authenticationInfo.userVerified);
+  const gate = secondFactorGate({ required: (await getSessionPolicy()).requireSecondFactor, amr, steppedUp: true });
+  if (gate !== "allow") {
+    return NextResponse.json({ error: "mfa_required" }, { status: 403 });
+  }
+
   // AD group sync (JIT): reconcile role/grants; reject if deprovisioned. Fail-open inside.
   const sync = await syncUserAtLogin({
     id: passkey.user.id,
@@ -78,7 +89,7 @@ async function handler(req: NextRequest) {
     return NextResponse.json({ error: "revoked" }, { status: 403 });
   }
 
-  const token = await createSession(passkey.userId, requestMeta(req));
+  const token = await createSession(passkey.userId, { ...requestMeta(req), amr });
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: await cookieSecure(),

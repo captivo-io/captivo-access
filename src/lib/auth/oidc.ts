@@ -29,6 +29,12 @@ export type IdClaims = {
   email_verified?: boolean;
   name?: string;
   /**
+   * How the person authenticated at the provider (RFC 8176). Captivo ID sends
+   * `["pwd"]` or `["pwd","otp"]`; a tenant's own provider sends its own
+   * vocabulary or nothing. Read through lib/auth/amr.ts, never directly.
+   */
+  amr?: unknown;
+  /**
    * Grants issued by Captivo ID: which organisations this person may open,
    * for which product. Optional because a tenant may point its console at its
    * own identity provider, which knows nothing about Captivo products.

@@ -16,6 +16,10 @@ async function handler(req: NextRequest) {
   if (!cfg || !cfg.enabled) return NextResponse.redirect(new URL("/login", base));
 
   const returnTo = safeReturnTo(req.nextUrl.searchParams.get("returnTo"));
+  // Set by the callback when a sign-in came back without the second factor the
+  // workspace requires. The provider is asked to authenticate afresh rather
+  // than reuse its session -- see secondFactorGate in lib/auth/amr.ts.
+  const stepUp = req.nextUrl.searchParams.get("stepUp") === "1";
   const state = randomUrlSafe();
   const nonce = randomUrlSafe();
   const codeVerifier = randomUrlSafe(64);
@@ -31,7 +35,7 @@ async function handler(req: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=sso", base));
   }
 
-  await setOidcState({ state, nonce, codeVerifier, returnTo });
+  await setOidcState({ state, nonce, codeVerifier, returnTo, stepUp });
 
   const redirectUri = `${managerBaseUrl(req)}/api/auth/oidc/callback`;
   const url = new URL(disc.authorization_endpoint);
@@ -47,6 +51,7 @@ async function handler(req: NextRequest) {
   // fell back to its own default (Turkish) and rendered a Turkish sign-in form to
   // someone who had just been reading an English console.
   url.searchParams.set("ui_locales", "en");
+  if (stepUp) url.searchParams.set("prompt", "login");
   return NextResponse.redirect(url);
 }
 
