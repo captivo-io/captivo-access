@@ -3,8 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { currentTenantId } from "@/lib/tenant/context";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
-import { base } from "@/lib/db";
-import { tenantStats, tenantSlugByOrg } from "@/lib/platform/sql";
+import { tenantStats, tenantSlugByOrg, tenantSlugAndName } from "@/lib/platform/sql";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +33,8 @@ export const GET = withTenantRoute(async (req: Request) => {
   const org = new URL(req.url).searchParams.get("org")?.trim() ?? "";
   if (!org) return NextResponse.json({ error: "missing_org" }, { status: 400 });
 
-  const tenant = await base.tenant.findUnique({ where: { id: tenantId }, select: { slug: true, name: true } });
+  // Through the platform function: the app role cannot read "Tenant" under RLS.
+  const tenant = await tenantSlugAndName(tenantId);
   if (!tenant || (await tenantSlugByOrg(org)) !== tenant.slug) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
