@@ -68,6 +68,19 @@ export async function updateTenantRow(input: { id: string; name: string; plan: s
  * the platform tenant, and the RLS policy on "Tenant" would hide every other
  * tenant's row from it.
  */
+/**
+ * A tenant's slug and name by id, through the platform function: the app role
+ * cannot read "Tenant" directly under RLS, so a plain `base.tenant.findUnique`
+ * answers null for every row -- measured 2026-10-20 on the summary endpoint.
+ */
+export async function tenantSlugAndName(id: string): Promise<{ slug: string; name: string } | null> {
+  const rows = await base.$queryRawUnsafe<{ slug: string; name: string }[]>(
+    `SELECT slug, name FROM platform_list_tenants() WHERE id = $1`,
+    id,
+  );
+  return rows[0] ?? null;
+}
+
 export async function tenantSlugByOrg(organizationId: string): Promise<string | null> {
   const rows = await base.$queryRawUnsafe<{ platform_tenant_slug_by_org: string | null }[]>(
     `SELECT platform_tenant_slug_by_org($1)`,

@@ -2,17 +2,14 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 
 vi.mock("@/lib/tenant/request", () => ({ withTenantRoute: (h: unknown) => h }));
 vi.mock("@/lib/tenant/context", () => ({ currentTenantId: vi.fn(() => "t_acme") }));
-vi.mock("@/lib/db", () => ({ base: { tenant: { findUnique: vi.fn() } } }));
-vi.mock("@/lib/platform/sql", () => ({ tenantStats: vi.fn(), tenantSlugByOrg: vi.fn() }));
+vi.mock("@/lib/platform/sql", () => ({ tenantStats: vi.fn(), tenantSlugByOrg: vi.fn(), tenantSlugAndName: vi.fn() }));
 
 import { GET } from "./route";
-import { base } from "@/lib/db";
-import { tenantStats, tenantSlugByOrg } from "@/lib/platform/sql";
+import { tenantStats, tenantSlugByOrg, tenantSlugAndName } from "@/lib/platform/sql";
 import { currentTenantId } from "@/lib/tenant/context";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
 
 const SECRET = "s".repeat(32);
-const findUnique = base.tenant.findUnique as ReturnType<typeof vi.fn>;
 
 function req(org: string | null, secret: string | null = SECRET) {
   const url = new URL("https://acme.cloud.example/api/center/summary");
@@ -25,7 +22,7 @@ describe("GET /api/center/summary", () => {
     vi.clearAllMocks();
     vi.stubEnv("CAPTIVO_ID_SERVICE_SECRET", SECRET);
     (currentTenantId as ReturnType<typeof vi.fn>).mockReturnValue("t_acme");
-    findUnique.mockResolvedValue({ slug: "acme", name: "Acme Ltd" });
+    (tenantSlugAndName as ReturnType<typeof vi.fn>).mockResolvedValue({ slug: "acme", name: "Acme Ltd" });
     (tenantSlugByOrg as ReturnType<typeof vi.fn>).mockResolvedValue("acme");
     (tenantStats as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([["t_acme", {
       id: "t_acme", users: 4, admins: 1, vendors: 2, sites: 3, connectors: 2, connectorsOnline: 1,
