@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { InviteForm } from "./invite-form";
 
-export function AddInviteButton({ smtpEnabled }: { smtpEnabled: boolean }) {
+export function AddInviteButton({ smtpEnabled, vendorOnly }: { smtpEnabled: boolean; vendorOnly: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   // Refresh on close so the newly-created invite shows in the list.
@@ -18,7 +18,7 @@ export function AddInviteButton({ smtpEnabled }: { smtpEnabled: boolean }) {
         New invitation
       </button>
       <Modal open={open} onClose={close} title="New invitation" size="lg">
-        <InviteForm smtpEnabled={smtpEnabled} />
+        <InviteForm smtpEnabled={smtpEnabled} vendorOnly={vendorOnly} />
       </Modal>
     </>
   );

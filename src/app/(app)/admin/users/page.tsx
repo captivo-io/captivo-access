@@ -29,6 +29,7 @@ async function AdminUsersPageImpl({
       createdAt: true,
       directoryManaged: true,
       directoryLastVerifiedAt: true,
+      centerRole: true,
       _count: { select: { passkeys: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -45,6 +46,7 @@ async function AdminUsersPageImpl({
     passkeys: u._count.passkeys,
     directoryManaged: u.directoryManaged,
     directoryLastVerifiedAt: u.directoryLastVerifiedAt ? u.directoryLastVerifiedAt.toISOString() : null,
+    centerRole: u.centerRole,
     isSelf: u.id === admin.id,
   }));
 

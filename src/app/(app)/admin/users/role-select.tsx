@@ -2,8 +2,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROLE_LABELS, ASSIGNABLE_ROLES } from "@/lib/auth/roles";
+import { centerRoleOf, consoleRolesFor } from "@/lib/auth/center-role";
 
-export function RoleSelect({ userId, role, disabled }: { userId: string; role: string; disabled?: boolean }) {
+export function RoleSelect({ userId, role, disabled, centerRole }: { userId: string; role: string; disabled?: boolean; centerRole?: string | null }) {
+  // Under the centre's ceiling for an organisation member; every assignable role otherwise.
+  const options = centerRole ? consoleRolesFor(centerRoleOf(centerRole)) : ASSIGNABLE_ROLES;
   const router = useRouter();
   const [value, setValue] = useState(role);
   const [busy, setBusy] = useState(false);
@@ -24,7 +27,7 @@ export function RoleSelect({ userId, role, disabled }: { userId: string; role: s
   }
   return (
     <select className="select" value={value} disabled={disabled || busy} onChange={(e) => onChange(e.target.value)}>
-      {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+      {options.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
     </select>
   );
 }

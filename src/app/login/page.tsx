@@ -42,6 +42,7 @@ async function LoginPageImpl({
     : errorCode === "sso" ? "Sign-in with your identity provider failed. Please try again."
     : errorCode === "support" ? "This support link is invalid, expired or already used. Open the tenant again from the platform console."
     : errorCode === "revoked" ? "Your access has been revoked — you are no longer a member of an authorized directory group."
+    : errorCode === "center_revoked" ? "Your access has been revoked — you are no longer a member of this workspace's Captivo organisation."
     : errorCode === "mfa_required" ? mfaRequiredMessage(sso?.isPlatform === true ? captivoAccountUrl() : null)
     : null;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { can, ASSIGNABLE_ROLES } from "@/lib/auth/roles";
+import { centerRoleOf, consoleRoleAllowed } from "@/lib/auth/center-role";
 import { db } from "@/lib/db";
 import { UserStatus } from "@/generated/prisma/enums";
 import { recordAdminAction } from "@/lib/audit/admin";
@@ -48,9 +49,18 @@ export const PATCH = withTenantRoute(async (req: NextRequest, { params }: { para
     }
   }
 
-  const target = await db.user.findUnique({ where: { id }, select: { id: true } });
+  const target = await db.user.findUnique({ where: { id }, select: { id: true, centerRole: true } });
   if (!target) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  // A user the centre manages: status follows the organisation membership
+  // (lib/auth/center-role.ts), and the role may only be narrowed under the
+  // centre's ceiling -- never raised past it, never made a vendor.
+  if (target.centerRole && status !== undefined) {
+    return NextResponse.json({ error: "managed_by_center" }, { status: 403 });
+  }
+  if (target.centerRole && role !== undefined && !consoleRoleAllowed(centerRoleOf(target.centerRole), role)) {
+    return NextResponse.json({ error: "center_role_ceiling" }, { status: 403 });
   }
 
   const updateData: Record<string, unknown> = {};
@@ -80,9 +90,12 @@ export const DELETE = withTenantRoute(async (req: NextRequest, { params }: { par
   const { id } = await params;
   if (id === admin.id) return NextResponse.json({ error: "cannot_delete_self" }, { status: 403 });
 
-  const target = await db.user.findUnique({ where: { id }, select: { id: true, role: true } });
+  const target = await db.user.findUnique({ where: { id }, select: { id: true, role: true, centerRole: true } });
   if (!target) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (target.role === "ADMIN") return NextResponse.json({ error: "cannot_delete_admin" }, { status: 403 });
+  // Leaving the organisation happens on the Captivo account page; deleting
+  // the row here would only have the person re-join on their next sign-in.
+  if (target.centerRole) return NextResponse.json({ error: "managed_by_center" }, { status: 403 });
 
   // Cascades Passkey/TotpSecret/Session/own-AccessGrant; SetNulls the creator/
   // approver attribution on other users' invites/grants; AuditEvent +

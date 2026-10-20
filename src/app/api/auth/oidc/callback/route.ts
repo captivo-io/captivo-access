@@ -3,6 +3,7 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 import { db } from "@/lib/db";
 import { getOidcConfig, getOidcSecret } from "@/lib/auth/oidc-config";
 import { discover, checkClaims, accessGrant, accessGrantFor, accessRoleForGrant, type IdClaims } from "@/lib/auth/oidc";
+import { centerRoleOf, reconcileCenterRole } from "@/lib/auth/center-role";
 import { readAmr, secondFactorGate } from "@/lib/auth/amr";
 import { getSessionPolicy } from "@/lib/policy/session-policy";
 import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
@@ -132,9 +133,36 @@ async function handler(req: NextRequest) {
     return fail(req, "mfa_required", `amr=${JSON.stringify(amr)}${cfg.isPlatform ? ` account=${captivoAccountUrl()}` : ""}`);
   }
 
+  // The organisation this tenant belongs to, when the platform's own provider
+  // signed the token on a tenant console. Null everywhere else: a tenant IdP's
+  // token knows nothing about Captivo organisations, and the platform host is
+  // nobody's workspace.
+  const onTenantConsole = cfg.isPlatform && currentTenantId() !== PLATFORM_TENANT_ID;
+  const tenantOrg = onTenantConsole
+    ? (await db.tenant.findUnique({ where: { id: currentTenantId() }, select: { captivoOrgId: true } }))?.captivoOrgId ?? null
+    : null;
+
   // Provisioning (spec §5): existing ACTIVE user, else redeem an invite, else reject.
-  const user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
+  let user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });
   if (user) {
+    // THE CENTRE'S WORD IS APPLIED AT EVERY SIGN-IN, not only the first
+    // (lib/auth/center-role.ts). A user the centre manages whose grant for
+    // this organisation is gone was removed there, so is refused and
+    // disabled here; a role change there resets the console role.
+    if (tenantOrg) {
+      const grant = accessGrantFor(claims, tenantOrg);
+      const verdict = reconcileCenterRole(user, grant ? grant.role : null);
+      if (verdict.outcome === "revoked") {
+        await db.user.update({ where: { id: user.id }, data: { status: "DISABLED" } });
+        console.info(`[oidc] no grant for the tenant's organisation; member removed at the centre: ${user.id}`);
+        return fail(req, "center_revoked");
+      }
+      if (verdict.outcome === "update") {
+        const { role, centerRole, status } = verdict;
+        console.info(`[oidc] console role follows the centre: ${user.id} ${user.role} -> ${role} (${centerRole})`);
+        user = await db.user.update({ where: { id: user.id }, data: { role, centerRole, status } });
+      }
+    }
     if (user.status !== "ACTIVE") return fail(req, "disabled");
     const sync = await syncUserAtLogin({
       id: user.id,
@@ -197,9 +225,8 @@ async function handler(req: NextRequest) {
   // console invite on top would be the same question asked twice. Only the
   // platform's own identity provider can say this: a tenant IdP's token knows
   // nothing about Captivo organisations and carries no such claim.
-  if (!invite && cfg.isPlatform && currentTenantId() !== PLATFORM_TENANT_ID) {
-    const tenant = await db.tenant.findUnique({ where: { id: currentTenantId() }, select: { captivoOrgId: true } });
-    const grant = tenant?.captivoOrgId ? accessGrantFor(claims, tenant.captivoOrgId) : null;
+  if (!invite && onTenantConsole) {
+    const grant = tenantOrg ? accessGrantFor(claims, tenantOrg) : null;
     if (grant) {
       let joined;
       try {
@@ -208,6 +235,7 @@ async function handler(req: NextRequest) {
             email,
             name: claims.name || email.split("@")[0],
             role: accessRoleForGrant(grant.role),
+            centerRole: centerRoleOf(grant.role),
             status: "ACTIVE",
           },
         });

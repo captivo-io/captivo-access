@@ -18,6 +18,8 @@ export type UserRow = {
   status: string;
   passkeys: number;
   directoryManaged: boolean;
+  /** The organisation role Captivo ID last reported; set = the centre manages this user. */
+  centerRole: string | null;
   directoryLastVerifiedAt: string | null;
   isSelf: boolean;
 };
@@ -105,7 +107,7 @@ export function UsersTable({ users, initialQuery }: { users: UserRow[]; initialQ
                     <div>{u.company ?? "—"}</div>
                     {u.phone && <div className="cell-sub">{u.phone}</div>}
                   </td>
-                  <td><RoleSelect userId={u.id} role={u.role} disabled={u.isSelf} /></td>
+                  <td><RoleSelect userId={u.id} role={u.role} disabled={u.isSelf} centerRole={u.centerRole} /></td>
                   <td>
                     <span className={`pill ${STATUS_PILL[u.status] ?? "neutral"}`}>
                       {STATUS_LABEL[u.status] ?? u.status}
@@ -123,6 +125,10 @@ export function UsersTable({ users, initialQuery }: { users: UserRow[]; initialQ
                     {u.isSelf ? (
                       <span className="cell-sub" title="You can't disable yourself">
                         (this account)
+                      </span>
+                    ) : u.centerRole ? (
+                      <span className="cell-sub" title="Status and membership follow the Captivo organisation; remove the member on the Captivo account page.">
+                        Captivo ID
                       </span>
                     ) : (
                       <>
