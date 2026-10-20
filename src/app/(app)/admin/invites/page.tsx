@@ -6,6 +6,8 @@ import { ROLE_LABELS } from "@/lib/auth/roles";
 import { AddInviteButton } from "./add-invite-button";
 import { InvitesTable, type InviteRow } from "./invites-table";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { currentTenantId } from "@/lib/tenant/context";
+import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Invites" };
@@ -21,6 +23,11 @@ async function AdminInvitesPageImpl() {
 
   const smtp = await getSmtpConfig();
   const smtpEnabled = !!smtp?.enabled;
+
+  // A workspace that belongs to a Captivo organisation gets its members from
+  // the centre (lib/auth/center-role.ts); the invites here are for vendors.
+  const tenant = await db.tenant.findUnique({ where: { id: currentTenantId() }, select: { captivoOrgId: true } });
+  const centerUrl = tenant?.captivoOrgId ? captivoAccountUrl() : null;
 
   const invites = await db.invite.findMany({ orderBy: { createdAt: "desc" } });
   const rows: InviteRow[] = invites.map((inv) => ({
@@ -39,10 +46,17 @@ async function AdminInvitesPageImpl() {
       <div className="page-head">
         <div>
           <div className="page-title-row"><span className="page-icon"><InviteIcon /></span><h1>Invitations</h1></div>
-          <p>Invite a new vendor or admin. The invite link is shown only once.</p>
+          <p>{centerUrl ? "Invite a vendor. The invite link is shown only once." : "Invite a new vendor or admin. The invite link is shown only once."}</p>
         </div>
-        <AddInviteButton smtpEnabled={smtpEnabled} />
+        <AddInviteButton smtpEnabled={smtpEnabled} vendorOnly={!!centerUrl} />
       </div>
+
+      {centerUrl && (
+        <div className="notice" role="note">
+          This workspace belongs to a Captivo organisation. Organisation members (admins, operators, auditors, staff) are invited on the{" "}
+          <a href={centerUrl}>Captivo account page</a>; their roles come from there and can only be narrowed here. Invitations on this page are for vendors, who sign in with a passkey and have no Captivo account.
+        </div>
+      )}
 
       <h2>Sent invites</h2>
       {invites.length === 0 ? (

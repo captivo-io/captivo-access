@@ -103,6 +103,11 @@ model User {
 
   directoryManaged        Boolean   @default(false)
   directoryLastVerifiedAt DateTime?
+  // The organisation role Captivo ID last reported for this user (OWNER /
+  // ADMIN / MEMBER), null for an account the centre never spoke about. Set
+  // means the centre manages this user: role ceiling, removal and status
+  // follow the centre (lib/auth/center-role.ts).
+  centerRole              String?
 
   @@unique([tenantId, email])
   @@index([tenantId])

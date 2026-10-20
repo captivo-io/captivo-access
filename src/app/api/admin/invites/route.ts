@@ -12,6 +12,7 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { currentTenantId } from "@/lib/tenant/context";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
 export const POST = withTenantRoute(async (req: NextRequest) => {
@@ -33,6 +34,15 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
 
   if (!name || !email || !role || !ASSIGNABLE_ROLES.includes(role)) {
     return NextResponse.json({ error: "name_email_role_required" }, { status: 400 });
+  }
+
+  // A workspace that belongs to a Captivo organisation gets its members from
+  // the centre (lib/auth/center-role.ts): the console invites vendors only.
+  if (role !== "VENDOR") {
+    const tenant = await db.tenant.findUnique({ where: { id: currentTenantId() }, select: { captivoOrgId: true } });
+    if (tenant?.captivoOrgId) {
+      return NextResponse.json({ error: "members_come_from_center" }, { status: 409 });
+    }
   }
 
   // Don't create a dead invite for an email that already has an account

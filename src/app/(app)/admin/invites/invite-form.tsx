@@ -14,6 +14,8 @@ function errorMessage(code: string | undefined): string {
       return "Admin privileges are required for this action.";
     case "email_registered":
       return "This email already has an account.";
+    case "members_come_from_center":
+      return "This workspace belongs to a Captivo organisation: invite organisation members on the Captivo account page. Only vendors are invited here.";
     case "limit_reached":
       return "Your plan's user limit is reached — contact your platform operator to raise it.";
     default:
@@ -21,7 +23,9 @@ function errorMessage(code: string | undefined): string {
   }
 }
 
-export function InviteForm({ smtpEnabled }: { smtpEnabled: boolean }) {
+export function InviteForm({ smtpEnabled, vendorOnly }: { smtpEnabled: boolean; vendorOnly: boolean }) {
+  // On a workspace that belongs to a Captivo organisation only vendors are invited here.
+  const roles = vendorOnly ? ASSIGNABLE_ROLES.filter((r) => r === "VENDOR") : ASSIGNABLE_ROLES;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("VENDOR");
@@ -138,7 +142,7 @@ export function InviteForm({ smtpEnabled }: { smtpEnabled: boolean }) {
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
           >
-            {ASSIGNABLE_ROLES.map((r) => (
+            {roles.map((r) => (
               <option key={r} value={r}>{ROLE_LABELS[r]}</option>
             ))}
           </select>
