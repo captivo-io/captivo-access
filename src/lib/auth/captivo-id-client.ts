@@ -53,6 +53,17 @@ export function captivoAccountUrl(env: ServiceEnv = process.env as ServiceEnv): 
   return svc ? `${svc.issuer}/account` : null;
 }
 
+/**
+ * The centre's registration form with Access named as the product the person
+ * came for. Null where there is no centre, so the local signup keeps serving.
+ * Registration moved there on 2026-10-20: one form, one verification mail,
+ * and the new organisation reaches its workspace through the sign-in door.
+ */
+export function captivoRegisterUrl(env: ServiceEnv = process.env as ServiceEnv): string | null {
+  const svc = service(env);
+  return svc ? `${svc.issuer}/register?product=ACCESS&lang=en` : null;
+}
+
 /** What the centre said about an organisation's ACCESS entitlement. */
 export interface AccessEntitlement {
   plan: string | null;
