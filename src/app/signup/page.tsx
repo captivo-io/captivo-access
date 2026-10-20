@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { currentTenantId } from "@/lib/tenant/context";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
@@ -7,6 +7,7 @@ import { consoleDomain } from "@/lib/tenant/console-domain";
 import { AuthShell } from "@/components/auth-shell";
 import { BrandMark } from "@/components/brand";
 import { SignupForm } from "./signup-form";
+import { captivoRegisterUrl } from "@/lib/auth/captivo-id-client";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Create a workspace" };
@@ -14,6 +15,9 @@ export const metadata = { title: "Create a workspace" };
 // Public, platform-host only, and only when the platform operator enabled it.
 async function SignupPageImpl({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   if (currentTenantId() !== PLATFORM_TENANT_ID || !(await signupEnabled())) notFound();
+  // With a centre configured the form lives there; this page only hands over.
+  const central = captivoRegisterUrl();
+  if (central) redirect(central);
   const sp = await searchParams;
   const domain = consoleDomain() ?? "";
   return (
