@@ -51,6 +51,17 @@ describe("POST /api/center/membership", () => {
     expect(sessionDeleteMany).not.toHaveBeenCalled();
   });
 
+  it("single sign-out ends a centre-managed user's sessions and changes nothing else; a local account is left alone", async () => {
+    userFindFirst.mockResolvedValue({ id: "u1", role: "ADMIN", centerRole: "ADMIN", status: "ACTIVE" });
+    expect(await (await POST(req({ org: "org_1", email: "a@b.c", signOut: true }) as never)).json()).toEqual({ applied: true, outcome: "signed_out" });
+    expect(sessionDeleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } });
+    expect(userUpdate).not.toHaveBeenCalled();
+    sessionDeleteMany.mockClear();
+    userFindFirst.mockResolvedValue({ id: "u2", role: "ADMIN", centerRole: null, status: "ACTIVE" });
+    expect(await (await POST(req({ org: "org_1", email: "a@b.c", signOut: true }) as never)).json()).toEqual({ applied: false });
+    expect(sessionDeleteMany).not.toHaveBeenCalled();
+  });
+
   it("local and passkey accounts are left alone; wrong organisation 404; no secret 401; platform host 404", async () => {
     userFindFirst.mockResolvedValue({ id: "u1", role: "ADMIN", centerRole: null, status: "ACTIVE" });
     expect(await (await POST(req({ org: "org_1", email: "a@b.c", role: null }) as never)).json()).toEqual({ applied: false });
