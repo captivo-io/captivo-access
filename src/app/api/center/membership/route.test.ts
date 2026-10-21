@@ -62,6 +62,17 @@ describe("POST /api/center/membership", () => {
     expect(sessionDeleteMany).not.toHaveBeenCalled();
   });
 
+  it("a changed address renames the user and ends the sessions; a taken address is refused and nothing is touched", async () => {
+    userFindFirst.mockResolvedValueOnce({ id: "u1", role: "STAFF", centerRole: "MEMBER", status: "ACTIVE" }).mockResolvedValueOnce(null);
+    expect(await (await POST(req({ org: "org_1", email: "old@b.c", newEmail: "New@B.c" }) as never)).json()).toEqual({ applied: true, outcome: "renamed" });
+    expect(userUpdate).toHaveBeenCalledWith({ where: { id: "u1" }, data: { email: "new@b.c" } });
+    expect(sessionDeleteMany).toHaveBeenCalledWith({ where: { userId: "u1" } });
+    userUpdate.mockClear();
+    userFindFirst.mockResolvedValueOnce({ id: "u1", role: "STAFF", centerRole: "MEMBER", status: "ACTIVE" }).mockResolvedValueOnce({ id: "u9" });
+    expect((await POST(req({ org: "org_1", email: "old@b.c", newEmail: "new@b.c" }) as never)).status).toBe(409);
+    expect(userUpdate).not.toHaveBeenCalled();
+  });
+
   it("local and passkey accounts are left alone; wrong organisation 404; no secret 401; platform host 404", async () => {
     userFindFirst.mockResolvedValue({ id: "u1", role: "ADMIN", centerRole: null, status: "ACTIVE" });
     expect(await (await POST(req({ org: "org_1", email: "a@b.c", role: null }) as never)).json()).toEqual({ applied: false });
