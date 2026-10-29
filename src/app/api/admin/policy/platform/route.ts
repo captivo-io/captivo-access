@@ -8,7 +8,7 @@ import { parseGuacParams } from "@/lib/gateway/guac-params";
 import { validateAllowlist } from "@/lib/net/cidr";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { isValidTimeZone } from "@/lib/time/datetime-local";
-import { managingOrganisation } from "@/lib/tenant/center-time-zone";
+import { timeZoneManaged } from "@/lib/tenant/center-time-zone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (badCidrs.length) return NextResponse.json({ error: "invalid_cidr", invalid: badCidrs }, { status: 400 });
   // Same check as a person's own zone (api/settings/timezone): a name Intl does not
   // know would make every LocalTime on the console throw a RangeError.
-  const zoneManaged = (await managingOrganisation()) !== null;
+  const zoneManaged = await timeZoneManaged();
   if (!zoneManaged && typeof body.displayTimezone === "string" && body.displayTimezone && !isValidTimeZone(body.displayTimezone)) {
     return NextResponse.json({ error: "invalid_timezone" }, { status: 400 });
   }

@@ -2,9 +2,19 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-vi.mock("@/lib/db", () => ({ db: {} }));
-vi.mock("@/lib/settings/platform", () => ({ getPlatformSettings: vi.fn(), saveDisplayTimezone: vi.fn() }));
-const { grantTimeZone } = await import("./center-time-zone");
+const findTenant = vi.fn();
+const fromCenter = vi.fn();
+const getSettings = vi.fn();
+const save = vi.fn();
+vi.mock("@/lib/db", () => ({ db: { tenant: { findUnique: (...a: unknown[]) => findTenant(...a) } } }));
+vi.mock("@/lib/tenant/context", () => ({ currentTenantId: () => "t1" }));
+vi.mock("@/lib/auth/captivo-id-client", () => ({ captivoAccountUrl: () => "https://id.captivo.io/account" }));
+vi.mock("@/lib/settings/platform", () => ({
+  getPlatformSettings: (...a: unknown[]) => getSettings(...a),
+  saveDisplayTimezone: (...a: unknown[]) => save(...a),
+  displayTimezoneFromCenter: (...a: unknown[]) => fromCenter(...a),
+}));
+const { grantTimeZone, timeZoneManaged, applyCenterTimeZone } = await import("./center-time-zone");
 
 const ROOT = path.join(__dirname, "..", "..");
 const read = (p: string) => readFileSync(path.join(ROOT, p), "utf-8");
@@ -37,5 +47,26 @@ describe("workspace display zone from Captivo ID", () => {
     expect(push).toContain("secretMatches(given, expected)");
     expect(push).toMatch(/tenantSlugByOrg\(org\)\) !== tenant\.slug/);
     expect(read("app/api/admin/policy/platform/route.ts")).toMatch(/displayTimezone: zoneManaged\s*\? \(await getPlatformSettings\(\)\)\.displayTimezone/);
+  });
+
+  it("stays editable for a linked workspace until the organisation has sent a zone", async () => {
+    findTenant.mockResolvedValue({ captivoOrgId: "o1" });
+    fromCenter.mockResolvedValueOnce(false);
+    expect(await timeZoneManaged()).toBe(false);
+    fromCenter.mockResolvedValueOnce(true);
+    expect(await timeZoneManaged()).toBe(true);
+    findTenant.mockResolvedValue({ captivoOrgId: null });
+    expect(await timeZoneManaged()).toBe(false);
+  });
+
+  it("records the first zone from the centre even when it equals the current one", async () => {
+    getSettings.mockResolvedValue({ displayTimezone: "Europe/Istanbul" });
+    fromCenter.mockResolvedValueOnce(false);
+    expect(await applyCenterTimeZone("Europe/Istanbul")).toBe(true);
+    expect(save).toHaveBeenCalledWith("Europe/Istanbul");
+    save.mockClear();
+    fromCenter.mockResolvedValueOnce(true);
+    expect(await applyCenterTimeZone("Europe/Istanbul")).toBe(false);
+    expect(save).not.toHaveBeenCalled();
   });
 });

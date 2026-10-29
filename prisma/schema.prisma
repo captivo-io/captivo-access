@@ -569,6 +569,9 @@ model PlatformSettings {
   watermarkDefault         Boolean? // global isolated-session watermark default; null = env/default → false
   clipboardDefault         String? // global clipboard default for inheriting resources; null = "allow"
   displayTimezone          String? // global display timezone (IANA); null = viewer's browser
+  /// When Captivo ID last sent the organisation's zone; null while it has not
+  /// chosen one, and the policy field stays editable until then.
+  displayTimezoneFromCenterAt DateTime?
   recordingRetentionDays Int? // auto-delete recordings older than N days; 0/null = keep forever
   defaultConnectorLogLevel String? // fleet default log level for connectors set to "use default"; null → info
   externalAnchorEnabled Boolean? // opt-in; null/false = anchoring off

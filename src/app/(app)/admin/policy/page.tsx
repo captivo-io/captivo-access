@@ -3,7 +3,7 @@ import { getSessionPolicy } from "@/lib/policy/session-policy";
 import { getPlatformSettings, resolvedRecordingConsentRequired, resolvedGuacParamDefaults, resolvedWatermarkDefault, resolvedRecordingMode } from "@/lib/settings/platform";
 import { cronHealth, type CronJob } from "@/lib/cron/heartbeat";
 import { SessionPolicyForm } from "./session-policy-form";
-import { managingOrganisation } from "@/lib/tenant/center-time-zone";
+import { timeZoneManaged } from "@/lib/tenant/center-time-zone";
 import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
 import { PlatformSettingsForm } from "./platform-settings-form";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -63,7 +63,7 @@ async function AdminPolicyPageImpl() {
         <SessionPolicyForm initial={policy} />
       </div>
 
-      <PlatformSettingsForm initial={platform} consentEffective={consentEffective} watermarkEffective={watermarkEffective} recordingModeEffective={recordingModeEffective} guacDefaults={guacDefaults} timezoneManagedAt={(await managingOrganisation()) ? captivoAccountUrl() : null} />
+      <PlatformSettingsForm initial={platform} consentEffective={consentEffective} watermarkEffective={watermarkEffective} recordingModeEffective={recordingModeEffective} guacDefaults={guacDefaults} timezoneManagedAt={(await timeZoneManaged()) ? captivoAccountUrl() : null} />
     </main>
   );
 }
