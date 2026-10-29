@@ -105,6 +105,16 @@ export async function savePlatformSettings(input: PlatformSettings): Promise<voi
   cache.delete(currentTenantId());
 }
 
+/** Only the display zone: what Captivo ID pushes (lib/tenant/center-time-zone.ts). */
+export async function saveDisplayTimezone(zone: string): Promise<void> {
+  await db.platformSettings.upsert({
+    where: { tenantId: currentTenantId() },
+    create: { tenantId: currentTenantId(), displayTimezone: zone },
+    update: { displayTimezone: zone },
+  });
+  cache.delete(currentTenantId());
+}
+
 // Global default Guacamole connection params (curated allowlist). Kept out of the
 // generic PlatformSettings interface/save to avoid Prisma Json-null friction.
 export async function resolvedGuacParamDefaults(): Promise<GuacParams> {
