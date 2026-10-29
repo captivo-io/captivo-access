@@ -24,7 +24,7 @@ export default async function SettingsPage() {
       </div>
       <PlatformConfigForm
         initial={{
-          announcementText: config.announcementText ?? "", announcementLevel: config.announcementLevel, announcementUntil: config.announcementUntil?.toISOString().slice(0, 16) ?? "",
+          announcementText: config.announcementText ?? "", announcementLevel: config.announcementLevel, announcementUntil: config.announcementUntil?.toISOString() ?? "",
           opsEmail: config.opsEmail ?? "", smtpFallback: config.smtpFallback, signupEnabled: config.signupEnabled,
           defaults: {
             recordingMode: config.newTenantDefaults?.recordingMode ?? "", keystrokeLoggingMode: config.newTenantDefaults?.keystrokeLoggingMode ?? "",

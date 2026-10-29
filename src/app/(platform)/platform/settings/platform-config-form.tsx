@@ -1,17 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TimezoneSelect } from "@/app/(app)/_shell/timezone-select";
 import { TimezoneHint } from "@/app/(app)/_shell/effective-timezone";
+import { useTimezone } from "@/app/(app)/_shell/timezone-context";
+import { formatDatetimeLocal, parseDatetimeLocal } from "@/lib/time/datetime-local";
 
 type Defaults = { recordingMode: string; keystrokeLoggingMode: string; auditRetentionDays: string; recordingRetentionDays: string; maxGrantDays: string; requireRequestJustification: boolean | null; displayTimezone: string };
 type Initial = { announcementText: string; announcementLevel: string; announcementUntil: string; opsEmail: string; smtpFallback: boolean; signupEnabled: boolean; defaults: Defaults };
 
 export function PlatformConfigForm({ initial, platformSmtp, signupUrl }: { initial: Initial; platformSmtp: { enabled: boolean; host: string } | null; signupUrl: string | null }) {
   const router = useRouter();
-  const [s, setS] = useState(initial);
+  const tz = useTimezone();
+  // `announcementUntil` arrives as an ISO instant and is edited as a wall time in
+  // the display zone (or the browser's when none is set) -- the zone the hint
+  // names. Converted after mount: the server does not know the browser's zone.
+  const [s, setS] = useState({ ...initial, announcementUntil: "" });
+  useEffect(() => {
+    if (initial.announcementUntil) setS((p) => ({ ...p, announcementUntil: formatDatetimeLocal(new Date(initial.announcementUntil), tz) }));
+  }, [initial.announcementUntil, tz]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (patch: Partial<Initial>) => setS((p) => ({ ...p, ...patch }));
@@ -21,7 +30,9 @@ export function PlatformConfigForm({ initial, platformSmtp, signupUrl }: { initi
     e.preventDefault();
     setBusy(true); setMsg(null);
     try {
-      const res = await fetch("/api/platform/config", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(s) });
+      const until = s.announcementUntil ? parseDatetimeLocal(s.announcementUntil, tz) : null;
+      if (s.announcementUntil && !until) { setMsg({ ok: false, text: "Couldn't save (invalid_until)." }); return; }
+      const res = await fetch("/api/platform/config", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...s, announcementUntil: until ? until.toISOString() : "" }) });
       const b = await res.json().catch(() => ({}));
       if (!res.ok) { setMsg({ ok: false, text: `Couldn't save (${b?.error ?? res.status}).` }); return; }
       setMsg({ ok: true, text: "Saved." });

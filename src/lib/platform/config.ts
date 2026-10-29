@@ -1,3 +1,4 @@
+import { isValidTimeZone } from "@/lib/time/datetime-local";
 import { base } from "@/lib/db";
 import type { PlatformSettings } from "@/lib/settings/platform";
 
@@ -40,7 +41,7 @@ export function parseNewTenantDefaults(v: unknown): Partial<NewTenantDefaults> |
     if (typeof n === "number" && Number.isInteger(n) && n >= 0) out[k] = n;
   }
   if (typeof o.requireRequestJustification === "boolean") out.requireRequestJustification = o.requireRequestJustification;
-  if (typeof o.displayTimezone === "string" && o.displayTimezone) out.displayTimezone = o.displayTimezone;
+  if (typeof o.displayTimezone === "string" && o.displayTimezone && isValidTimeZone(o.displayTimezone)) out.displayTimezone = o.displayTimezone;
   return Object.keys(out).length ? out : null;
 }
 
