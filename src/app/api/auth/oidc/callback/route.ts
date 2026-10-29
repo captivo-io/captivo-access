@@ -107,6 +107,13 @@ async function handler(req: NextRequest) {
 
   // Remaining claim checks (azp/nonce/email_verified) + email extraction.
   const checked = checkClaims(claims, { issuer: disc.issuer, clientId: cfg.clientId, nonce: saved.nonce });
+  // An address Captivo ID has not verified gets its own code: the person is
+  // signed in there and only owes a click on the mailed link, which the login
+  // page says. A tenant's own IdP keeps the generic refusal -- its remedy is
+  // with their administrator, not in a Captivo account.
+  if (!checked.ok && checked.reason === "email_verified" && cfg.isPlatform) {
+    return fail(req, "email_unverified", `claim_check_failed: email_verified account=${captivoAccountUrl()}`);
+  }
   if (!checked.ok) return fail(req, "sso", `claim_check_failed: ${checked.reason}`);
   const email = checked.email;
 
