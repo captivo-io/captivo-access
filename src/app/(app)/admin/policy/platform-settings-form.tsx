@@ -12,7 +12,7 @@ function str(n: number | null): string {
 
 // *Effective props: the resolved value (DB, else the server env fallback, else the
 // product default) so the form shows what actually applies, not just the DB row.
-export function PlatformSettingsForm({ initial, consentEffective, watermarkEffective, recordingModeEffective, guacDefaults }: { initial: PlatformSettings; consentEffective: boolean; watermarkEffective?: boolean; recordingModeEffective?: string; guacDefaults: GuacParams }) {
+export function PlatformSettingsForm({ initial, consentEffective, watermarkEffective, recordingModeEffective, guacDefaults, timezoneManagedAt = null }: { initial: PlatformSettings; consentEffective: boolean; watermarkEffective?: boolean; recordingModeEffective?: string; guacDefaults: GuacParams; /** Set when the zone is the Captivo ID organisation's: the account page where it changes. */ timezoneManagedAt?: string | null }) {
   const [audit, setAudit] = useState(str(initial.auditRetentionDays));
   const [invite, setInvite] = useState(str(initial.inviteTtlHours));
   const [webhook, setWebhook] = useState(initial.notificationWebhookUrl ?? "");
@@ -254,10 +254,14 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
           <div className="setting">
             <div className="setting-main">
               <div className="setting-label">Display timezone</div>
-              <div className="setting-hint">Dates and times across the console and vendor portal display in this timezone. Users can override it in their own settings. Data is always stored in UTC.</div>
+              <div className="setting-hint">Dates and times across the console and vendor portal display in this timezone. Users can override it in their own settings. Data is always stored in UTC.
+                {timezoneManagedAt !== null && <> This is your organisation&apos;s time zone in Captivo ID; change it on <a href={timezoneManagedAt}>your Captivo account page</a>.</>}
+              </div>
             </div>
             <div className="setting-ctl">
-              <TimezoneSelect value={tz} onChange={setTz} inheritLabel="Use each viewer's browser timezone" />
+              {timezoneManagedAt !== null
+                ? <span className="mono">{tz || "—"}</span>
+                : <TimezoneSelect value={tz} onChange={setTz} inheritLabel="Use each viewer's browser timezone" />}
             </div>
           </div>
           <div className="setting">

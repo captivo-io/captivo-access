@@ -7,6 +7,7 @@ import { centerRoleOf, reconcileCenterRole } from "@/lib/auth/center-role";
 import { readAmr, secondFactorGate } from "@/lib/auth/amr";
 import { getSessionPolicy } from "@/lib/policy/session-policy";
 import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
+import { applyCenterTimeZone, grantTimeZone } from "@/lib/tenant/center-time-zone";
 import { readOidcState, clearOidcState } from "@/lib/auth/oidc-state";
 import { startSession } from "@/lib/auth/session";
 import { syncUserAtLogin } from "@/lib/directory/sync";
@@ -148,6 +149,14 @@ async function handler(req: NextRequest) {
   const tenantOrg = onTenantConsole
     ? (await db.tenant.findUnique({ where: { id: currentTenantId() }, select: { captivoOrgId: true } }))?.captivoOrgId ?? null
     : null;
+
+  // The organisation's zone, owned by the centre (lib/tenant/center-time-zone.ts):
+  // a token whose grant names this workspace's organisation carries it, which
+  // heals a push this console missed. Never fatal to the sign-in.
+  if (tenantOrg) {
+    const zone = grantTimeZone(claims, tenantOrg);
+    if (zone) await applyCenterTimeZone(zone).catch((e) => console.warn(`[oidc] could not apply the organisation time zone: ${e instanceof Error ? e.message : String(e)}`));
+  }
 
   // Provisioning (spec §5): existing ACTIVE user, else redeem an invite, else reject.
   let user = await db.user.findFirst({ where: { email: { equals: email, mode: "insensitive" } } });

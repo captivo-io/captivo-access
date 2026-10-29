@@ -3,11 +3,12 @@ import { getCurrentUser } from "@/lib/current-user";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { can } from "@/lib/auth/roles";
-import { savePlatformSettings, saveGuacParamDefaults, CLIPBOARD_MODES } from "@/lib/settings/platform";
+import { getPlatformSettings, savePlatformSettings, saveGuacParamDefaults, CLIPBOARD_MODES } from "@/lib/settings/platform";
 import { parseGuacParams } from "@/lib/gateway/guac-params";
 import { validateAllowlist } from "@/lib/net/cidr";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { isValidTimeZone } from "@/lib/time/datetime-local";
+import { timeZoneManaged } from "@/lib/tenant/center-time-zone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +43,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (badCidrs.length) return NextResponse.json({ error: "invalid_cidr", invalid: badCidrs }, { status: 400 });
   // Same check as a person's own zone (api/settings/timezone): a name Intl does not
   // know would make every LocalTime on the console throw a RangeError.
-  if (typeof body.displayTimezone === "string" && body.displayTimezone && !isValidTimeZone(body.displayTimezone)) {
+  const zoneManaged = await timeZoneManaged();
+  if (!zoneManaged && typeof body.displayTimezone === "string" && body.displayTimezone && !isValidTimeZone(body.displayTimezone)) {
     return NextResponse.json({ error: "invalid_timezone" }, { status: 400 });
   }
 
@@ -72,7 +74,11 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     clipboardDefault: typeof body.clipboardDefault === "string" && CLIPBOARD_MODES.includes(body.clipboardDefault)
       ? body.clipboardDefault
       : null,
-    displayTimezone: typeof body.displayTimezone === "string" && body.displayTimezone ? body.displayTimezone : null,
+    // Linked to a Captivo ID organisation: the zone is the centre's and the
+    // field is read-only; whatever was posted, the current one is kept.
+    displayTimezone: zoneManaged
+      ? (await getPlatformSettings()).displayTimezone
+      : typeof body.displayTimezone === "string" && body.displayTimezone ? body.displayTimezone : null,
     recordingRetentionDays: toIntMin(body.recordingRetentionDays, 1),
     defaultConnectorLogLevel: ["debug", "info", "warn", "error"].includes(body.defaultConnectorLogLevel)
       ? (body.defaultConnectorLogLevel as string)
