@@ -43,6 +43,7 @@ async function LoginPageImpl({
     : errorCode === "support" ? "This support link is invalid, expired or already used. Open the tenant again from the platform console."
     : errorCode === "revoked" ? "Your access has been revoked — you are no longer a member of an authorized directory group."
     : errorCode === "center_revoked" ? "Your access has been revoked — you are no longer a member of this workspace's Captivo organisation."
+    : errorCode === "email_unverified" && sso?.isPlatform === true ? unverifiedMessage(captivoAccountUrl())
     : errorCode === "mfa_required" ? mfaRequiredMessage(sso?.isPlatform === true ? captivoAccountUrl() : null)
     : null;
 
@@ -67,6 +68,20 @@ function mfaRequiredMessage(accountUrl: string | null) {
       ) : (
         <>Turn it on with your identity provider, or use a passkey that asks for your PIN or fingerprint, then sign in again.</>
       )}
+    </>
+  );
+}
+
+/**
+ * Captivo ID signed the person in but has not verified their address, and the
+ * console matches people by e-mail, so it cannot let them in yet.
+ */
+function unverifiedMessage(accountUrl: string | null) {
+  return (
+    <>
+      Your e-mail address is not verified yet. Click the link we sent when you opened your Captivo account, then sign in
+      again. If it has not arrived, check your junk folder or ask for a new link on{" "}
+      {accountUrl ? <a href={accountUrl}>your Captivo account page</a> : "your Captivo account page"}.
     </>
   );
 }
