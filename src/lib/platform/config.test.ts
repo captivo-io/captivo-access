@@ -21,4 +21,9 @@ describe("parseNewTenantDefaults", () => {
       .toEqual({ recordingMode: "required", auditRetentionDays: 90, maxGrantDays: 7, requireRequestJustification: false, displayTimezone: "Europe/Istanbul" });
     expect(parseNewTenantDefaults({ recordingRetentionDays: -5 })).toBeNull();
   });
+
+  it("drops a display timezone Intl does not know", () => {
+    expect(parseNewTenantDefaults({ displayTimezone: "Mars/Olympus" })).toBeNull();
+    expect(parseNewTenantDefaults({ displayTimezone: "America/New_York" })).toEqual({ displayTimezone: "America/New_York" });
+  });
 });
