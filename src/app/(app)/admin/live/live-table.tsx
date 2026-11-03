@@ -6,10 +6,8 @@ import { textMatch } from "@/lib/table/filter";
 import { TerminateButton } from "@/app/(app)/_console/terminate-button";
 import { RevokeAccessButton } from "@/app/(app)/_console/revoke-access-button";
 
-export type LiveRow =
-  | { kind: "gateway"; sessionId: string; siteName: string; userLabel: string; protocol: string; startedAt: string; viewerCount: number; controlled: boolean; grantId: string | null }
-  | { kind: "isolated"; sessionId: string; siteName: string; userLabel: string; host: string; startedAt: string; viewerCount: number; grantId: string | null }
-  | { kind: "web"; siteName: string; userLabel: string; host: string; startedAt: string; grantId: string | null };
+import type { LiveRow } from "@/lib/live/rows";
+export type { LiveRow };
 
 export function LiveTable({ rows, canTerminate }: { rows: LiveRow[]; canTerminate: boolean }) {
   const [q, setQ] = useState("");

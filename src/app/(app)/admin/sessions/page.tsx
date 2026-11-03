@@ -14,7 +14,9 @@ async function AdminSessionsPageImpl() {
 
   const [sessions, currentId] = await Promise.all([
     db.session.findMany({
-      where: { expiresAt: { gt: new Date() } },
+      // A pending app hand-off code is not a sign-in yet; it becomes one (or
+      // disappears) within two minutes.
+      where: { expiresAt: { gt: new Date() }, mobileChallenge: null },
       select: {
         id: true,
         ip: true,

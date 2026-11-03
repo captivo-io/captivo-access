@@ -1,4 +1,5 @@
-import { sep } from "node:path";
+import { sep, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { isClientComponent, referencesWrapper, routeIsTenantScoped, bareMethodExports, listFiles, readSrc } from "./entry-point-scope";
 
@@ -25,6 +26,12 @@ export const POST = withDeferredTenantRoute(async (tenantId, req) => new Respons
     expect(routeIsTenantScoped(`export const POST = withTenantRoute(async () => {});`)).toBe(true);
     expect(routeIsTenantScoped(`export async function POST(){}`)).toBe(false);
   });
+  it("mobileRoute counts as scoped because it is withTenantRoute underneath", () => {
+    expect(routeIsTenantScoped(`export const GET = mobileRoute("read_console", async () => r);`)).toBe(true);
+    const lib = readFileSync(join(process.cwd(), "src/lib/mobile/route.ts"), "utf8");
+    expect(lib).toMatch(/return withTenantRoute\(async \(req: Request, ctx: C\) => \{\n\s+const session = await mobileSessionFromRequest\(req\);/);
+  });
+
   it("flags bare method exports, ignores wrapped ones", () => {
     expect(bareMethodExports(`export async function POST(req){}`)).toEqual(["POST"]);
     expect(bareMethodExports(`export function GET(){}\nexport async function DELETE(){}`)).toEqual(["GET", "DELETE"]);

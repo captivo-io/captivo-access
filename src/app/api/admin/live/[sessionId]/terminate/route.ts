@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
-import { terminateSession } from "@/lib/dataplane/client";
-import { revokeGrant } from "@/lib/access/grants";
-import { recordAdminAction } from "@/lib/audit/admin";
+import { terminateLiveSession } from "@/lib/live/terminate";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 
@@ -13,24 +11,10 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
   const { sessionId } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as { grantId?: string };
   const grantId = typeof body.grantId === "string" && body.grantId ? body.grantId : null;
-
-  const result = await terminateSession(sessionId);
-  await recordAdminAction({
+  return NextResponse.json(await terminateLiveSession({
     actor: { id: admin.id, email: admin.email },
-    action: "session.terminate",
-    targetType: "session", targetId: sessionId,
-    summary: grantId ? `Terminated session ${sessionId} and revoked grant ${grantId}` : `Terminated session ${sessionId}`,
+    sessionId,
+    grantId,
     clientIp: clientIp(req.headers) ?? null,
-  });
-  if (grantId) {
-    await revokeGrant(grantId);
-    await recordAdminAction({
-      actor: { id: admin.id, email: admin.email },
-      action: "grant.revoke",
-      targetType: "grant", targetId: grantId,
-      summary: `Revoked access grant ${grantId} (session terminate)`,
-      clientIp: clientIp(req.headers) ?? null,
-    });
-  }
-  return NextResponse.json({ ...result, revoked: !!grantId });
+  }));
 });

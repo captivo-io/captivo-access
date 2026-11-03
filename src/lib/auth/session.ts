@@ -27,8 +27,10 @@ export async function createSession(
 
   // Concurrent-session cap: evict the user's oldest live sessions to make room.
   if (policy.maxConcurrentPerUser && policy.maxConcurrentPerUser > 0) {
+    // App sign-ins are not counted: a phone is not a second browser, and
+    // signing in to the console must not end the app's sign-in or vice versa.
     const active = await db.session.findMany({
-      where: { userId, expiresAt: { gt: new Date() } },
+      where: { userId, expiresAt: { gt: new Date() }, mobile: false },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
@@ -71,6 +73,8 @@ export async function getSessionUser(token: string) {
   if (!token) return null;
   const s = await db.session.findFirst({ where: { tokenHash: sha256(token) }, include: { user: true } });
   if (!s || s.expiresAt < new Date()) return null;
+  // An app token is a bearer for /api/mobile only (lib/mobile/session.ts).
+  if (s.mobile) return null;
   if (s.user.status !== "ACTIVE") return null;
   // Idle timeout: lastSeenAt is the previous request's time, so this measures
   // true inactivity. Covers both console + vendor sessions (shared function).

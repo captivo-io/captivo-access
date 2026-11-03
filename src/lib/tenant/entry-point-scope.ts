@@ -20,7 +20,7 @@ export function isClientComponent(src: string): boolean {
 // a cheap textual check, not a full parse.
 export function referencesWrapper(
   src: string,
-  name: "withRequestTenant" | "withTenantRoute" | "withDeferredTenantRoute",
+  name: "withRequestTenant" | "withTenantRoute" | "withDeferredTenantRoute" | "mobileRoute",
 ): boolean {
   return new RegExp(`\\b${name}\\b`).test(src);
 }
@@ -39,6 +39,9 @@ export function referencesWrapper(
  */
 export function routeIsTenantScoped(src: string): boolean {
   if (referencesWrapper(src, "withTenantRoute")) return true;
+  // lib/mobile/route.ts: withTenantRoute plus the app's bearer check (the
+  // guard test below pins that it really wraps withTenantRoute).
+  if (referencesWrapper(src, "mobileRoute")) return true;
   return referencesWrapper(src, "withDeferredTenantRoute") && /\binTenant\b/.test(src);
 }
 
