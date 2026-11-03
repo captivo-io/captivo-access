@@ -12,6 +12,7 @@ import { notifyEmailEnabled } from "@/lib/notifications/gate";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { consoleBaseUrl } from "@/lib/tenant/console-url";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { pushToCapability } from "@/lib/mobile/push";
 
 function parseDate(value: unknown): { ok: true; value: Date | null } | { ok: false } {
   if (value === undefined || value === null || value === "") return { ok: true, value: null };
@@ -86,6 +87,18 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     } catch {
       // Best-effort: notifying admins must never fail the request.
     }
+  }
+
+  // Not behind the e-mail toggle: that switch is for mail, and the app's own
+  // notification setting lives on the phone.
+  try {
+    await pushToCapability("approve_grants", {
+      title: "Access request",
+      body: `${user.name} asks for ${site.name}`,
+      data: { type: "access_request", grantId: result.id, origin: await consoleBaseUrl() },
+    });
+  } catch {
+    // Best-effort: a push never decides anything.
   }
 
   return NextResponse.json({ id: result.id }, { status: 201 });

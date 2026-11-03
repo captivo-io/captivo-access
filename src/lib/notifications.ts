@@ -4,6 +4,7 @@ import { siteEventEmail } from "@/lib/email/templates";
 import { resolvedNotificationWebhookUrl } from "@/lib/settings/platform";
 import { notifyEmailEnabled } from "@/lib/notifications/gate";
 import { consoleBaseUrl } from "@/lib/tenant/console-url";
+import { pushToCapability } from "@/lib/mobile/push";
 
 export type NotificationType = "site_down" | "site_recovered";
 
@@ -34,6 +35,15 @@ export async function notifyTransition(input: {
     // Best-effort: a failed notification row insert must never break the cron.
   }
   await fireWebhook(input);
+  try {
+    await pushToCapability("read_console", {
+      title: input.type === "site_down" ? "Site down" : "Site recovered",
+      body: input.type === "site_down" ? `${input.siteName} is unreachable${input.detail ? `: ${input.detail}` : ""}` : `${input.siteName} is reachable again`,
+      data: { type: input.type, siteId: input.siteId, origin: await consoleBaseUrl() },
+    });
+  } catch {
+    // Best-effort: a push never decides anything.
+  }
   if (await notifyEmailEnabled("site_health")) {
     try {
       const admins = await getAdminEmails();

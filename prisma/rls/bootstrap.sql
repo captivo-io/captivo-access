@@ -28,7 +28,7 @@ BEGIN
     'AdminAuditAnchor','SmtpConfig','BrandingConfig','Notification','OidcConfig',
     'DirectoryConfig','GroupMapping','SessionPolicy','CronRun','PlatformSettings',
     'UpdateCheckConfig','SessionRecording','RecordingChunk','SessionKeyEvent','AdminAuditEvent',
-    'SupportHandoff'
+    'SupportHandoff','MobileDevice'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
@@ -68,7 +68,7 @@ BEGIN
     'AdminAuditAnchor','SmtpConfig','BrandingConfig','Notification','OidcConfig',
     'DirectoryConfig','GroupMapping','SessionPolicy','CronRun','PlatformSettings',
     'UpdateCheckConfig','SessionRecording','RecordingChunk','SessionKeyEvent','AdminAuditEvent',
-    'SupportHandoff'
+    'SupportHandoff','MobileDevice'
   ] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_tenant_from_guc ON %I', t);
     EXECUTE format('CREATE TRIGGER trg_tenant_from_guc BEFORE INSERT ON %I FOR EACH ROW EXECUTE FUNCTION set_tenant_from_guc()', t);

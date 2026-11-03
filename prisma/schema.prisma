@@ -42,6 +42,7 @@ model Tenant {
   totpSecrets       TotpSecret[]
   invites           Invite[]
   sessions          Session[]
+  mobileDevices     MobileDevice[]
   connectors        Connector[]
   connectorPairings ConnectorPairing[]
   sites             Site[]
@@ -96,6 +97,7 @@ model User {
   passkeys       Passkey[]
   totp           TotpSecret?
   sessions       Session[]
+  mobileDevices  MobileDevice[]
   invitesCreated Invite[]      @relation("InviteCreator")
   grantsSubject  AccessGrant[] @relation("GrantSubject")
   grantsApproved AccessGrant[] @relation("GrantApprover")
@@ -181,10 +183,39 @@ model Session {
   /// the authenticator verified the user). Empty on support sessions and on
   /// rows from before this column existed -- both read as "not proven".
   amr        String[] @default([])
+  /// A Captivo Admin app sign-in, bearer only: never valid as the console
+  /// cookie, and the cookie's token is never valid as a bearer. Lives 30 days
+  /// regardless of the console idle policy, and ends with every web session of
+  /// the person (single sign-out, removal, role change) because it is one.
+  mobile          Boolean        @default(false)
+  /// Set while the row is only a one-time hand-off code waiting for the app's
+  /// PKCE verifier; the code is the token until redeemed. Null once live.
+  mobileChallenge String?
+  devices         MobileDevice[]
 
   @@unique([tenantId, tokenHash])
   @@index([userId])
   @@index([tenantId])
+}
+
+/// A phone that receives this workspace's push notifications, through Expo.
+/// Belongs to the app sign-in that registered it, so signing out -- or any
+/// event that ends the person's sessions -- stops the pushes with it.
+model MobileDevice {
+  id            String   @id @default(cuid())
+  tenantId      String   @default("default")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  expoPushToken String
+  platform      String?
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, expoPushToken])
+  @@index([tenantId])
+  @@index([userId])
 }
 
 enum ConnectorStatus {
