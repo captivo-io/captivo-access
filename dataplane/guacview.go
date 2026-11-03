@@ -30,14 +30,14 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	allow, err := ctrl.ViewAuthz(viewerUserID)
-	if err != nil || !allow {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	ls := hub.Get(sessionID)
 	if ls == nil {
 		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	allow, err := ctrl.ViewAuthz(viewerUserID, ls.siteID)
+	if err != nil || !allow {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	connID, connectorID, guacdAddr := ls.shareInfo()

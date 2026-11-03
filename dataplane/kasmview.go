@@ -26,11 +26,6 @@ func serveKasmView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if allow, e := ctrl.ViewAuthz(viewerUserID); e != nil || !allow {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
 	// The KasmVNC client's follow-up asset/WS requests carry no ?session, so pin it
 	// in a cookie the way the vendor tunnel pins ca_kasm_site.
 	sessionID := r.URL.Query().Get("session")
@@ -46,6 +41,10 @@ func serveKasmView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 	ls := hub.Get(sessionID)
 	if ls == nil {
 		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	if allow, e := ctrl.ViewAuthz(viewerUserID, ls.siteID); e != nil || !allow {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	connectorID, kasmAddr, kasmPort := ls.kasmAttach()

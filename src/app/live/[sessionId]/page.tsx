@@ -6,7 +6,7 @@ import { appendAuditEvents } from "@/lib/audit/append";
 import { clientIp } from "@/lib/request-ip";
 import { LiveViewer } from "./live-viewer";
 import { KasmLiveViewer } from "./kasm-live-viewer";
-import { listActiveSessions } from "@/lib/dataplane/client";
+import { findOwnSession } from "@/lib/dataplane/client";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -36,8 +36,7 @@ async function LiveSessionPageImpl({ params }: { params: Promise<{ sessionId: st
     /* best-effort */
   }
 
-  const sessions = await listActiveSessions();
-  const match = sessions.find((s) => s.sessionId === sessionId);
+  const match = await findOwnSession(sessionId);
   const canControl = can(user.role, "configure");
   return match?.kind === "isolated"
     ? <KasmLiveViewer sessionId={sessionId} canControl={canControl} label={match.host} />
