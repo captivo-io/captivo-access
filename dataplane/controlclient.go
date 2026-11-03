@@ -92,12 +92,15 @@ func (c *ControlClient) ResolveSession(token string) (userID, email string, err 
 	return out.UserID, out.Email, nil
 }
 
-// ViewAuthz asks the manager whether a user may watch live sessions (read_console).
-func (c *ControlClient) ViewAuthz(userID string) (bool, error) {
+// ViewAuthz asks the manager whether a user may watch the live session on siteID:
+// read_console, and the site must belong to the viewer's own tenant. The hub holds
+// every tenant's sessions, so the role alone would let one workspace's admin watch
+// another's.
+func (c *ControlClient) ViewAuthz(userID, siteID string) (bool, error) {
 	var out struct {
 		Allow bool `json:"allow"`
 	}
-	if err := c.post("/api/internal/gateway/view-authz", map[string]string{"userId": userID}, &out); err != nil {
+	if err := c.post("/api/internal/gateway/view-authz", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		if isHTTPStatus(err) {
 			return false, nil
 		}
