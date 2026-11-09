@@ -6,6 +6,7 @@ import { consoleDomain } from "@/lib/tenant/console-domain";
 import { isPlan, parseLimits, parseCapabilities, type Plan, type TenantLimits, type TenantCapabilities } from "@/lib/platform/tenant-shape";
 import { updateTenantRow, softDeleteTenantRow, restoreTenantRow, purgeTenantRow, rollbackCreatedTenantRow } from "@/lib/platform/sql";
 import { savePlatformSettings, getPlatformSettings } from "@/lib/settings/platform";
+import { pushToPlatform } from "@/lib/mobile/push";
 import { getPlatformConfig, newTenantDefaultsFrom } from "@/lib/platform/config";
 
 export class PlatformError extends Error {
@@ -209,5 +210,7 @@ export async function createTenant(input: { name: string; slug: string; adminEma
     ? `https://${slug}.${domain}/invite/${token}`
     : `/invite/${token}`;
 
+  // Not awaited: the caller may hold a transaction, and a push never decides anything.
+  void pushToPlatform({ title: "New workspace", body: `${name} (${slug})`, data: { type: "platform_tenant", tenantId: id } });
   return { tenant: { id, slug, name }, inviteToken: token, inviteUrl };
 }
