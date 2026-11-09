@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
-import { can } from "@/lib/auth/roles";
 import { cookieDomain, cookieSecure } from "@/lib/auth/cookies";
 import { destroySession, getSessionUser, SESSION_COOKIE } from "@/lib/auth/session";
 import { sha256 } from "@/lib/auth/tokens";
 import { appRedirect, HANDOFF_COOKIE, HANDOFF_PATH, readHandoff } from "@/lib/mobile/handoff";
+import { mobileCan } from "@/lib/mobile/route";
 import { issueMobileCode } from "@/lib/mobile/session";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
@@ -34,8 +34,10 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
   jar.set(SESSION_COOKIE, "", { path: "/", maxAge: 0, httpOnly: true, sameSite: "lax", secure: await cookieSecure(), domain: cookieDomain() });
 
   // Vendors use their own portal in the browser; the app is for the people who
-  // run the workspace.
-  if (!can(user.role, "read_console")) return NextResponse.redirect(appRedirect({ error: "not_admin" }));
+  // run the workspace, and on the platform host for the platform's operators.
+  if (!mobileCan(user.role, "read_console") && !mobileCan(user.role, "manage_tenants")) {
+    return NextResponse.redirect(appRedirect({ error: "not_admin" }));
+  }
 
   const code = await issueMobileCode(user.id, challenge, {
     amr: web?.amr ?? [],

@@ -6,7 +6,7 @@ import { currentTenantId } from "@/lib/tenant/context";
 export const dynamic = "force-dynamic";
 
 /** POST { expoPushToken, platform? } -- this phone hears this workspace. */
-export const POST = mobileRoute("read_console", async (req, { user, sessionId }) => {
+export const POST = mobileRoute(["read_console", "manage_tenants"], async (req, { user, sessionId }) => {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   if (!isExpoToken(body.expoPushToken)) return mobileJson({ error: "invalid_token" }, 400);
   const platform = typeof body.platform === "string" ? body.platform.slice(0, 20) : null;

@@ -52,6 +52,12 @@ export async function findOwnSession(sessionId: string): Promise<ActiveSession |
   return (await listActiveSessions()).find((s) => s.sessionId === sessionId) ?? null;
 }
 
+/** Sessions in every workspace together -- for the platform operator only, it names nobody. */
+export async function countAllLiveSessions(): Promise<number> {
+  const [a, b] = await Promise.all([fetchAllSessions(), fetchAllWebSessions()]);
+  return a.length + b.length;
+}
+
 async function fetchAllSessions(): Promise<ActiveSession[]> {
   try {
     const res = await fetchWithTimeout(`${BASE()}/sessions`, { timeoutMs: DP_TIMEOUT_MS, headers: authHeaders(), cache: "no-store" });
