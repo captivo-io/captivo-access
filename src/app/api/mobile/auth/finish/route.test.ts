@@ -11,6 +11,8 @@ vi.mock("@/lib/auth/session", () => ({ SESSION_COOKIE: "ca_session", getSessionU
 vi.mock("@/lib/db", () => ({ db: { session: { findFirst: vi.fn(async () => ({ amr: ["mfa"] })) } } }));
 const issueMobileCode = vi.fn<(...a: unknown[]) => Promise<string>>(async () => "CODE");
 vi.mock("@/lib/mobile/session", () => ({ issueMobileCode: (...a: unknown[]) => issueMobileCode(...a) }));
+let tenant = "acme";
+vi.mock("@/lib/tenant/context", () => ({ currentTenantId: () => tenant }));
 
 import { GET } from "./route";
 import { signHandoff } from "@/lib/mobile/handoff";
@@ -26,6 +28,7 @@ beforeEach(() => {
   jar.set("ca_mobile_handoff", signHandoff(challenge));
   jar.set("ca_session", "web-token");
   getSessionUser.mockResolvedValue({ id: "u1", role: "ADMIN" });
+  tenant = "acme";
 });
 
 describe("GET /api/mobile/auth/finish", () => {
@@ -51,6 +54,18 @@ describe("GET /api/mobile/auth/finish", () => {
 
   it("a vendor gets no app token", async () => {
     getSessionUser.mockResolvedValue({ id: "v1", role: "VENDOR" });
+    expect(location(await GET(req()))).toBe("captivo://auth/access?error=not_admin");
+    expect(issueMobileCode).not.toHaveBeenCalled();
+  });
+
+  it("a platform operator signs in on the platform host", async () => {
+    tenant = "platform";
+    getSessionUser.mockResolvedValue({ id: "p1", role: "PLATFORM" });
+    expect(location(await GET(req()))).toBe("captivo://auth/access?code=CODE");
+  });
+
+  it("the PLATFORM role is no key anywhere else", async () => {
+    getSessionUser.mockResolvedValue({ id: "p1", role: "PLATFORM" });
     expect(location(await GET(req()))).toBe("captivo://auth/access?error=not_admin");
     expect(issueMobileCode).not.toHaveBeenCalled();
   });

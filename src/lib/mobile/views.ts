@@ -12,6 +12,7 @@ export function userView(u: { id: string; name: string; email: string; role: Rol
     email: u.email,
     role: u.role,
     can: { approve: can(u.role, "approve_grants"), configure: can(u.role, "configure") },
+    platform: u.role === "PLATFORM",
   };
 }
 
