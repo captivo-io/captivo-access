@@ -739,6 +739,7 @@ model PlatformConfig {
   opsEmail          String? // platform operations digest recipient
   smtpFallback      Boolean   @default(false) // tenants with no SMTP send via the platform tenant's SMTP
   signupEnabled     Boolean   @default(false) // public /signup on the platform host
+  notifiedAlerts    String[]  @default([]) // alert keys already pushed to the operators' phones
   updatedAt         DateTime  @default(now()) @updatedAt
 }
 

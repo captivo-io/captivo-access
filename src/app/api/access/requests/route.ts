@@ -96,6 +96,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
       title: "Access request",
       body: `${user.name} asks for ${site.name}`,
       data: { type: "access_request", grantId: result.id, origin: await consoleBaseUrl() },
+      // Approve / Deny buttons on the notification (Captivo Admin 1.4.0+; older apps show it plain).
+      categoryId: "access_request",
     });
   } catch {
     // Best-effort: a push never decides anything.

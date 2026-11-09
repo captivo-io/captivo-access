@@ -6,6 +6,7 @@ import { classifyTransition, notifyTransition } from "@/lib/notifications";
 import { recordCronRun } from "@/lib/cron/heartbeat";
 import { forEachTenantId, inTenant } from "@/lib/cron/for-each-tenant";
 import { reconcilePendingErasures } from "@/lib/connector/policy";
+import { notifyPlatformAlerts } from "@/lib/platform/alert-push";
 
 function cronAuthorized(req: NextRequest): boolean {
   const s = process.env.CRON_SECRET;
@@ -146,6 +147,10 @@ export async function POST(req: NextRequest) {
       skipped: sites.length - toProbe.length - gwToProbe.length,
     };
   });
+
+  // The pass just refreshed what the platform's alerts are made of; new ones
+  // reach the operators' phones. No-op on self-host; never throws.
+  await notifyPlatformAlerts();
 
   // Self-host (exactly one, implicit-default result): the historical top-level
   // { checked, reachable, unreachable, skipped } shape, unchanged. Multi-tenant
