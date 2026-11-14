@@ -281,9 +281,17 @@ transition (up→down or down→up) also raises an in-console notification and, 
 set yet (no internal address, or a gateway with no credential) are skipped, not
 reported unreachable.
 
-`POST /api/cron/audit-retention` deletes audit-log rows older than
-`AUDIT_RETENTION_DAYS` (default 730) by sequence prefix, preserving the
-tamper-evident hash chain. Leave it unscheduled to keep audit history forever.
+`POST /api/cron/audit-retention` deletes audit-log rows older than the
+**Policy → Audit log retention** setting (falling back to `AUDIT_RETENTION_DAYS`,
+default 730) by sequence prefix, preserving the tamper-evident hash chain. The
+in-stack `access-cron` runs it daily, so to keep a longer history raise that
+number rather than relying on the job not running.
+
+`POST /api/cron/recording-retention` removes the console's index rows for
+recordings older than **Policy → Session recording retention** (a no-op while retention is
+0 / unset). The recording files themselves live on each connector's own disk, not
+on this server: the connector receives the same window with its policy and sweeps
+its own store.
 
 `POST /api/cron/audit-anchor` timestamps the audit-log chain head with the RFC
 3161 Time-Stamp Authority configured under **Policy → External anchor**, storing
@@ -291,7 +299,7 @@ the signed token so history can't be back-dated even by someone with full
 database access. It is a no-op unless the feature is enabled and a TSA URL is
 set; failures are logged and retried on the next run.
 
-Like the other cron endpoints, both fail closed — with `CRON_SECRET` unset or a
+Like the other cron endpoints, these fail closed — with `CRON_SECRET` unset or a
 missing/wrong Bearer header they return `401` and do nothing.
 
 ## Recorded RDP/SSH/VNC (native remote-desktop gateway)

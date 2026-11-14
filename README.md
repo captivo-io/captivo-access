@@ -7,8 +7,10 @@
 Grant an external vendor or contractor passkey-authenticated, time-boxed,
 audited access to one specific internal web app **or remote desktop
 (RDP/SSH/VNC)** — without a VPN, without opening an inbound port into your
-network, and without handing out a standing credential. You self-host it: there is no SaaS, no vendor lock-in,
-and no traffic that passes through anyone's infrastructure but your own.
+network, and without handing out a standing credential. Self-host it, and there
+is no SaaS, no vendor lock-in, and no traffic that passes through anyone's
+infrastructure but your own; or use the hosted Captivo Access Cloud, where session
+recordings still stay on the connector inside your network.
 
 > **Status: early development.** Passkey identity, the outbound-only
 > connector tunnel, time-boxed access grants (with an approval flow and
@@ -146,8 +148,14 @@ Shipped and working today:
   list) and, optionally, a best-effort webhook is fired
   (`NOTIFICATION_WEBHOOK_URL`, Slack/Teams-friendly) — no mail server required.
 - **SSO / OIDC login** — internal staff/admins can sign in with an identity
-  provider (Entra, Google, Okta) alongside passkeys; accounts are
-  invite-matched (no auto-provisioning). Vendors stay passkey-only.
+  provider (Entra, Google, Okta) alongside passkeys; with your own provider,
+  accounts are invite-matched (no auto-provisioning). On the hosted service the
+  default provider is **Captivo ID** ("Sign in with Captivo"): members of the
+  workspace's Captivo organisation join without a console invite, the
+  organisation role sets the console role (owner/admin → `ADMIN`, member →
+  `STAFF`; the console may narrow it, never raise it), and removal at the centre
+  disables the user here. A tenant's own provider, when configured, wins. Captivo
+  ID is never used on a self-hosted install. Vendors stay passkey-only.
 - **AD / LDAP directory + group mapping** — connect an LDAP/Active Directory
   (reached through a connector, bind tested from the console), then map
   directory groups by DN to a console **role** or a specific **Resource** at
@@ -194,7 +202,8 @@ Shipped and working today:
   direction control), and can overlay a **screen watermark** (the vendor's email + a
   live clock, on their screen and any screenshot) as a leak deterrent. Per-direction
   **file transfer** (upload into the browser / download out) is off by default and
-  gated per Resource; transfers are ephemeral and audited. A Resource's
+  gated per Resource; transfers are ephemeral and audited (uploads are capped by
+  `ISOLATED_FT_MAX_BYTES`, default 100 MiB). A Resource's
   access method is `TRANSPARENT` (web app) / `GATEWAY` (remote desktop) / `ISOLATED`
   (isolated browser).
 - **In-session control panel + on-screen keyboard** — remote-desktop and
@@ -399,9 +408,11 @@ instead, replicate that routing and forward those headers.
   reach into the connector on demand, so even the hosted service holds no copy and
   could not decrypt one. The trade is explicit: back up that volume and that key,
   because nobody else has them.
-- **Passkey-only identity.** No password exists anywhere in the system —
-  WebAuthn passkeys for normal login, TOTP only as a break-glass recovery
-  path (itself encrypted at rest, AES-256-GCM).
+- **No stored passwords.** Access keeps no password for anyone — WebAuthn
+  passkeys for normal login, TOTP only as a break-glass recovery path (itself
+  encrypted at rest, AES-256-GCM). Console users may instead sign in through an
+  OIDC provider (your own, or Captivo ID on the hosted service), which holds its
+  own credentials; vendors are always passkey-only.
 - **Fail-closed access checks, live on every request.** There is no
   session-level cache: the data plane's proxy resolves the session,
   resolves the hostname to a `Site`, and calls `evaluateAccess()` for that
@@ -433,14 +444,16 @@ instead, replicate that routing and forward those headers.
   to attribute them to). Rows are denormalized (the user's email and resource's
   name are captured at write time) so the trail still reads correctly after
   the underlying user or resource is later deleted, and are never updated —
-  only inserted. Admins can filter, paginate, and export to CSV at
+  only inserted. Admins and auditors can filter, paginate, and export to CSV
+  (up to 10,000 rows per export, following the current filters) at
   `/admin/audit`.
-- **Retention, not indefinite storage.** `AUDIT_RETENTION_DAYS` (default
-  `730`) governs how long rows are kept — set this to match your own
-  KVKK/5651 obligations, not just the default. Cleanup isn't automatic:
-  wire `POST /api/cron/audit-retention` (Bearer `CRON_SECRET`) into a
-  scheduler, e.g. a daily cron entry. The endpoint fails closed — with
-  `CRON_SECRET` unset, every call returns `401` and nothing is deleted.
+- **Retention, not indefinite storage.** **Policy → Audit log retention**
+  (falling back to `AUDIT_RETENTION_DAYS`, default `730`) governs how long rows
+  are kept — set this to match your own KVKK/5651 obligations, not just the
+  default. The deploy stack's in-stack `access-cron` container calls
+  `POST /api/cron/audit-retention` (Bearer `CRON_SECRET`) once a day, so cleanup
+  runs with no host crontab. The endpoint fails closed — with `CRON_SECRET`
+  unset, every call returns `401` and nothing is deleted.
 - **Tamper-evident:** rows are hash-chained (each row carries the previous
   row's hash), and the admin console verifies the chain — detecting
   alteration, deletion, splicing, and tail-truncation. An optional **external
@@ -450,10 +463,12 @@ instead, replicate that routing and forward those headers.
 
 ## Roadmap / not yet
 
-Session isolation (the isolated remote browser) has now shipped — see
-[Features](#features). The remaining "Pro"-tier items (e.g. file transfer into an
-isolated session, a licensing/tier mechanism) are not built yet — don't assume
-they exist.
+Session isolation (the isolated remote browser), including per-direction file
+transfer into and out of an isolated session, has shipped — see
+[Features](#features). There is no licensing mechanism in the self-hosted
+package: it ships with every capability (gateway, isolated browser, vault,
+recording) on. Plans and their caps (connectors, resources, users, recording
+retention) exist only on the hosted multi-tenant service.
 
 The console is intentionally **English-only** (Turkish localization is not
 planned for the console itself; the KVKK/5651 framing is about data behavior,
