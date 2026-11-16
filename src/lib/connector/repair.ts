@@ -56,7 +56,7 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // must exist BEFORE the connector starts, which reads it for its handshake
   // (connector/kasmtoken.go); the broker reads it from the same volume
   // (kasm-browser/control.py). Made with the guacd image just pulled above.
-  const kasmSecret = `docker run --rm --user 0 --entrypoint sh -v captivo_kasm_secret:/secret ${GUACD} -c '[ -s /secret/token ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d " \\n" > /secret/token; chmod 644 /secret/token'; `;
+  const kasmSecret = `docker run --rm --user 0 --entrypoint sh -v captivo_kasm_secret:/secret ${GUACD} -c '[ -s /secret/token ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d " \\n" > /secret/token; chown 10001:10001 /secret/token; chmod 400 /secret/token; chmod 711 /secret'; `;
   // Re-pair only: drop the token volume so the Go agent re-enrolls with the new code.
   const clear = clearVolume
     ? `docker rm -f access-connector >/dev/null 2>&1; docker volume rm access_connector_data >/dev/null 2>&1; `

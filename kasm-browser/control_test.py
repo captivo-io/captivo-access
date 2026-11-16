@@ -138,3 +138,22 @@ def test_session_extension_config_carries_the_keys_flag_and_token(tmp_path, monk
         dst = control._prepare_session_ext(str(home), "s9-1", keys, "tok123")
         cfg = _json.load(open(dst + "/config.json"))
         assert cfg == {"keys": keys, "url": "http://127.0.0.1:7900/session/s9-1/keys", "token": "tok123"}
+
+
+def test_a_session_runs_as_its_own_user_behind_its_own_cookie_and_password(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(control.subprocess, "Popen", lambda args, **kw: calls.append((args, kw)) or type("P", (), {"poll": lambda s: None})())
+    monkeypatch.setattr(control.time, "sleep", lambda s: None)
+    home = str(tmp_path / "home")
+    control._spawn(7, "https://x.test", str(tmp_path / "p"), home, True, True, xauth=home + "/.Xauthority")
+    uid = control.session_uid(7)
+    assert uid == 20007
+    # Xvnc, the window manager and Chromium all drop to the session's user.
+    for args, kw in calls:
+        assert kw.get("user") == uid and kw.get("group") == uid and kw.get("extra_groups") == [], args[0]
+    xvnc = next(a for a, _ in calls if a[0] == "Xvnc")
+    assert "-disableBasicAuth" not in xvnc
+    assert xvnc[xvnc.index("-auth") + 1] == home + "/.Xauthority"
+    assert xvnc[xvnc.index("-KasmPasswordFile") + 1] == home + "/.kasmpasswd"
+    chrome_env = next(kw["env"] for a, kw in calls if a[0] == control.CHROME)
+    assert chrome_env["XAUTHORITY"] == home + "/.Xauthority" and chrome_env["HOME"] == home

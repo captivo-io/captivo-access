@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -30,5 +31,21 @@ func TestKasmTokenFromHeader(t *testing.T) {
 		if kasmTokenFromHeader(bad) != "" {
 			t.Fatalf("accepted %q", bad)
 		}
+	}
+}
+
+// A session's VNC websocket needs that session's password; the browser's own
+// Authorization never reaches KasmVNC.
+func TestSetKasmVNCAuth(t *testing.T) {
+	r, _ := http.NewRequest(http.MethodGet, "http://x/websockify", nil)
+	r.Header.Set("Authorization", "Basic forged")
+	setKasmVNCAuth(r, true, "captivo:pw")
+	if got := r.Header.Get("Authorization"); got != "Basic Y2FwdGl2bzpwdw==" {
+		t.Fatalf("session request: %q", got)
+	}
+	r.Header.Set("Authorization", "Basic forged")
+	setKasmVNCAuth(r, false, "captivo:pw")
+	if r.Header.Get("Authorization") != "" {
+		t.Fatal("the hub's static client gets no credential, and the browser's is dropped")
 	}
 }
