@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Captivo Access typed-input timeline",
-  "version": "1.0",
-  "description": "Records what is typed into pages of a recorded isolated session, with credential fields masked.",
+  "name": "Captivo Access session guard",
+  "version": "2.0",
+  "description": "Keeps an isolated session to its one kiosk window and, when the session logs keystrokes, records typed input with credential fields masked.",
   "background": { "service_worker": "bg.js" },
   "host_permissions": ["http://127.0.0.1:7900/*"],
   "content_scripts": [

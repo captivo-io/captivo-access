@@ -18,4 +18,20 @@ Xvnc :1 -geometry 1280x800 -depth 24 -websocketPort 6901 -interface 0.0.0.0 \
   -httpd /usr/share/kasmvnc/www -SecurityTypes None -disableBasicAuth &
 sleep 2
 mkdir -p /kasmlog
+# The control service's shared secret (control.py, read by the connector from
+# the same volume). Generated once per install and kept across updates.
+mkdir -p /secret
+[ -s /secret/token ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /secret/token
+chmod 644 /secret/token
+# Chromium policy (kasm-browser/policy.json): no file://, chrome://, devtools
+# or incognito, and nothing on this container or its neighbours -- including
+# this container's own addresses, added here because only now are they known.
+python3 - <<'PY'
+import json, os, subprocess
+p = json.load(open("/captivo-policy.json"))
+ips = subprocess.run(["hostname", "-I"], capture_output=True, text=True).stdout.split()
+p["URLBlocklist"] += [ip if ":" not in ip else "[%s]" % ip for ip in ips] + [os.uname().nodename]
+os.makedirs("/etc/chromium/policies/managed", exist_ok=True)
+json.dump(p, open("/etc/chromium/policies/managed/captivo.json", "w"), indent=1)
+PY
 python3 /control.py 2>&1 | tee /kasmlog/kasm.log

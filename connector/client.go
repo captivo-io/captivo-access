@@ -62,10 +62,10 @@ func runClient(dataplaneURL, token string, allow *TargetMatcher, store *recStore
 func connectOnce(dataplaneURL, token string, allow *TargetMatcher, store *recStore) error {
 	ctx := context.Background()
 	c, _, err := websocket.Dial(ctx, dataplaneURL+"/tunnel", &websocket.DialOptions{
-		HTTPHeader: http.Header{
+		HTTPHeader: kasmTokenHeader(http.Header{
 			"Authorization":       {"Bearer " + token},
 			"X-Connector-Version": {Version},
-		},
+		}),
 	})
 	if err != nil {
 		return err

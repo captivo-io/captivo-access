@@ -10,7 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY kasm-browser/kasmvnc.yaml /kasmvnc.yaml
 COPY kasm-browser/control.py /control.py
 COPY kasm-browser/entrypoint.sh /entrypoint.sh
-COPY kasm-browser/keys-ext /keys-ext
+COPY kasm-browser/session-ext /session-ext
+COPY kasm-browser/policy.json /captivo-policy.json
 RUN chmod +x /entrypoint.sh /control.py
 EXPOSE 6901 7900
 ENTRYPOINT ["dumb-init", "--"]

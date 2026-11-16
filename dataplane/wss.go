@@ -59,7 +59,7 @@ func (s *Server) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := &Session{mux: mux}
+	sess := &Session{mux: mux, kasmToken: kasmTokenFromHeader(r.Header.Get("X-Kasm-Control-Token"))}
 	s.reg.Set(connectorID, sess)
 	policy, logLevel, rec := s.ctrl.ReportStatus(connectorID, "ONLINE", r.RemoteAddr, r.Header.Get("X-Connector-Version"))
 	go runControl(sess, connectorID, s.ctrl, policy, logLevel, rec)
@@ -99,4 +99,18 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// kasmTokenFromHeader accepts only a plain token: it is written into raw HTTP
+// requests to the broker, so CR, LF or anything but hex must not get through.
+func kasmTokenFromHeader(v string) string {
+	if len(v) == 0 || len(v) > 256 {
+		return ""
+	}
+	for _, c := range v {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return ""
+		}
+	}
+	return v
 }

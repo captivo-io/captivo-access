@@ -128,6 +128,17 @@ describe("every connector bundles guacd on the shared network", () => {
     expect(cmd).not.toContain("guacamole/guacd");
     expect(cmd).toContain("docker run -d --name access-connector");
   });
+  it("the isolated browser's control secret exists before the connector starts, and both mount it", () => {
+    for (const cmd of [buildInstallCommand("CODE123", m, t), buildConnectorUpdateCommand(m, t)]) {
+      const gen = cmd.indexOf("-v captivo_kasm_secret:/secret " + accessImage("guacd"));
+      expect(gen).toBeGreaterThan(-1);
+      // Generated once, kept across updates.
+      expect(cmd).toContain("[ -s /secret/token ] ||");
+      expect(gen).toBeLessThan(cmd.indexOf("--name access-connector"));
+      expect(cmd).toContain("-v captivo_kasm_secret:/kasmsecret:ro " + accessImage("connector"));
+      expect(cmd).toContain("-v captivo_kasm_secret:/secret " + accessImage("kasm-browser"));
+    }
+  });
   it("update re-provisions guacd", () => {
     const cmd = buildConnectorUpdateCommand(m, t);
     expect(cmd).toContain("--name captivo-guacd");
