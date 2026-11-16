@@ -53,6 +53,10 @@ func handleRecSearch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 
 // handleRecFetch streams a recording's plaintext chunks for replay: one response
 // frame, then one frame per chunk, then the stream closes.
+// recRangeFrame is the most one frame of a range answer carries; tunnel frames
+// are capped at 1 MiB.
+const recRangeFrame = 512 << 10
+
 func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 	var req tunnel.RecFetchRequest
 	if json.Unmarshal(reqBytes, &req) != nil {
@@ -87,7 +91,18 @@ func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 			return
 		}
 		writeRecFrame(st, tunnel.RecFetchResponse{TotalBytes: total})
-		_ = tunnel.WriteFrame(st, part)
+		// In frames no bigger than the tunnel allows. One frame per range was
+		// refused for anything over 1 MiB, and the player got an empty answer.
+		for len(part) > 0 {
+			n := len(part)
+			if n > recRangeFrame {
+				n = recRangeFrame
+			}
+			if tunnel.WriteFrame(st, part[:n]) != nil {
+				return
+			}
+			part = part[n:]
+		}
 		return
 	}
 

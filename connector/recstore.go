@@ -183,15 +183,59 @@ func (s *recStore) Formats(tenantID, recordingKey string) []string {
 // and a GCM tag, so the sealed total is larger and using it would put a wrong
 // Content-Length on every Range response.
 func (s *recStore) TotalPlaintextBytes(tenantID, recordingKey, format string) (int64, error) {
-	chunks, err := s.Read(tenantID, recordingKey, format, 0)
+	idx, err := s.index(tenantID, recordingKey, format)
 	if err != nil {
 		return 0, err
 	}
 	var total int64
-	for _, c := range chunks {
-		total += int64(len(c.Data))
+	for _, c := range idx {
+		total += c.plain
 	}
 	return total, nil
+}
+
+// sealOverhead is what seal adds to every chunk: a GCM nonce and tag.
+const sealOverhead = 12 + 16
+
+type chunkRef struct {
+	seq   int
+	path  string
+	plain int64
+}
+
+// index lists a stream's chunks in order with their plaintext sizes, taken from
+// the file sizes: answering "how long is it" and "where is byte N" must not mean
+// decrypting the whole recording, which a player scrubbing a long video asks for
+// on every Range request.
+func (s *recStore) index(tenantID, recordingKey, format string) ([]chunkRef, error) {
+	d, err := s.dir(tenantID, recordingKey, format)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []chunkRef
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
+			continue
+		}
+		seq, err := strconv.Atoi(strings.TrimSuffix(e.Name(), ".bin"))
+		if err != nil {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.Size() < sealOverhead {
+			continue
+		}
+		out = append(out, chunkRef{seq: seq, path: filepath.Join(d, e.Name()), plain: info.Size() - sealOverhead})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].seq < out[j].seq })
+	return out, nil
 }
 
 // ReadRange returns the plaintext bytes from..to INCLUSIVE, measured over the
@@ -202,32 +246,43 @@ func (s *recStore) ReadRange(tenantID, recordingKey, format string, from, to int
 	if from < 0 || to < from {
 		return nil, fmt.Errorf("invalid range")
 	}
-	chunks, err := s.Read(tenantID, recordingKey, format, 0)
+	idx, err := s.index(tenantID, recordingKey, format)
 	if err != nil {
 		return nil, err
 	}
 	var out []byte
 	var offset int64
-	for _, c := range chunks {
-		size := int64(len(c.Data))
+	for _, c := range idx {
 		start := offset
-		end := offset + size - 1 // inclusive
-		offset += size
-		if end < from {
+		end := offset + c.plain - 1 // inclusive
+		offset += c.plain
+		if end < from || c.plain == 0 {
 			continue // wholly before the range
 		}
 		if start > to {
 			break // wholly after it; chunks are in order
 		}
+		sealed, err := os.ReadFile(c.path)
+		if err != nil {
+			return nil, err
+		}
+		plain, err := s.open(sealed)
+		if err != nil || int64(len(plain)) != c.plain {
+			// A chunk that does not open still holds its place: zeros of its
+			// length keep every later byte where the total said it was, and a
+			// video decoder skips them. One bad chunk must not make the rest of
+			// the recording unreachable.
+			plain = make([]byte, c.plain)
+		}
 		lo := int64(0)
 		if from > start {
 			lo = from - start
 		}
-		hi := size - 1
+		hi := int64(len(plain)) - 1
 		if to < end {
 			hi = to - start
 		}
-		out = append(out, c.Data[lo:hi+1]...)
+		out = append(out, plain[lo:hi+1]...)
 	}
 	return out, nil
 }

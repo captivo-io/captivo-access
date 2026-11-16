@@ -342,6 +342,13 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 								}
 							}
 							fresp.Body.Close()
+							// The interim chunks were smaller (64 KiB live relay) and
+							// numbered from 0 too; the finalized file overwrote the
+							// first `seq` of them. Any beyond that are stale bytes of
+							// the live relay that would follow the finished file on
+							// replay, so they are blanked (an empty chunk adds nothing
+							// to the concatenation, on old connectors as on new).
+							blankStaleVideoChunks(recSend, d.TenantID, rw.key, seq, rw.seq)
 						}
 						fc.Close()
 					}

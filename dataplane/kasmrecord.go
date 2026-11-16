@@ -116,3 +116,12 @@ func sendFinalizedVideo(send func(tunnel.RecWriteRequest) (int, error), tenantID
 		log.Printf("kasm-recording key=%s seq=%d: finalize write failed err=%v", key, seq, err)
 	}
 }
+
+// blankStaleVideoChunks empties interim chunks numbered from finalized up to
+// interim (exclusive): what the live relay wrote beyond the end of the
+// finalized file.
+func blankStaleVideoChunks(send func(tunnel.RecWriteRequest) (int, error), tenantID, key string, finalized, interim int) {
+	for s := finalized; s < interim; s++ {
+		sendFinalizedVideo(send, tenantID, key, s, []byte{})
+	}
+}

@@ -7,8 +7,10 @@ import { connectorForRecording } from "@/lib/recording/connector-of";
 import { fetchFromConnector } from "@/lib/dataplane/recordings";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { parseVideoRange } from "@/lib/recording/video-range";
 
 export const runtime = "nodejs";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -36,14 +38,8 @@ export const GET = withTenantRoute(async (req: Request, { params }: { params: Pr
     );
   }
 
-  // "bytes=START-END", either side optionally empty. A suffix range ("bytes=-500")
-  // is not supported: the connector addresses from the start, and refusing is
-  // honest where guessing would serve the wrong bytes.
-  const range = req.headers.get("range");
-  const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
-  const wantsRange = !!m && (m[1] !== "" || m[2] !== "");
-  const fromByte = m && m[1] ? parseInt(m[1], 10) : 0;
-  const toByte = m && m[2] ? parseInt(m[2], 10) : 0;
+  // At most MAX_RANGE_BYTES per answer: see lib/recording/video-range.ts.
+  const { wantsRange, fromByte, toByte } = parseVideoRange(req.headers.get("range"));
 
   const got = await fetchFromConnector({
     format: "video",
@@ -66,8 +62,9 @@ export const GET = withTenantRoute(async (req: Request, { params }: { params: Pr
     "Cache-Control": "private, no-store",
   });
   if (wantsRange && got.totalBytes > 0) {
-    const end = toByte > 0 && toByte < got.totalBytes ? toByte : got.totalBytes - 1;
+    const end = Math.min(toByte, got.totalBytes - 1);
     headers.set("Content-Range", `bytes ${fromByte}-${end}/${got.totalBytes}`);
+    headers.set("Content-Length", String(end - fromByte + 1));
     return new NextResponse(got.body, { status: 206, headers });
   }
   if (got.totalBytes > 0) headers.set("Content-Length", String(got.totalBytes));
