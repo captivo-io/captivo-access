@@ -15,10 +15,12 @@ rm -f /tmp/.X11-unix/X* 2>/dev/null || true
 # per-session Xvnc instances carry live displays. The data-plane routes only the
 # web client here; each live RFB-over-WebSocket goes to a per-session port.
 # Its X display takes a root-only cookie, so no session user can open it.
+touch /root/.hub-xauth
 xauth -q -f /root/.hub-xauth add :1 . "$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 chmod 600 /root/.hub-xauth
 Xvnc :1 -geometry 1280x800 -depth 24 -websocketPort 6901 -interface 0.0.0.0 \
-  -httpd /usr/share/kasmvnc/www -SecurityTypes None -disableBasicAuth -auth /root/.hub-xauth &
+  -httpd /usr/share/kasmvnc/www -SecurityTypes None -disableBasicAuth -auth /root/.hub-xauth \
+  -publicIP 127.0.0.1 &
 sleep 2
 mkdir -p /kasmlog
 # The control service's shared secret (control.py, read by the connector from

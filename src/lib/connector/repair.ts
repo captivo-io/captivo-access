@@ -10,6 +10,8 @@ export function canRepairConnector(status: string): boolean {
 // Shared docker network the connector + guacd join so the connector can reach
 // guacd (`captivo-guacd`) by name.
 export const GATEWAY_NETWORK = "captivo-gateway";
+// The isolated browser alone, with no route out (see runCommand).
+export const ISOLATED_NETWORK = "captivo-isolated";
 
 // The bundle command that brings up a connector host: the connector itself plus
 // guacd (the RDP/SSH/VNC engine) and the isolated browser (KasmVNC), all on the
@@ -38,7 +40,13 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // systemd 257+ host showed "tart=...;user=root;..." before each prompt.
   const GUACD = accessImage("guacd");
 
-  const network = `docker network inspect ${NET} >/dev/null 2>&1 || docker network create ${NET} >/dev/null 2>&1; `;
+  const network =
+    `docker network inspect ${NET} >/dev/null 2>&1 || docker network create ${NET} >/dev/null 2>&1; ` +
+    // The isolated browser's network: --internal, so it has no way out but the
+    // connector's egress proxy (connector/egress.go), which applies each
+    // session's rule. The connector joins it to serve the proxy and reach the
+    // browser; nothing else is on it.
+    `docker network inspect ${ISOLATED_NETWORK} >/dev/null 2>&1 || docker network create --internal ${ISOLATED_NETWORK} >/dev/null 2>&1; `;
   // Own guacd's volumes as uid 1000 (guacd runs non-root) using the pinned guacd
   // image itself (ships chown) — cached after first install, no Docker Hub busybox.
   // Runs before the connector so the connector mounts already-1000-owned volumes.
@@ -66,7 +74,8 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
     `docker run -d --name access-connector --restart unless-stopped --network ${NET} ` +
     `-e MANAGER_URL=${managerUrl} -e DATAPLANE_URL=${tunnelUrl} ` +
     (code ? `-e PAIR_CODE=${code} ` : "") +
-    `-v access_connector_data:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro -v captivo_kasm_secret:/kasmsecret:ro ${CONNECTOR}; `;
+    `-v access_connector_data:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro -v captivo_kasm_secret:/kasmsecret:ro ${CONNECTOR}; ` +
+    `docker network connect ${ISOLATED_NETWORK} access-connector >/dev/null 2>&1; `;
   // guacd: bypass the entrypoint so our shell wrapper tees guacd's log into the volume.
   const guacd =
     `docker rm -f captivo-guacd >/dev/null 2>&1; ` +
@@ -74,7 +83,7 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
     `-v captivo_guacd_recordings:/recordings -v captivo_guacd_logs:/guaclog -v captivo_guacd_drive:/drive ` +
     `--entrypoint /bin/sh ${GUACD} -c '/opt/guacamole/sbin/guacd -b 0.0.0.0 -L info -f 2>&1 | tee /guaclog/guacd.log'; `;
   // High-fidelity isolated browser (KasmVNC) — the sole isolated-browser transport.
-  const kasm = `docker pull ${KASM}; docker rm -f captivo-kasm >/dev/null 2>&1; docker run -d --name captivo-kasm --restart unless-stopped --network ${NET} --shm-size=1g -v captivo_kasm_logs:/kasmlog -v captivo_kasm_secret:/secret ${KASM}; `;
+  const kasm = `docker pull ${KASM}; docker rm -f captivo-kasm >/dev/null 2>&1; docker run -d --name captivo-kasm --restart unless-stopped --network ${ISOLATED_NETWORK} --shm-size=1g -v captivo_kasm_logs:/kasmlog -v captivo_kasm_secret:/secret ${KASM}; `;
   // LAST, and that position is the whole point. Before the pulls the superseded
   // images are still tagged :latest, so nothing is dangling yet and a prune here
   // reclaims NOTHING. It used to run first and therefore always cleaned the

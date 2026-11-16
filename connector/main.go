@@ -88,6 +88,8 @@ func main() {
 	if _, err := os.Stat("/kasmlog"); err == nil {
 		go tailKasmLog("/kasmlog/kasm.log")
 	}
+	// The isolated browser's only way out (see egress.go).
+	startEgressProxy(envOr("EGRESS_PROXY_LISTEN", ":3128"), allow)
 	runClient(dataplaneURL, token, allow, store)
 }
 

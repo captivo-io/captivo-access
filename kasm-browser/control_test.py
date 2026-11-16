@@ -112,6 +112,7 @@ def test_keys_extension_is_loaded_only_when_asked(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(control.subprocess, "Popen", lambda args, **kw: calls.append(args) or type("P", (), {"poll": lambda s: None})())
     monkeypatch.setattr(control.time, "sleep", lambda s: None)
+    monkeypatch.setattr(control, "_wait_for_display", lambda d, p, timeout=10.0: None)
     home = str(tmp_path / "home")
     control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext=None)
     assert not any(a.startswith("--load-extension") for a in calls[-1])
@@ -144,6 +145,7 @@ def test_a_session_runs_as_its_own_user_behind_its_own_cookie_and_password(tmp_p
     calls = []
     monkeypatch.setattr(control.subprocess, "Popen", lambda args, **kw: calls.append((args, kw)) or type("P", (), {"poll": lambda s: None})())
     monkeypatch.setattr(control.time, "sleep", lambda s: None)
+    monkeypatch.setattr(control, "_wait_for_display", lambda d, p, timeout=10.0: None)
     home = str(tmp_path / "home")
     control._spawn(7, "https://x.test", str(tmp_path / "p"), home, True, True, xauth=home + "/.Xauthority")
     uid = control.session_uid(7)
@@ -157,3 +159,44 @@ def test_a_session_runs_as_its_own_user_behind_its_own_cookie_and_password(tmp_p
     assert xvnc[xvnc.index("-KasmPasswordFile") + 1] == home + "/.kasmpasswd"
     chrome_env = next(kw["env"] for a, kw in calls if a[0] == control.CHROME)
     assert chrome_env["XAUTHORITY"] == home + "/.Xauthority" and chrome_env["HOME"] == home
+
+
+def test_a_session_with_an_egress_proxy_uses_it_and_its_extension_holds_the_token(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(control.subprocess, "Popen", lambda args, **kw: calls.append(args) or type("P", (), {"poll": lambda s: None})())
+    monkeypatch.setattr(control.time, "sleep", lambda s: None)
+    monkeypatch.setattr(control, "_wait_for_display", lambda d, p, timeout=10.0: None)
+    home = str(tmp_path / "home")
+    control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext="/e", proxy="access-connector:3128")
+    chrome = calls[-1]
+    assert "--proxy-server=http://access-connector:3128" in chrome and "--no-proxy-server" not in chrome
+    # Opens on about:blank; the extension opens the resource once it can answer
+    # the proxy (else the first request shows a sign-in dialog).
+    assert chrome[-1] == "about:blank"
+    control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext="/e")
+    assert "--no-proxy-server" in calls[-1]
+
+    src = tmp_path / "ext"
+    src.mkdir()
+    (src / "manifest.json").write_text("{}")
+    monkeypatch.setattr(control, "SESSION_EXT_SRC", str(src))
+    import json as _json
+    dst = control._prepare_session_ext(str(tmp_path / "h"), "s1-1", False, "k", "ab12" * 8, "https://x.test")
+    cfg = _json.load(open(dst + "/config.json"))
+    assert cfg["proxyToken"] == "ab12" * 8 and cfg["startUrl"] == "https://x.test"
+
+
+def test_proxy_fields_are_validated():
+    assert control._PROXY_RE.match("access-connector:3128")
+    assert not control._PROXY_RE.match("evil:3128/x")
+    assert not control._PROXY_RE.match("a b:1")
+    assert control._TOKEN_RE.match("ab" * 24)
+    assert not control._TOKEN_RE.match("not-hex")
+
+
+def test_waits_for_the_display_not_a_fixed_time(tmp_path, monkeypatch):
+    # Xvnc that already exited: no wait beyond the settle moment.
+    slept = []
+    monkeypatch.setattr(control.time, "sleep", lambda s: slept.append(s))
+    control._wait_for_display(99, type("P", (), {"poll": lambda s: 1})(), timeout=5)
+    assert slept == [0.3]

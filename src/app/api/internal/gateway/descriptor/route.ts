@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { effectiveEgress } from "@/lib/isolation/egress";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { evaluateAccess } from "@/lib/access/evaluate";
 import { getVaultCredential } from "@/lib/vault/store";
@@ -36,7 +37,7 @@ async function handler(req: NextRequest) {
   const siteId = typeof b.siteId === "string" ? b.siteId : "";
   if (!userId || !siteId) return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  const site = await db.site.findUnique({ where: { id: siteId }, select: { accessMode: true, connectorId: true, recordSessions: true, clipboardMode: true, upstreamUrl: true, watermark: true, fileTransferMode: true, keystrokeLogging: true, insecureSkipVerify: true } });
+  const site = await db.site.findUnique({ where: { id: siteId }, select: { accessMode: true, connectorId: true, recordSessions: true, clipboardMode: true, upstreamUrl: true, watermark: true, fileTransferMode: true, keystrokeLogging: true, insecureSkipVerify: true, egressMode: true, egressHosts: true, createdAt: true } });
   if (!site || (site.accessMode !== "GATEWAY" && site.accessMode !== "ISOLATED")) return NextResponse.json({ error: "not_gateway" }, { status: 404 });
 
   const decision = await evaluateAccess(userId, siteId, new Date());
@@ -72,6 +73,8 @@ async function handler(req: NextRequest) {
       watermarkText,
       fileTransferMode: site.fileTransferMode,
       insecureSkipVerify: site.insecureSkipVerify,
+      // The browser's network rule, applied by the connector's egress proxy.
+      egress: effectiveEgress(site),
       // Typed input in the isolated browser, masked there for credential fields.
       keystrokeLogging: effectiveKeystrokeLogging({
         mode: await resolvedKeystrokeLoggingMode(),

@@ -290,6 +290,8 @@ model Site {
   clipboardMode      String?       // null = inherit PlatformSettings.clipboardDefault; else allow | no_copy | no_paste | none (web via proxy; gateway via guacd disable-copy/disable-paste)
   watermark          Boolean?      // isolated DLP watermark; null = inherit the global watermarkDefault
   fileTransferMode   String        @default("none") // allow | no_upload | no_download | none (ISOLATED only)
+  egressMode         String?       // ISOLATED network rule: internet | strict | open; null = not chosen (src/lib/isolation/egress.ts)
+  egressHosts        String[]      @default([]) // hosts the isolated browser may always reach, besides the resource
   accessMode         SiteAccessMode @default(TRANSPARENT)
   logo               Bytes?
   logoType           String?

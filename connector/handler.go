@@ -82,6 +82,10 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleControl(st, store)
 		return
 	}
+	if peek.Kind == "egress" {
+		handleEgress(st, reqBytes)
+		return
+	}
 	// Relay stream: count it, and wrap st so bytes are tallied for every kind.
 	connOpen()
 	defer connClose()

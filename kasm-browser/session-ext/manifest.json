@@ -1,11 +1,28 @@
 {
   "manifest_version": 3,
   "name": "Captivo Access session guard",
-  "version": "2.0",
-  "description": "Keeps an isolated session to its one kiosk window and, when the session logs keystrokes, records typed input with credential fields masked.",
-  "background": { "service_worker": "bg.js" },
-  "host_permissions": ["http://127.0.0.1:7900/*"],
+  "version": "2.1",
+  "description": "Keeps an isolated session to its one kiosk window, signs it in to the connector's egress proxy and, when the session logs keystrokes, records typed input with credential fields masked.",
+  "background": {
+    "service_worker": "bg.js"
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "content_scripts": [
-    { "matches": ["<all_urls>"], "all_frames": true, "run_at": "document_start", "js": ["content.js"] }
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "all_frames": true,
+      "run_at": "document_start",
+      "js": [
+        "content.js"
+      ]
+    }
+  ],
+  "permissions": [
+    "webRequest",
+    "webRequestAuthProvider"
   ]
 }

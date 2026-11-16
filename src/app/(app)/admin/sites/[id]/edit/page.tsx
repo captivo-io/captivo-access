@@ -7,6 +7,8 @@ import { isolationEnabled } from "@/lib/isolation/enabled";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
 import { getVaultCredentialMeta } from "@/lib/vault/store";
+import { egressReportOnlyUntil } from "@/lib/isolation/egress";
+import { recentEgressEvents } from "@/lib/isolation/egress-events";
 import { SiteForm } from "../../site-form";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -19,13 +21,14 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
   const [site, connectors] = await Promise.all([
     db.site.findUnique({
       where: { id },
-      select: { id: true, connectorId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true, keystrokeLogging: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true, domainVerifiedAt: true },
+      select: { id: true, connectorId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true, keystrokeLogging: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true, domainVerifiedAt: true, egressMode: true, egressHosts: true, createdAt: true },
     }),
     db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, name: true, vaultPublicKey: true }, orderBy: { name: "asc" } }),
   ]);
 
   // Seed the remote-desktop fields from the site's vault credential (secret excluded).
   const vault = site && site.accessMode === "GATEWAY" ? await getVaultCredentialMeta(site.id) : null;
+  const egressEvents = site && site.accessMode === "ISOLATED" ? await recentEgressEvents(site.id) : undefined;
   const keystrokeMode = await resolvedKeystrokeLoggingMode();
   const recordingMode = await resolvedRecordingMode();
   const guacDefaults = await resolvedGuacParamDefaults();
@@ -55,6 +58,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
             isolationEnabled={isolationEnabled()}
             hostSuffix={await siteHostSuffix()}
             vault={vault ?? undefined}
+            egressEvents={egressEvents}
             site={{
               id: site.id,
               connectorId: site.connectorId,
@@ -68,6 +72,9 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
               clipboardMode: site.clipboardMode,
               watermark: site.watermark,
               fileTransferMode: site.fileTransferMode,
+              egressMode: site.egressMode,
+              egressHosts: site.egressHosts,
+              egressReportOnlyUntil: egressReportOnlyUntil({ ...site, upstreamUrl: site.upstreamUrl })?.toISOString() ?? null,
               accessMode: site.accessMode,
               hasLogo: site.logoType != null,
               customDomain: site.customDomain,

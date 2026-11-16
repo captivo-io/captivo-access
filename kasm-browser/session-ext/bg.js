@@ -13,7 +13,7 @@
 let kiosk = null;
 chrome.windows.onCreated.addListener((w) => {
   if (w.type !== "normal") return;
-  if (kiosk === null) { kiosk = w.id; return; }
+  if (kiosk === null) { kiosk = w.id; startKiosk(); return; }
   if (w.id !== kiosk) chrome.windows.remove(w.id).catch(() => {});
 });
 chrome.windows.onRemoved.addListener((id) => { if (id === kiosk) kiosk = null; });
@@ -22,13 +22,58 @@ chrome.windows.getAll({ windowTypes: ["normal"] }).then((ws) => {
   ws.sort((a, b) => a.id - b.id);
   if (kiosk === null) kiosk = ws[0].id;
   for (const w of ws) if (w.id !== kiosk) chrome.windows.remove(w.id).catch(() => {});
+  startKiosk();
 }).catch(() => {});
 
-let cfg = null;
+let conf = {};
+let cfg = null; // set when this session records typed input
 const ready = fetch(chrome.runtime.getURL("config.json"))
   .then((r) => r.json())
-  .then((c) => { cfg = c && typeof c.url === "string" && c.keys === true ? c : null; })
+  .then((c) => {
+    conf = c || {};
+    cfg = typeof conf.url === "string" && conf.keys === true ? conf : null;
+  })
   .catch(() => {});
+
+// START. Behind the egress proxy Chromium opens on about:blank: a resource
+// opened directly is requested before this worker is listening, and the
+// proxy's 407 reaches the vendor as a sign-in dialog. The resource is opened
+// from here once the answer below is in place -- in a new tab, which (unlike a
+// redirected blank tab) gives the page the keyboard, so its autofocus works --
+// and the blank tab is closed.
+let started = false;
+function startKiosk() {
+  ready.then(() => {
+    if (started || kiosk === null || typeof conf.startUrl !== "string" || !conf.startUrl) return;
+    started = true;
+    chrome.tabs.query({ windowId: kiosk }).then((blank) => {
+      chrome.tabs.create({ windowId: kiosk, url: conf.startUrl, active: true }).then(() => {
+        for (const t of blank) chrome.tabs.remove(t.id).catch(() => {});
+      }).catch(() => {});
+    }).catch(() => {});
+  });
+}
+
+// NETWORK. The session reaches the network only through the connector's egress
+// proxy, which applies this session's rule to the token it is given here (the
+// proxy asks with a 407). Pages cannot read the token. A token the proxy
+// refuses is not offered twice for the same request.
+const offered = new Set();
+chrome.webRequest.onAuthRequired.addListener(
+  (details, callback) => {
+    if (!details.isProxy) { callback({}); return; }
+    ready.then(() => {
+      const token = typeof conf.proxyToken === "string" ? conf.proxyToken : "";
+      if (!token || offered.has(details.requestId)) { callback({ cancel: true }); return; }
+      offered.add(details.requestId);
+      callback({ authCredentials: { username: "session", password: token } });
+    });
+  },
+  { urls: ["<all_urls>"] },
+  ["asyncBlocking"],
+);
+chrome.webRequest.onCompleted.addListener((d) => offered.delete(d.requestId), { urls: ["<all_urls>"] });
+chrome.webRequest.onErrorOccurred.addListener((d) => offered.delete(d.requestId), { urls: ["<all_urls>"] });
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || !msg.k) return;
