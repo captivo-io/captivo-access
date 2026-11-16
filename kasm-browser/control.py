@@ -4,7 +4,7 @@
 # kiosk Chromium on demand and reaps it on close. No docker socket: sessions are
 # PROCESSES inside this one container. The hub (Xvnc :1 on 6901, started by
 # entrypoint.sh) serves the static web client; per-session ports serve live RFB.
-import hmac, json, os, secrets, shutil, signal, subprocess, threading, time, urllib.parse
+import hmac, json, os, re, secrets, shutil, signal, subprocess, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CHROME = shutil.which("chromium") or shutil.which("chromium-browser") or "chromium"
@@ -68,6 +68,10 @@ _sessions = {}  # id -> {"display": N, "port": p, "procs": [...], "profile": pat
 _seq = {"n": 0}
 
 
+_PROXY_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}:[0-9]{1,5}$")
+_TOKEN_RE = re.compile(r"^[0-9a-f]{16,128}$")
+
+
 def _free_display():
     # Display 1 is the hub; sessions use 2..MAX_SESSIONS+1.
     used = {s["display"] for s in _sessions.values()}
@@ -125,7 +129,17 @@ def _session_files(display, home, profile):
     return xauth, vnc_pw
 
 
-def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys_ext=None, xauth=None):
+def _wait_for_display(display, proc, timeout=10.0):
+    """Until the display's X socket exists (Xvnc is accepting), Xvnc exits or
+    the timeout passes; then a moment for its websocket."""
+    sock = "/tmp/.X11-unix/X%d" % display
+    end = time.monotonic() + timeout
+    while time.monotonic() < end and not os.path.exists(sock) and proc.poll() is None:
+        time.sleep(0.1)
+    time.sleep(0.3)
+
+
+def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys_ext=None, xauth=None, proxy=""):
     disp = ":%d" % display
     uid = session_uid(display)
     env = {**os.environ, "DISPLAY": disp, "HOME": home, "TMPDIR": home + "/tmp", "USER": "sess%d" % display}
@@ -154,6 +168,11 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
                  "-websocketPort", str(port), "-interface", "0.0.0.0",
                  "-httpd", "/usr/share/kasmvnc/www", "-SecurityTypes", "None",
                  "-AlwaysShared=1", send_cut, accept_cut,
+                 # No STUN lookup: the picture travels over the websocket, never UDP,
+                 # and on the isolated network (no route out) the lookup only
+                 # delays the display by seconds -- long enough for Chromium to
+                 # start without an X server and exit.
+                 "-publicIP", "127.0.0.1",
                  # This session's cookie and websocket password only (see above).
                  "-auth", xauth or (home + "/.Xauthority"), "-KasmPasswordFile", home + "/.kasmpasswd"]
     if watermark_text:
@@ -166,7 +185,7 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
                       "-DLP_WatermarkRepeatSpace=380", "-DLP_WatermarkFontSize=28",
                       "-DLP_WatermarkTint=255,255,255,45"]
     xvnc = subprocess.Popen(xvnc_args, env=env, **as_user)
-    time.sleep(1.5)
+    _wait_for_display(display, xvnc)
     fbox = subprocess.Popen(["fluxbox"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **as_user)
     # Paint a plain solid background so fluxbox's fbsetbg helper finds a wallpaper
     # setter and stops raising its "I can't find an app to set the wallpaper with"
@@ -183,9 +202,17 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
                    # proxy config (NetworkManager) that don't exist here.
                    "--disable-background-networking", "--disable-sync",
                    "--disable-component-update", "--disable-default-apps", "--no-pings",
-                   "--no-proxy-server",
                    "--disable-features=Translate,MediaRouter,OptimizationHints,MediaSessionService,UsePortalNotifications,DisableLoadExtensionCommandLineSwitch",
                    "--user-data-dir=" + profile]
+    if proxy:
+        # The container has no route out (captivo-isolated is an internal Docker
+        # network): the connector's egress proxy is the only way, under this
+        # session's rule. Loopback (the extension posting to this service) is
+        # never proxied.
+        chrome_args.append("--proxy-server=http://" + proxy)
+        url = "about:blank"  # the extension opens the resource (session-ext/bg.js)
+    else:
+        chrome_args.append("--no-proxy-server")
     if keys_ext:
         # The session extension: closes extra non-kiosk windows and, when the
         # session logs keystrokes, records typed input (credential fields
@@ -226,18 +253,22 @@ def _kill(sess):
             pass
 
 
-def _prepare_session_ext(home, sid, keys, keys_token):
+def _prepare_session_ext(home, sid, keys, keys_token, proxy_token="", start_url=""):
     """A per-session copy of the session extension, told whether to record typed
     input, where to post it and with which per-session token (pages cannot read
     the extension's files, so they cannot learn it)."""
     dst = home + "/session-ext"
     shutil.copytree(SESSION_EXT_SRC, dst, dirs_exist_ok=True)
     with open(dst + "/config.json", "w") as f:
-        json.dump({"keys": keys, "url": "http://127.0.0.1:7900/session/%s/keys" % sid, "token": keys_token}, f)
+        cfg = {"keys": keys, "url": "http://127.0.0.1:7900/session/%s/keys" % sid, "token": keys_token}
+        if proxy_token:
+            cfg["proxyToken"] = proxy_token  # answers the egress proxy's 407
+            cfg["startUrl"] = start_url      # Chromium opens on about:blank (see bg.js)
+        json.dump(cfg, f)
     return dst
 
 
-def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys=False):
+def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys=False, proxy="", proxy_token=""):
     with _lock:
         if len(_sessions) >= MAX_SESSIONS:
             log("capacity reached (%d active) — session refused" % MAX_SESSIONS)
@@ -262,13 +293,17 @@ def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", inse
         keys_token = secrets.token_hex(16)
         if os.path.isdir(SESSION_EXT_SRC):
             try:
-                session_ext = _prepare_session_ext(home, sid, keys, keys_token)
+                session_ext = _prepare_session_ext(home, sid, keys, keys_token, proxy_token, url)
                 for dirpath, dirnames, filenames in os.walk(session_ext):
                     for n in [dirpath] + [os.path.join(dirpath, x) for x in filenames]:
                         os.chown(n, session_uid(display), session_uid(display))
             except OSError as e:
                 log("session %s: session extension not prepared (%s)" % (sid, e))
-        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, session_ext, xauth)
+        if proxy and not session_ext:
+            # Without the extension nothing answers the proxy: a blank session.
+            log("session %s refused: egress proxy set but no session extension" % sid)
+            return None
+        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, session_ext, xauth, proxy)
         port = BASE_PORT + display
         _sessions[sid] = {"display": display, "port": port, "procs": procs,
                           "profile": profile, "home": home, "started": time.time(),
@@ -550,7 +585,11 @@ class H(BaseHTTPRequestHandler):
                 wtext = ""
             insecure = bool(data.get("insecure", False))
             keys = data.get("keys") is True
-            res = open_session(url, copy_out, paste_in, w, h, wtext, insecure, keys)
+            proxy = data.get("proxy", "")
+            proxy_token = data.get("proxyToken", "")
+            if not (isinstance(proxy, str) and _PROXY_RE.match(proxy) and isinstance(proxy_token, str) and _TOKEN_RE.match(proxy_token)):
+                proxy, proxy_token = "", ""
+            res = open_session(url, copy_out, paste_in, w, h, wtext, insecure, keys, proxy, proxy_token)
             if res is None:
                 return self._json(503, {"error": "capacity"})
             return self._json(201, res)

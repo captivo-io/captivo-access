@@ -1,3 +1,4 @@
+import { isEgressMode, parseEgressHosts, type EgressMode } from "@/lib/isolation/egress";
 import { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
 
@@ -48,6 +49,8 @@ export type SiteValidation =
       clipboardMode: string | null;
       watermark: boolean | null;
       fileTransferMode: string;
+      egressMode: EgressMode | undefined; // undefined = leave as it is
+      egressHosts: string[] | undefined;
     }
   | { ok: false; error: string };
 
@@ -77,6 +80,9 @@ export function validateSiteInput(
     } catch { return { ok: false, error: "invalid_upstream_url" }; }
     const clip = str(body.clipboardMode);
     const ft = str(body.fileTransferMode);
+    if (body.egressMode !== undefined && body.egressMode !== null && !isEgressMode(body.egressMode)) return { ok: false, error: "invalid_egress_mode" };
+    const egressHosts = body.egressHosts === undefined ? undefined : parseEgressHosts(body.egressHosts);
+    if (egressHosts === null) return { ok: false, error: "invalid_egress_hosts" };
     return {
       ok: true, mode: "ISOLATED", connectorId, name, description, upstreamUrl,
       insecureSkipVerify: body.insecureSkipVerify === true,
@@ -85,6 +91,8 @@ export function validateSiteInput(
       clipboardMode: CLIP.includes(clip) ? clip : null,
       watermark: body.watermark === true ? true : body.watermark === false ? false : null,
       fileTransferMode: FT.includes(ft) ? ft : "none",
+      egressMode: isEgressMode(body.egressMode) ? body.egressMode : undefined,
+      egressHosts,
     };
   }
 

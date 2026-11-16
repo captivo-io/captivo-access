@@ -44,6 +44,10 @@ function errorMessage(code: string | undefined, isEdit: boolean): string {
     case "invalid_sealed_secret":
     case "vault_unsupported_browser":
       return "This browser cannot encrypt the password for the connector. Use a current version of Chrome, Edge, Firefox or Safari.";
+    case "invalid_egress_hosts":
+      return "Allowed hosts must be host names (sso.example.local, *.okta.com) or IP addresses, at most 50.";
+    case "invalid_egress_mode":
+      return "Pick a network access option.";
     case "limit_reached":
       return "Your plan's resource limit is reached — contact your platform operator to raise it.";
     default:
@@ -64,6 +68,9 @@ type SiteInitial = {
   clipboardMode: string | null;
   watermark?: boolean | null;
   fileTransferMode?: string;
+  egressMode?: string | null;
+  egressHosts?: string[];
+  egressReportOnlyUntil?: string | null; // ISO date while the rule only records
   accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED";
   hasLogo?: boolean;
   customDomain?: boolean;
@@ -91,6 +98,7 @@ export function SiteForm({
   isolationEnabled = false,
   hostSuffix = null,
   vault,
+  egressEvents,
   onDone,
 }: {
   connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
@@ -105,6 +113,8 @@ export function SiteForm({
   isolationEnabled?: boolean;
   hostSuffix?: string | null;
   vault?: { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; sealed?: boolean; stale?: boolean };
+  // Isolated: destinations the network rule blocked or, report-only, would have (last 30 days).
+  egressEvents?: { dest: string; blocked: boolean; reason: string; count: number; last: string }[];
   onDone?: () => void;
 }) {
   const router = useRouter();
@@ -133,6 +143,10 @@ export function SiteForm({
     site?.watermark == null ? "inherit" : site.watermark ? "on" : "off",
   );
   const [fileTransferMode, setFileTransferMode] = useState(site?.fileTransferMode ?? "none");
+  // Sent only when chosen: an existing resource that never chose stays in
+  // report-only until the date shown, rather than being switched by an unrelated save.
+  const [egressMode, setEgressMode] = useState<string | null>(site ? (site.egressMode ?? null) : "internet");
+  const [egressHosts, setEgressHosts] = useState((site?.egressHosts ?? []).join("\n"));
   const [accessMode, setAccessMode] = useState<"TRANSPARENT" | "GATEWAY" | "ISOLATED">(site?.accessMode ?? "TRANSPARENT");
   // Remote-desktop (GATEWAY) target — seeded from the site's vault credential; the
   // secret is always blank (write-only).
@@ -265,6 +279,7 @@ export function SiteForm({
           clipboardMode,
           watermark: watermark === "inherit" ? null : watermark === "on",
           fileTransferMode,
+          ...(accessMode === "ISOLATED" ? { egressMode, egressHosts } : {}),
           ...(accessMode === "GATEWAY"
             ? { protocol, targetHost, targetPort: Number(targetPort), username, ...secretBody, guacParams: guacFieldsToParams(guac) }
             : {}),
@@ -524,6 +539,51 @@ export function SiteForm({
             </select>
             <span className="hint">Move files between the vendor and the isolated browser. Off by default; enforced server-side.</span>
           </div>
+          <div className="field">
+            <label className="field-label" htmlFor="site-egress">Network access</label>
+            <select id="site-egress" className="select" value={egressMode ?? "internet"} onChange={(e) => setEgressMode(e.target.value)}>
+              <option value="internet">This resource and the internet — not the rest of the internal network (recommended)</option>
+              <option value="strict">Only this resource and the hosts below</option>
+              <option value="open">Unrestricted</option>
+            </select>
+            <span className="hint">
+              The isolated browser reaches the network only through the connector, which applies this to every request. The resource&apos;s own address is always allowed, inside your network or not; the connector host and cloud metadata addresses never are.
+            </span>
+            {site?.egressReportOnlyUntil && egressMode === null && (
+              <p className="notice warn">
+                Report only until <LocalTime iso={site.egressReportOnlyUntil} mode="date" />: nothing is blocked yet; what would be is listed below and in Activity.{" "}
+                <button type="button" className="btn sm" onClick={() => setEgressMode("internet")}>Enforce now</button>
+              </p>
+            )}
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="site-egress-hosts">Also allow these hosts</label>
+            <textarea id="site-egress-hosts" className="input" rows={3} value={egressHosts} onChange={(e) => setEgressHosts(e.target.value)} placeholder={"sso.example.local\n*.okta.com"} />
+            <span className="hint">One per line. Needed for other internal hosts the resource uses (an internal sign-in page, an API) and, with &quot;Only this resource&quot;, for every outside host too. <code>*.example.com</code> covers its subdomains.</span>
+          </div>
+          {egressEvents && egressEvents.length > 0 && (
+            <div className="field">
+              <span className="field-label">Blocked destinations (last 30 days)</span>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr><th>Destination</th><th>Why</th><th>Requests</th><th>Last</th></tr>
+                  </thead>
+                  <tbody>
+                    {egressEvents.map((e) => (
+                      <tr key={e.dest}>
+                        <td><code>{e.dest}</code>{!e.blocked && <> <span className="pill warn">would block</span></>}</td>
+                        <td>{e.reason}</td>
+                        <td>{e.count}</td>
+                        <td><LocalTime iso={e.last} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <span className="hint">Add a host above if the resource needs it.</span>
+            </div>
+          )}
         </>
       )}
       {accessMode === "GATEWAY" && (

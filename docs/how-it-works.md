@@ -169,8 +169,9 @@ flowchart TD
 
 - **Gateway-capable by default.** Every connector deploys the session engines
   out of the box — its one install command brings up guacd (RDP/SSH/VNC) and
-  KasmVNC (isolated browser) alongside the connector on the shared
-  `captivo-gateway` network (no separate pack, no toggle).
+  KasmVNC (isolated browser) alongside the connector (no separate pack, no
+  toggle). guacd shares the `captivo-gateway` network with the connector; the
+  isolated browser sits alone on `captivo-isolated`, which has no route out.
 - **Credential injection.** Each connector generates a vault key pair on its own
   disk (`/data/vault.key`) and reports only the public half. When an admin
   enters an RDP/SSH/VNC password or key, the browser seals it to that key before
@@ -222,7 +223,7 @@ flowchart TD
     G1 -->|yes| G2{"Gate 2 — allowed?<br/>grant · approval · schedule"}
     G2 -->|no| E403["Forbidden"]
     G2 -->|yes| BR["Broker spawns a throwaway<br/>browser (KasmVNC) on the<br/>connector host"]
-    BR -->|outbound tunnel| APP["Isolated browser opens the<br/>Resource's internal URL"]
+    BR -->|"only via the connector's egress proxy"| APP["Isolated browser opens the<br/>Resource's internal URL"]
     APP --> PX["Only pixels streamed to the vendor<br/>(recorded if enabled)"]
     PX -.->|"clipboard · watermark · file transfer<br/>(per-Resource DLP)"| DLP["DLP controls"]
     ADM["Admin · /admin/live"] -->|"join the session (WSS /kasm-view)"| BR
@@ -245,6 +246,24 @@ flowchart TD
 - **Recording + live view.** The session records to a **seekable** video, and an
   admin can watch it live at `/admin/live` (joining via `/kasm-view`) and take
   control — the vendor sees a "being monitored" notice, same as gateway.
+- **An application, not a network.** The isolated browser has no network of its
+  own: its Docker network (`captivo-isolated`) is internal, and its only way out
+  is the connector's egress proxy. Each session presents its own token (held by
+  the session's extension, unreadable by pages), and the proxy applies that
+  Resource's **network access** rule to every request, checking the address it
+  actually dials:
+  - *This resource and the internet* (default): the Resource's own host — inside
+    your network or not — and the public internet (sign-in pages, CDNs), but no
+    other internal machine.
+  - *Only this resource and the listed hosts*: nothing else, internet included.
+  - *Unrestricted*: a deliberate choice.
+
+  Extra hosts (an internal sign-in page, `*.okta.com`) can be listed per
+  Resource. The connector host and cloud metadata addresses are never
+  reachable, and internal destinations stay inside the connector's own allowed
+  targets. Every refused destination is written to the audit log and listed on
+  the Resource. Isolated Resources created before this existed only record what
+  would be refused until 1 December 2026, or until an admin picks a rule.
 
 A Resource's **access method** — `TRANSPARENT` (web app), `GATEWAY` (remote
 desktop), or `ISOLATED` (isolated browser) — is chosen on its form; all three share

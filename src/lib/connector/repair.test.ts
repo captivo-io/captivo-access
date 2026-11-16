@@ -190,3 +190,15 @@ describe("install/re-pair pull the newest connector image", () => {
     expect(cmd.split(PULL).length - 1).toBe(1);
   });
 });
+
+describe("the isolated browser has no network but the connector", () => {
+  const cmd = buildConnectorUpdateCommand("https://m.test", "wss://t.test");
+  it("creates an internal network, runs the isolated browser only on it, and joins the connector to it", () => {
+    expect(cmd).toContain("docker network create --internal captivo-isolated");
+    expect(cmd).toMatch(/docker run -d --name captivo-kasm [^;]*--network captivo-isolated /);
+    expect(cmd).not.toMatch(/docker run -d --name captivo-kasm [^;]*--network captivo-gateway/);
+    const join = cmd.indexOf("docker network connect captivo-isolated access-connector");
+    expect(join).toBeGreaterThan(cmd.indexOf("docker run -d --name access-connector"));
+    expect(join).toBeLessThan(cmd.indexOf("docker run -d --name captivo-kasm"));
+  });
+});

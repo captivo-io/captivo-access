@@ -111,3 +111,17 @@ describe("validateSiteInput", () => {
     expect(validateSiteInput({ ...b, fileTransferMode: "bogus" }, base)).toMatchObject({ ok: true, fileTransferMode: "none" });
   });
 });
+
+describe("isolated network rule input", () => {
+  const iso = { accessMode: "ISOLATED", connectorId: "c", name: "n", upstreamUrl: "https://crm.local" };
+  const opts = { nativeGateway: true, requireSecret: false, recordingEnabled: true, isolationEnabled: true };
+  it("keeps the rule unchanged when not sent, takes it when sent", () => {
+    expect(validateSiteInput(iso, opts)).toMatchObject({ ok: true, egressMode: undefined, egressHosts: undefined });
+    expect(validateSiteInput({ ...iso, egressMode: "strict", egressHosts: "sso.local\n*.okta.com" }, opts)).toMatchObject({ ok: true, egressMode: "strict", egressHosts: ["sso.local", "*.okta.com"] });
+    expect(validateSiteInput({ ...iso, egressMode: null }, opts)).toMatchObject({ ok: true, egressMode: undefined });
+  });
+  it("refuses an unknown mode or a malformed host", () => {
+    expect(validateSiteInput({ ...iso, egressMode: "lan" }, opts)).toMatchObject({ ok: false, error: "invalid_egress_mode" });
+    expect(validateSiteInput({ ...iso, egressHosts: "bad_host!" }, opts)).toMatchObject({ ok: false, error: "invalid_egress_hosts" });
+  });
+});

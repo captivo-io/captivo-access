@@ -62,7 +62,7 @@ func clampKasmDim(v, lo, hi, def int) int {
 	return v
 }
 
-func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool) (id string, port, status int, vncAuth string, err error) {
+func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool, proxy, proxyToken string) (id string, port, status int, vncAuth string, err error) {
 	body := `{"url":` + jsonQuoteKasm(target) +
 		`,"copyOut":` + strconv.FormatBool(copyOut) +
 		`,"pasteIn":` + strconv.FormatBool(pasteIn) +
@@ -70,7 +70,9 @@ func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, paste
 		`,"h":` + strconv.Itoa(h) +
 		`,"watermarkText":` + jsonQuoteKasm(watermarkText) +
 		`,"insecure":` + strconv.FormatBool(insecure) +
-		`,"keys":` + strconv.FormatBool(keys) + `}`
+		`,"keys":` + strconv.FormatBool(keys) +
+		`,"proxy":` + jsonQuoteKasm(proxy) +
+		`,"proxyToken":` + jsonQuoteKasm(proxyToken) + `}`
 	req := "POST /session HTTP/1.0\r\n" +
 		"Host: " + host + "\r\n" + auth +
 		"Content-Type: application/json\r\n" +
@@ -187,6 +189,8 @@ type kasmDesc struct {
 	// Typed input in the isolated browser (the broker loads its keys extension);
 	// only ever acted on while Record is true.
 	KeystrokeLogging bool `json:"keystrokeLogging"`
+	// The session's network rule; nil from a manager that predates it.
+	Egress *kasmEgress `json:"egress"`
 }
 
 // serveKasmTunnel reverse-proxies the vendor's HTTP/WebSocket request to a KasmVNC
@@ -264,11 +268,28 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// WS ends. Concurrency is capped by the broker (503 capacity).
 		var id string
 		var port, status int
+		// The session's network rule goes to the connector first; its browser
+		// then reaches the network only through the connector's egress proxy.
+		var egressTok, egressProxy string
+		if d.Egress != nil {
+			if er, e := egressCall(sess, tunnel.EgressRequest{Op: "register", Mode: d.Egress.Mode, Hosts: d.Egress.Hosts, ReportOnly: d.Egress.ReportOnly}); e == nil && er.Token != "" {
+				egressTok, egressProxy = er.Token, er.Proxy
+				defer func() {
+					if rel, e := egressCall(sess, tunnel.EgressRequest{Op: "release", Token: egressTok}); e == nil {
+						for _, ev := range egressAudit(rel.Events, userID, siteID, r) {
+							audit.Enqueue(ev)
+						}
+					}
+				}()
+			} else {
+				log.Printf("kasm-tunnel site=%s: no egress proxy on this connector (%v); the session runs unconfined", siteID, e)
+			}
+		}
 		co, pi := clipboardToKasm(d.ClipboardMode)
 		if st, e := dialGuacd(sess, d.KasmControlAddr); e == nil {
 			cw := clampKasmDim(kasmW, 360, 2560, 1280)
 			ch := clampKasmDim(kasmH, 480, 1600, 800)
-			id, port, status, vncAuth, e = openKasmSession(st, d.KasmControlAddr, kasmAuth(sess), d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging)
+			id, port, status, vncAuth, e = openKasmSession(st, d.KasmControlAddr, kasmAuth(sess), d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging, egressProxy, egressTok)
 			st.Close()
 			if e != nil {
 				http.Error(w, "isolated browser unavailable", http.StatusBadGateway)
