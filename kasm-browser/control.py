@@ -179,11 +179,13 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
         # DLP watermark rendered by KasmVNC at the RFB/client layer (appears in the
         # vendor's browser, the admin live view, and any screenshot — NOT the x11grab
         # recording). strftime in the text gives a live clock. Fixed tiled/diagonal/
-        # translucent appearance.
+        # translucent appearance. Mid-grey, not white: a white tint vanished on
+        # white pages -- most admin panels -- and showed only on dark ones
+        # (checked in the vendor's view, white and black side by side).
         wt = watermark_text[:200]
         xvnc_args += ["-DLP_WatermarkText=" + wt, "-DLP_WatermarkTextAngle=30",
                       "-DLP_WatermarkRepeatSpace=380", "-DLP_WatermarkFontSize=28",
-                      "-DLP_WatermarkTint=255,255,255,45"]
+                      "-DLP_WatermarkTint=128,128,128,80"]
     xvnc = subprocess.Popen(xvnc_args, env=env, **as_user)
     _wait_for_display(display, xvnc)
     fbox = subprocess.Popen(["fluxbox"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **as_user)
