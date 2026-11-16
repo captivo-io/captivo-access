@@ -4,7 +4,7 @@ import { listActiveSessions, listActiveWebSessions } from "@/lib/dataplane/clien
 export type LiveRow =
   | { kind: "gateway"; sessionId: string; siteName: string; userLabel: string; protocol: string; startedAt: string; viewerCount: number; controlled: boolean; grantId: string | null }
   | { kind: "isolated"; sessionId: string; siteName: string; userLabel: string; host: string; startedAt: string; viewerCount: number; grantId: string | null }
-  | { kind: "web"; siteName: string; userLabel: string; host: string; startedAt: string; grantId: string | null };
+  | { kind: "web"; siteName: string; userLabel: string; host: string; startedAt: string; grantId: string | null; liveKey: string | null; viewerCount: number };
 
 /**
  * The workspace's live sessions, labelled for people: who, on which site, and
@@ -60,6 +60,8 @@ export async function liveRows(): Promise<LiveRow[]> {
     host: s.host,
     startedAt: s.startedAt,
     grantId: grant(s.userId, s.siteId),
+    liveKey: s.liveKey || null,
+    viewerCount: s.viewers ?? 0,
   }));
   return [...gatewayRows, ...isolatedRows, ...webRows];
 }

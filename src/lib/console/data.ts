@@ -12,7 +12,7 @@ export interface ConsoleKpis { grants: number; live: number; pending: number; ex
 export type LiveCard =
   | { kind: "gateway"; sessionId: string; protocol: string; host: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
   | { kind: "isolated"; sessionId: string; host: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
-  | { kind: "web"; userLabel: string; siteName: string; host: string; startedAt: string; lastSeen: string; grantId: string | null };
+  | { kind: "web"; userLabel: string; siteName: string; host: string; startedAt: string; lastSeen: string; grantId: string | null; liveKey: string | null; viewerCount: number };
 export interface PendingCard { id: string; userLabel: string; siteName: string; detail: string }
 export interface ExpiringRow { id: string; userLabel: string; siteName: string; endsAt: string }
 export interface ConnectorRow { id: string; name: string; online: boolean }
@@ -94,6 +94,7 @@ export async function getConsoleData(): Promise<ConsoleData> {
     siteName: siteNameMap.get(s.siteId) ?? s.host,
     host: s.host, startedAt: s.startedAt, lastSeen: s.lastSeen,
     grantId: grantMap.get(s.userId + "\x1f" + s.siteId) ?? null,
+    liveKey: s.liveKey || null, viewerCount: s.viewers ?? 0,
   }));
   const live: LiveCard[] = [...gatewayCards, ...isolatedCards, ...webCards];
 

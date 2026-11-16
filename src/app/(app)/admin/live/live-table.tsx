@@ -74,13 +74,16 @@ export function LiveTable({ rows, canTerminate }: { rows: LiveRow[]; canTerminat
                 <td>{r.siteName}</td>
                 <td><span className="pill">WEB APP</span></td>
                 <td className="cell-sub"><LocalTime iso={r.startedAt} /></td>
-                <td className="cell-sub">—</td>
+                <td className="cell-sub">{r.liveKey ? r.viewerCount : "—"}</td>
                 <td className="row-actions">
-                  {r.grantId ? (
-                    <RevokeAccessButton grantId={r.grantId} label={r.userLabel} />
-                  ) : (
-                    <span className="cell-sub">No active grant</span>
-                  )}
+                  <span style={{ display: "inline-flex", gap: 8 }}>
+                    {r.liveKey && <Link href={`/live/web/${encodeURIComponent(r.liveKey)}`} className="btn sm">Watch</Link>}
+                    {r.grantId ? (
+                      <RevokeAccessButton grantId={r.grantId} label={r.userLabel} />
+                    ) : (
+                      <span className="cell-sub">No active grant</span>
+                    )}
+                  </span>
                 </td>
               </tr>
             ),

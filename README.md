@@ -171,7 +171,11 @@ Shipped and working today:
   `RECORDING_ENABLED=0`); with a per-Resource toggle, both **web sessions** (an
   injected rrweb DOM recorder) and **remote-desktop sessions** (captured natively
   from the guacd stream) are replayable at `/admin/recordings`; admins filter,
-  replay, and delete them (each deletion is written to the audit log). The
+  replay, and delete them (each deletion is written to the audit log). With
+  **keystroke logging** on, every kind of session also gets a searchable timeline
+  of what was typed, linked to the recording: commands and text from the
+  remote-desktop stream, and field values in web apps and the isolated browser,
+  where password, username and one-time-code fields are masked. The
   recordings themselves are written to **the connector's own disk inside your
   network**, encrypted with a key the connector generates and never sends
   anywhere — so a recording of what a vendor did on your systems never leaves
@@ -193,7 +197,9 @@ Shipped and working today:
   guacd connection sharing), and an admin can **take control**; the vendor sees a
   "being monitored" notice and every watch/take/release is written to the audit
   log. Isolated-browser sessions are watchable + controllable the same way (a
-  second shared KasmVNC client).
+  second shared KasmVNC client). Recorded web app sessions are watchable live too,
+  rebuilt from the recorder's events as they arrive; that view is read-only,
+  since the session runs in the vendor's own browser.
 - **Isolated browser (session isolation)** — the highest-isolation access method:
   instead of proxying the app to the vendor's own browser, a Resource can run in a
   throwaway, server-side **isolated browser** (KasmVNC) streamed to the vendor —

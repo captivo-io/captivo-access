@@ -73,9 +73,10 @@ export function SecurityConsole({ data }: { data: ConsoleData }) {
                     <span className="sc-meta">active {activeAgo(s.lastSeen, now)}</span>
                   </div>
                   <div className="sc-card-name">{s.siteName}</div>
-                  <div className="sc-card-sub">{s.userLabel} · {s.host}</div>
+                  <div className="sc-card-sub">{s.userLabel} · {s.host}{s.viewerCount > 0 ? ` · ${s.viewerCount} watching` : ""}</div>
                   <div className="sc-thumb">web session</div>
                   <div className="sc-card-actions">
+                    {s.liveKey && <Link href={`/live/web/${encodeURIComponent(s.liveKey)}`} className="sc-btn watch">Watch live</Link>}
                     {s.grantId ? (
                       <RevokeAccessButton grantId={s.grantId} label={s.userLabel} className="sc-btn danger" />
                     ) : (
