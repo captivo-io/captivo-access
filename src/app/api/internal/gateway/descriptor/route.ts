@@ -84,6 +84,9 @@ async function handler(req: NextRequest) {
 
   const cred = await getVaultCredential(siteId);
   if (!cred) return NextResponse.json({ error: "no_credential" }, { status: 404 });
+  // Sealed to a key the connector no longer has (its data volume was lost):
+  // nothing can open it; the admin has to enter the secret again.
+  if (cred.stale) return NextResponse.json({ error: "vault_secret_reenter" }, { status: 409 });
 
   const resolved = resolveGuacParams(parseGuacParams(cred.guacParams), await resolvedGuacParamDefaults());
   const params = toGuacArgs(resolved, clipboardMode, cred.protocol as "RDP" | "SSH" | "VNC", cred.username);
@@ -95,7 +98,9 @@ async function handler(req: NextRequest) {
     targetHost: cred.targetHost,
     targetPort: cred.targetPort,
     username: cred.username,
-    secret: cred.secret,
+    // Exactly one of these: the connector opens a sealed secret; a legacy one
+    // (connector without a vault key yet) is sent as before.
+    ...(cred.sealedSecret ? { sealedSecret: cred.sealedSecret } : { secret: cred.secret }),
     secretKind: cred.secretKind,
     guacdAddress: (process.env.GUACD_ADDR ?? "captivo-guacd:4822").trim(),
     connectorId: site.connectorId,

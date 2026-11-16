@@ -1,9 +1,9 @@
 package main
 
 import (
-	"encoding/base64"
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"

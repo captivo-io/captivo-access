@@ -178,18 +178,20 @@ Shipped and working today:
   where password, username and one-time-code fields are masked. The
   recordings themselves are written to **the connector's own disk inside your
   network**, encrypted with a key the connector generates and never sends
-  anywhere — so a recording of what a vendor did on your systems never leaves
-  them, even on the hosted service. Command search runs on the connector too.
+  anywhere — so recordings are stored only on your side, even on the hosted
+  service; replaying one streams it through the service over the encrypted
+  tunnel, never stored there. Command search runs on the connector too.
   See [where recordings are stored](./docs/install.md#where-session-recordings-are-stored).
 - **Native remote-desktop gateway (RDP/SSH/VNC)** — console protocols are served
   in-browser with no separate pack: every connector runs sessions out of the box,
   its install command also deploying the session engines (guacd for RDP/SSH/VNC,
   KasmVNC for isolated browser) alongside it. The connector needs no toggle; the
   "Remote session" Resource type is available by default (disable with
-  `NATIVE_GATEWAY=0`), with server-side credential injection via the built-in
-  vault (on by default). Add a **Remote
-  desktop** Resource (protocol/host/port/credentials); the credential is injected
-  server-side and the vendor never sees the password. Resources carry a `TRANSPARENT`
+  `NATIVE_GATEWAY=0`), with credential injection via the built-in vault (on by
+  default). Add a **Remote desktop** Resource (protocol/host/port/credentials):
+  the password is sealed in your browser to the connector's own key, so only the
+  connector can open it — the vendor never sees it, and neither does the hosted
+  service. See [credential injection](./docs/how-it-works.md). Resources carry a `TRANSPARENT`
   (web app) vs `GATEWAY` (remote desktop) label, and gateway targets are
   reachability-checked like web apps.
 - **Live session view** — an admin/auditor watches an in-progress remote-desktop

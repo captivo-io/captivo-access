@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
-import { encrypt } from "@/lib/crypto";
+import { keptSecretStillOpens, sealLegacyCredentials, storedSecretFor, VaultInputError, type StoredSecret } from "@/lib/vault/store";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
 import { capabilityAllowed } from "@/lib/tenant/envelope";
@@ -80,15 +80,31 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   const hadVault = (await db.vaultCredential.count({ where: { siteId: id } })) > 0;
   if (!hadVault && !v.secret) return NextResponse.json({ error: "remote_desktop_fields_required" }, { status: 400 });
 
-  const secretUpdate = v.secret ? { secret: encrypt(v.secret) } : {};
+  const target = { host: v.targetHost, port: v.targetPort, username: v.username };
+  // A secret sealed to the connector opens only for the target and connector
+  // it was entered for: changing either needs it again (see keptSecretStillOpens).
+  if (!v.secret && hadVault && !(await keptSecretStillOpens(id, v.connectorId, target))) {
+    return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
+  }
+  let secretUpdate: StoredSecret | Record<string, never> = {}; // set whenever there was no credential (checked above)
+  if (v.secret) {
+    try {
+      secretUpdate = await storedSecretFor(v.connectorId, v.secret, target);
+    } catch (e) {
+      if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
+      throw e;
+    }
+  }
   await db.$transaction(async (tx) => {
     await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, accessMode: "GATEWAY", ...logoData } });
     await tx.vaultCredential.upsert({
       where: { siteId: id },
-      create: { siteId: id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, secret: encrypt(v.secret ?? ""), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
+      create: { siteId: id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...(secretUpdate as StoredSecret), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
       update: { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...secretUpdate, guacParams: v.guacParams as Prisma.InputJsonValue },
     });
   });
+  // A kept legacy secret is sealed for the (possibly new) target right away.
+  await sealLegacyCredentials({ siteId: id });
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "resource.update", targetType: "resource", targetId: id,

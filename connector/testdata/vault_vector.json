@@ -1,0 +1,8 @@
+{
+  "privateKeyHex": "f34389248ffc7ec974b8e373070737935d0e366ac47e901f62ff54691ea3ad76",
+  "sealed": "cv1:G/UvupOJyICNTbLVL8wY7aUtixiZiYfS0zBlNi/U8FZ8u2q88E3DO70dSsoda6AyUjcyDBqeiHooprH8t6WDs0O0B37KVobgQwko+ug=",
+  "host": "10.0.0.5",
+  "port": "3389",
+  "username": "Administratör",
+  "secret": "Pässwörd-123,;."
+}

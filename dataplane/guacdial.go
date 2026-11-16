@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -12,6 +14,17 @@ import (
 // it as a net.Conn. The Guacamole protocol runs end-to-end over this — the
 // connector is an opaque byte pipe. Mirrors dialLdap.
 func dialGuacd(s *Session, target string) (net.Conn, error) {
+	return dialGuacdReq(s, tunnel.GuacdDialRequest{Kind: "guacd", Target: target})
+}
+
+// dialGuacdSealed is dialGuacd for a handshake whose secret is sealed to the
+// connector: the connector opens it for the target in the connect instruction
+// and swaps it in for placeholder.
+func dialGuacdSealed(s *Session, target, sealed, placeholder string) (net.Conn, error) {
+	return dialGuacdReq(s, tunnel.GuacdDialRequest{Kind: "guacd", Target: target, Sealed: sealed, Placeholder: placeholder})
+}
+
+func dialGuacdReq(s *Session, req tunnel.GuacdDialRequest) (net.Conn, error) {
 	if s == nil || s.mux == nil {
 		return nil, errors.New("connector offline")
 	}
@@ -19,7 +32,7 @@ func dialGuacd(s *Session, target string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	reqBytes, err := json.Marshal(tunnel.GuacdDialRequest{Kind: "guacd", Target: target})
+	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -43,4 +56,12 @@ func dialGuacd(s *Session, target string) (net.Conn, error) {
 		return nil, errors.New(resp.Error)
 	}
 	return st, nil // yamux.Stream satisfies net.Conn
+}
+
+// vaultPlaceholder is a random stand-in for a sealed secret in the guacd
+// handshake; it cannot collide with a real value.
+func vaultPlaceholder() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return "\x00captivo-vault:" + hex.EncodeToString(b)
 }

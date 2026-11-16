@@ -65,6 +65,8 @@ func connectOnce(dataplaneURL, token string, allow *TargetMatcher, store *recSto
 		HTTPHeader: kasmTokenHeader(http.Header{
 			"Authorization":       {"Bearer " + token},
 			"X-Connector-Version": {Version},
+			// The public half of the vault key; resource secrets are sealed to it.
+			"X-Vault-Public-Key": {vaultPublicKeyB64(vaultKey)},
 		}),
 	})
 	if err != nil {

@@ -65,7 +65,11 @@ describe("validateSiteInput", () => {
   });
   it("remote desktop ok returns the target", () => {
     const r = validateSiteInput({ accessMode: "GATEWAY", connectorId: "c", name: "n", protocol: "rdp", targetHost: "10.0.0.5", targetPort: 3389, username: "adm", secret: "pw" }, base);
-    expect(r).toMatchObject({ ok: true, mode: "GATEWAY", protocol: "RDP", targetHost: "10.0.0.5", targetPort: 3389, username: "adm", secret: "pw" });
+    expect(r).toMatchObject({ ok: true, mode: "GATEWAY", protocol: "RDP", targetHost: "10.0.0.5", targetPort: 3389, username: "adm", secret: { secret: "pw" } });
+  });
+  it("remote desktop takes a password sealed in the browser instead", () => {
+    const r = validateSiteInput({ accessMode: "GATEWAY", connectorId: "c", name: "n", protocol: "rdp", targetHost: "h", targetPort: 3389, username: "u", sealedSecret: "cv1:x", sealedTo: "k" }, base);
+    expect(r).toMatchObject({ ok: true, secret: { sealedSecret: "cv1:x", sealedTo: "k" } });
   });
   it("remote desktop carries recordSessions (native gateway recording)", () => {
     const on = validateSiteInput({ accessMode: "GATEWAY", connectorId: "c", name: "n", protocol: "RDP", targetHost: "h", targetPort: 3389, username: "u", secret: "s", recordSessions: true }, base);
