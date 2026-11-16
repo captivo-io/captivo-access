@@ -8,7 +8,8 @@ import { setupGatewayTouch, type TouchController } from "./shell/gateway-touch";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
-import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, type ToastState } from "./shell/notices";
+import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
+import { sessionEndMessage } from "@/lib/session/end-reason";
 
 // Fullscreen HTML5 session: embeds guacamole-common-js and points it at the
 // data-plane guac-tunnel (same origin, fronted by nginx). The server drives the
@@ -35,6 +36,13 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const [dropState, setDropState] = useState<"idle" | "over" | "blocked">("idle");
   const dragDepth = useRef(0);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
+  // Why the access recheck closed the session (dataplane/recheck.go); shown only
+  // once this page had a session, so a reason left from an earlier one is not.
+  const [endReason, setEndReason] = useState<string | null>(null);
+  const endedMessage = connectedAt !== null && endReason ? sessionEndMessage(endReason) : null;
+  useEffect(() => {
+    if (endedMessage) clientRef.current?.disconnect();
+  }, [endedMessage]);
   const [isFs, setIsFs] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const touchRef = useRef<TouchController | null>(null);
@@ -390,11 +398,16 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
     const poll = async () => {
       try {
         const res = await fetch(`/api/gateway/${siteId}/watch-status`, { cache: "no-store" });
+        if (res.status === 401) {
+          if (!stop) setEndReason("signed_out");
+          return;
+        }
         if (res.ok) {
-          const s = (await res.json()) as { watching: boolean; controlHeld: boolean };
+          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string };
           if (!stop) {
             setWatching(s.watching);
             setControlHeld(s.controlHeld);
+            if (s.ended) setEndReason(s.ended);
           }
         }
       } catch {
@@ -499,9 +512,10 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
           </div>
         </div>
       )}
-      {error && (
+      {error && !endedMessage && (
         <div style={{ color: "#fff", padding: "1.25rem", fontFamily: "sans-serif" }}>{error}</div>
       )}
+      <SessionEnded message={endedMessage} />
     </div>
   );
 }

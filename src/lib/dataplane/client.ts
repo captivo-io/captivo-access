@@ -123,12 +123,13 @@ export async function setSessionControl(
   }
 }
 
-export async function getWatchStatus(userId: string, siteId: string): Promise<{ watching: boolean; controlHeld: boolean }> {
+export async function getWatchStatus(userId: string, siteId: string): Promise<{ watching: boolean; controlHeld: boolean; ended?: string }> {
   try {
     const qs = `userId=${encodeURIComponent(userId)}&siteId=${encodeURIComponent(siteId)}`;
     const res = await fetchWithTimeout(`${BASE()}/sessions/watch-status?${qs}`, { timeoutMs: DP_TIMEOUT_MS, headers: authHeaders(), cache: "no-store" });
     if (!res.ok) return { watching: false, controlHeld: false };
-    return (await res.json()) as { watching: boolean; controlHeld: boolean };
+    // ended: why the access recheck closed this vendor's session here (dataplane/recheck.go).
+    return (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string };
   } catch {
     return { watching: false, controlHeld: false };
   }

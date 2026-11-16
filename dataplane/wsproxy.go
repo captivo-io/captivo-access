@@ -143,6 +143,10 @@ func (p *BrowserProxy) serveWebSocket(w http.ResponseWriter, r *http.Request, co
 
 	wsStart := time.Now()
 	p.audit.Enqueue(auditEvent("ALLOW", "session_open", userID, siteID, host, r, http.StatusSwitchingProtocols, 0))
+	// Checked again every minute while open (recheck.go).
+	forget := watchWebSocket(&watchedWS{userID: userID, siteID: siteID, token: readCookie(r, sessionCookieName), clientIP: trustedClientIP(r),
+		close: func() { _ = conn.Close(); _ = st.Close() }})
+	defer forget()
 
 	// Raw bidirectional relay. brw (its Reader) holds any bytes the browser
 	// already sent past the handshake — read from it, not conn. Count the

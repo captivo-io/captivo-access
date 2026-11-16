@@ -48,6 +48,8 @@ func main() {
 	// Audit queue is created here (not just before the browser proxy) so the internal
 	// mux handlers below — e.g. /kasm-files — can enqueue audit events too.
 	audit := NewAuditQueue(envInt("AUDIT_QUEUE_CAP", 10000))
+	// Live remote-desktop / isolated sessions: is access still granted? (recheck.go)
+	go runPolicyRecheck(ctrl, hub, audit)
 	go RunAuditFlush(audit, func(evs []AuditEvent) error {
 		err := ctrl.SendAudit(evs)
 		if err != nil {
@@ -283,8 +285,10 @@ func main() {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		watching, controlHeld := hub.WatchStatus(r.URL.Query().Get("userId"), r.URL.Query().Get("siteId"))
-		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlHeld})
+		uid, sid := r.URL.Query().Get("userId"), r.URL.Query().Get("siteId")
+		watching, controlHeld := hub.WatchStatus(uid, sid)
+		// "ended": why a recheck closed this vendor's session here, so the page can say so.
+		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlHeld, "ended": hub.EndedReason(uid, sid)})
 	})
 	in.HandleFunc("/kasm-files", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {

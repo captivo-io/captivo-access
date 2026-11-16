@@ -172,6 +172,14 @@ flowchart TD
   KasmVNC (isolated browser) alongside the connector (no separate pack, no
   toggle). guacd shares the `captivo-gateway` network with the connector; the
   isolated browser sits alone on `captivo-isolated`, which has no route out.
+- **Checked for as long as it lasts.** A remote-desktop or isolated session is
+  one long connection, so the data-plane re-checks it every minute: the sign-in
+  (expired, ended, idle), the user, the grant (expiry, schedule window,
+  revocation) and the vendor IP allowlist, the same checks a web app gets on
+  every request. When access no longer holds the session is closed, the reason
+  is written to the audit log, and the vendor's page says why. A web app's own
+  long-lived WebSockets are re-checked the same way. If the control plane cannot
+  be reached, nothing is cut.
 - **Credential injection.** Each connector generates a vault key pair on its own
   disk (`/data/vault.key`) and reports only the public half. When an admin
   enters an RDP/SSH/VNC password or key, the browser seals it to that key before

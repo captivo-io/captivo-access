@@ -38,6 +38,7 @@ type liveSession struct {
 	kasmPort                           int
 	brokerSID, kasmControlAddr, ftMode string
 	vncAuth                            string // the session's VNC websocket password (isolated)
+	authToken, clientIP                string // for the periodic access recheck (recheck.go)
 
 	mu           sync.Mutex
 	controlOwner string // userID holding control, or "" for the vendor
@@ -103,11 +104,14 @@ func (ls *liveSession) releaseControl(owner string) {
 
 // SessionHub is a thread-safe registry of active gateway sessions.
 type SessionHub struct {
-	mu sync.RWMutex
-	m  map[string]*liveSession
+	mu    sync.RWMutex
+	m     map[string]*liveSession
+	ended map[string]policyEnd // userID+siteID -> why a recheck closed the session (recheck.go)
 }
 
-func NewSessionHub() *SessionHub { return &SessionHub{m: map[string]*liveSession{}} }
+func NewSessionHub() *SessionHub {
+	return &SessionHub{m: map[string]*liveSession{}, ended: map[string]policyEnd{}}
+}
 
 func newSessionID() string {
 	var b [8]byte
