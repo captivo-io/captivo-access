@@ -21,10 +21,12 @@ describe("canRepairConnector", () => {
 });
 
 describe("buildReconfigureCommand", () => {
-  it("clears the old token volume and re-runs with the new pair code", () => {
+  it("deletes only the old token and re-runs with the new pair code", () => {
     const cmd = buildReconfigureCommand("CODE123", "https://mgr.example.com", "wss://connect.example.com");
     expect(cmd).toContain("docker rm -f access-connector");
-    expect(cmd).toContain("docker volume rm access_connector_data");
+    expect(cmd).toMatch(/-v access_connector_data:\/data \S+ -f \/data\/token;/);
+    // The volume also holds the recordings and their key and the vault key.
+    expect(cmd).not.toContain("docker volume rm");
     expect(cmd).toContain("PAIR_CODE=CODE123");
     expect(cmd).toContain("MANAGER_URL=https://mgr.example.com");
     expect(cmd).toContain("DATAPLANE_URL=wss://connect.example.com");
@@ -41,8 +43,8 @@ describe("buildConnectorRunCommand", () => {
     // re-pair wipes the token volume that holds the connector's identity.
     expect(cmd).not.toContain("docker volume rm");
   });
-  it("only re-pair wipes the token volume", () => {
-    expect(buildReconfigureCommand("C", "M", "T")).toContain("docker volume rm access_connector_data");
+  it("no command removes the connector's data volume", () => {
+    expect(buildReconfigureCommand("C", "M", "T")).not.toContain("docker volume rm");
     expect(buildConnectorRunCommand("C", "M", "T")).not.toContain("docker volume rm");
     expect(buildConnectorUpdateCommand("M", "T")).not.toContain("docker volume rm");
   });
