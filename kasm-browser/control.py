@@ -85,12 +85,53 @@ def _clamp_dim(v, lo, hi, default):
     return max(lo, min(hi, v))
 
 
-def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys_ext=None):
+# ONE LINUX USER PER SESSION. Every isolated session's processes (Xvnc,
+# fluxbox, Chromium) run as sess<display> (uid SESSION_UID_BASE + display,
+# created in the image), its home and profile are 0700 to that user, its X
+# display needs that session's own cookie, and its VNC websocket that
+# session's own password. One session's processes -- a compromised renderer,
+# say -- therefore cannot read another's files, watch or type into another's
+# screen, or attach to another's VNC port. Recordings (/rec) and the control
+# secret stay with root. Chromium's own sandbox cannot run under Docker's
+# default profile (it needs to create namespaces), so this is the boundary.
+SESSION_UID_BASE = 20000
+VNC_USER = "captivo"
+
+
+def session_uid(display):
+    return SESSION_UID_BASE + display
+
+
+def _session_files(display, home, profile):
+    """Home, profile, X cookie and VNC password file for one session, owned by
+    its user. Returns (xauthority path, VNC password)."""
+    uid = session_uid(display)
+    for d in (home, profile, home + "/.vnc", home + "/Downloads", home + "/tmp"):
+        os.makedirs(d, exist_ok=True)
+    xauth = home + "/.Xauthority"
+    subprocess.run(["xauth", "-q", "-f", xauth, "add", ":%d" % display, ".", secrets.token_hex(16)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    vnc_pw = secrets.token_hex(16)
+    subprocess.run(["kasmvncpasswd", "-u", VNC_USER, "-w", home + "/.kasmpasswd"],
+                   input=("%s\n%s\n" % (vnc_pw, vnc_pw)).encode(), check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for root in (home, profile):
+        for dirpath, dirnames, filenames in os.walk(root):
+            for n in [dirpath] + [os.path.join(dirpath, x) for x in dirnames + filenames]:
+                os.chown(n, uid, uid)
+        os.chmod(root, 0o700)
+    os.chmod(xauth, 0o600)
+    os.chmod(home + "/.kasmpasswd", 0o600)
+    return xauth, vnc_pw
+
+
+def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys_ext=None, xauth=None):
     disp = ":%d" % display
-    env = {**os.environ, "DISPLAY": disp, "HOME": home}
-    os.makedirs(profile, exist_ok=True)
-    os.makedirs(home + "/.vnc", exist_ok=True)
-    os.makedirs(home + "/Downloads", exist_ok=True)
+    uid = session_uid(display)
+    env = {**os.environ, "DISPLAY": disp, "HOME": home, "TMPDIR": home + "/tmp", "USER": "sess%d" % display}
+    if xauth:
+        env["XAUTHORITY"] = xauth
+    as_user = {"user": uid, "group": uid, "extra_groups": []}
     # A SIGKILLed predecessor on this (reused) display can leave a stale X lock +
     # socket, so the new Xvnc refuses to start and then serves a dead/blank display
     # — an intermittent blank-session hang. Clear both before starting.
@@ -112,7 +153,9 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
     xvnc_args = ["Xvnc", disp, "-geometry", "%dx%d" % (w, h), "-depth", "24",
                  "-websocketPort", str(port), "-interface", "0.0.0.0",
                  "-httpd", "/usr/share/kasmvnc/www", "-SecurityTypes", "None",
-                 "-disableBasicAuth", "-AlwaysShared=1", send_cut, accept_cut]
+                 "-AlwaysShared=1", send_cut, accept_cut,
+                 # This session's cookie and websocket password only (see above).
+                 "-auth", xauth or (home + "/.Xauthority"), "-KasmPasswordFile", home + "/.kasmpasswd"]
     if watermark_text:
         # DLP watermark rendered by KasmVNC at the RFB/client layer (appears in the
         # vendor's browser, the admin live view, and any screenshot — NOT the x11grab
@@ -122,15 +165,15 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
         xvnc_args += ["-DLP_WatermarkText=" + wt, "-DLP_WatermarkTextAngle=30",
                       "-DLP_WatermarkRepeatSpace=380", "-DLP_WatermarkFontSize=28",
                       "-DLP_WatermarkTint=255,255,255,45"]
-    xvnc = subprocess.Popen(xvnc_args, env=env)
+    xvnc = subprocess.Popen(xvnc_args, env=env, **as_user)
     time.sleep(1.5)
-    fbox = subprocess.Popen(["fluxbox"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    fbox = subprocess.Popen(["fluxbox"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **as_user)
     # Paint a plain solid background so fluxbox's fbsetbg helper finds a wallpaper
     # setter and stops raising its "I can't find an app to set the wallpaper with"
     # X dialog (briefly visible in the canvas before Chromium kiosk covers it). No
     # brand image here — the app-side ConnectSplash carries the branding.
     subprocess.Popen(["hsetroot", "-solid", "#000000"], env=env,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **as_user)
     chrome_args = [CHROME, "--kiosk", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
                    "--no-first-run", "--no-default-browser-check", "--disable-translate",
                    # Quiet the log in this headless, single-purpose container:
@@ -152,7 +195,7 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
         # Opt-in per Resource: the target uses a self-signed / internal-CA cert.
         chrome_args.append("--ignore-certificate-errors")
     chrome_args.append(url)
-    chrome = subprocess.Popen(chrome_args, env=env)
+    chrome = subprocess.Popen(chrome_args, env=env, **as_user)
     return [xvnc, fbox, chrome]
 
 
@@ -167,6 +210,12 @@ def _kill(sess):
     rec_proc = sess.get("rec_proc")
     if rec_proc is not None and rec_proc.poll() is None:
         rec_proc.kill()
+    # Anything the session's user still runs (a Chromium helper that outlived its
+    # parent): the uid is reused by the next session on this display, which must
+    # not inherit a process that can read its files.
+    if "display" in sess:
+        subprocess.run(["pkill", "-KILL", "-u", str(session_uid(sess["display"]))],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     shutil.rmtree(sess["profile"], ignore_errors=True)
     shutil.rmtree(sess["home"], ignore_errors=True)
     rec_file = sess.get("rec_file")
@@ -201,21 +250,34 @@ def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", inse
         sid = "s%d-%d" % (int(time.time()), _seq["n"])
         profile = "/profiles/" + sid
         home = "/sess/" + sid
+        # Leftovers of an earlier session on this display's uid go first.
+        subprocess.run(["pkill", "-KILL", "-u", str(session_uid(display))],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            xauth, vnc_pw = _session_files(display, home, profile)
+        except (OSError, subprocess.CalledProcessError) as e:
+            log("session %s refused: could not prepare its user files (%s)" % (sid, e))
+            return None
         session_ext = None
         keys_token = secrets.token_hex(16)
         if os.path.isdir(SESSION_EXT_SRC):
             try:
                 session_ext = _prepare_session_ext(home, sid, keys, keys_token)
+                for dirpath, dirnames, filenames in os.walk(session_ext):
+                    for n in [dirpath] + [os.path.join(dirpath, x) for x in filenames]:
+                        os.chown(n, session_uid(display), session_uid(display))
             except OSError as e:
                 log("session %s: session extension not prepared (%s)" % (sid, e))
-        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, session_ext)
+        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, session_ext, xauth)
         port = BASE_PORT + display
         _sessions[sid] = {"display": display, "port": port, "procs": procs,
                           "profile": profile, "home": home, "started": time.time(),
                           "w": w, "h": h, "keys": [] if (session_ext and keys) else None,
-                          "keys_token": keys_token}
+                          "keys_token": keys_token, "xauth": xauth}
         log("session %s opened -> %s (%dx%d)" % (sid, url, w, h))
-        return {"id": sid, "port": port}
+        # The data-plane presents this on the session's VNC websocket (its own
+        # and an admin's live view); the vendor never sees it.
+        return {"id": sid, "port": port, "vncAuth": "%s:%s" % (VNC_USER, vnc_pw)}
 
 
 def close_session(sid):
@@ -246,8 +308,11 @@ def _ffmpeg_args(display, recfile, w=1280, h=800):
             "[f=webm:onfail=ignore]pipe:1|[f=webm]" + recfile]
 
 
-def _ffmpeg_capture(display, recfile, w=1280, h=800):
-    return subprocess.Popen(_ffmpeg_args(display, recfile, w, h),
+def _ffmpeg_capture(display, recfile, w=1280, h=800, xauth=None):
+    # Runs as root (the recording must not be readable by the session's user),
+    # presenting the session's X cookie.
+    env = {**os.environ, "XAUTHORITY": xauth} if xauth else None
+    return subprocess.Popen(_ffmpeg_args(display, recfile, w, h), env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
 
@@ -335,10 +400,11 @@ class H(BaseHTTPRequestHandler):
                 display = sess["display"] if sess else None
                 rec_w = sess.get("w", 1280) if sess else 1280
                 rec_h = sess.get("h", 800) if sess else 800
+                rec_xauth = sess.get("xauth") if sess else None
             if display is None:
                 return self._json(404, {"error": "not_found"})
             recfile = "/rec/" + sid + ".webm"
-            proc = _ffmpeg_capture(display, recfile, rec_w, rec_h)
+            proc = _ffmpeg_capture(display, recfile, rec_w, rec_h, rec_xauth)
             with _lock:
                 s = _sessions.get(sid)
                 if s is not None:
@@ -526,6 +592,7 @@ class H(BaseHTTPRequestHandler):
             with _lock:
                 sess = _sessions.get(sid)
                 home = sess["home"] if sess else None
+                uid = session_uid(sess["display"]) if sess else None
             if home is None:
                 return self._json(404, {"error": "not_found"})
             name = _safe_name(self.headers.get("X-Filename", ""))
@@ -544,6 +611,9 @@ class H(BaseHTTPRequestHandler):
                             break
                         f.write(chunk)
                         remaining -= len(chunk)
+                # The session's own user opens it from Chromium's file picker.
+                os.chown(dest, uid, uid)
+                os.chmod(dest, 0o600)
             except OSError:
                 return self._json(500, {"error": "write_failed"})
             return self._json(201, {"ok": True, "name": name})

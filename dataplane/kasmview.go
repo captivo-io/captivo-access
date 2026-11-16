@@ -47,7 +47,7 @@ func serveKasmView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	connectorID, kasmAddr, kasmPort := ls.kasmAttach()
+	connectorID, kasmAddr, kasmPort, vncAuth := ls.kasmAttach()
 	if kasmAddr == "" {
 		http.Error(w, "not an isolated session", http.StatusConflict)
 		return
@@ -75,5 +75,6 @@ func serveKasmView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 	if r.URL.Path == "" {
 		r.URL.Path = "/"
 	}
+	setKasmVNCAuth(r, backendAddr != kasmAddr, vncAuth)
 	proxy.ServeHTTP(w, r)
 }

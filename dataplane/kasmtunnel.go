@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -61,7 +62,7 @@ func clampKasmDim(v, lo, hi, def int) int {
 	return v
 }
 
-func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool) (id string, port, status int, err error) {
+func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool) (id string, port, status int, vncAuth string, err error) {
 	body := `{"url":` + jsonQuoteKasm(target) +
 		`,"copyOut":` + strconv.FormatBool(copyOut) +
 		`,"pasteIn":` + strconv.FormatBool(pasteIn) +
@@ -76,25 +77,26 @@ func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, paste
 		"Content-Length: " + strconv.Itoa(len(body)) + "\r\n" +
 		"Connection: close\r\n\r\n" + body
 	if _, err = io.WriteString(rw, req); err != nil {
-		return "", 0, 0, err
+		return "", 0, 0, "", err
 	}
 	resp, rerr := http.ReadResponse(bufio.NewReader(rw), nil)
 	if rerr != nil {
-		return "", 0, 0, rerr
+		return "", 0, 0, "", rerr
 	}
 	defer resp.Body.Close()
 	status = resp.StatusCode
 	if status/100 != 2 {
-		return "", 0, status, nil
+		return "", 0, status, "", nil
 	}
 	var out struct {
-		ID   string `json:"id"`
-		Port int    `json:"port"`
+		ID      string `json:"id"`
+		Port    int    `json:"port"`
+		VNCAuth string `json:"vncAuth"`
 	}
 	if derr := json.NewDecoder(resp.Body).Decode(&out); derr != nil {
-		return "", 0, status, derr
+		return "", 0, status, "", derr
 	}
-	return out.ID, out.Port, status, nil
+	return out.ID, out.Port, status, out.VNCAuth, nil
 }
 
 // pullKasmKeys reads the typed-input events the broker gathered for a session.
@@ -255,6 +257,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	// identical for every session, so they go to the always-on hub. Only the live
 	// RFB-over-WebSocket needs a per-session Xvnc.
 	backendAddr := d.KasmAddr
+	var vncAuth string // this session's VNC websocket password (kasm-browser/control.py)
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		// A WebSocket upgrade IS the session boundary. Open a fresh per-session
 		// browser via the broker and proxy this WS to its port; close it when the
@@ -265,7 +268,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		if st, e := dialGuacd(sess, d.KasmControlAddr); e == nil {
 			cw := clampKasmDim(kasmW, 360, 2560, 1280)
 			ch := clampKasmDim(kasmH, 480, 1600, 800)
-			id, port, status, e = openKasmSession(st, d.KasmControlAddr, kasmAuth(sess), d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging)
+			id, port, status, vncAuth, e = openKasmSession(st, d.KasmControlAddr, kasmAuth(sess), d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging)
 			st.Close()
 			if e != nil {
 				http.Error(w, "isolated browser unavailable", http.StatusBadGateway)
@@ -388,7 +391,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// the deferred broker close above (killing Xvnc/Chromium) — terminate reuses
 		// the normal teardown path.
 		sessionID := newSessionID()
-		hub.RegisterIsolated(sessionID, siteID, userID, d.NavigateUrl, time.Now(), d.ConnectorID, d.KasmAddr, port, id, d.KasmControlAddr, d.FileTransferMode)
+		hub.RegisterIsolated(sessionID, siteID, userID, d.NavigateUrl, time.Now(), d.ConnectorID, d.KasmAddr, port, id, d.KasmControlAddr, d.FileTransferMode, vncAuth)
 		hub.SetCloser(sessionID, func() {
 			connMu.Lock()
 			c := backendConn
@@ -423,5 +426,18 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	if r.URL.Path == "" {
 		r.URL.Path = "/"
 	}
+	setKasmVNCAuth(r, backendAddr != d.KasmAddr, vncAuth)
 	proxy.ServeHTTP(w, r)
+}
+
+// setKasmVNCAuth prepares a request for KasmVNC. Whatever Authorization the
+// browser sent is dropped; a request for a session's own display (its RFB
+// websocket) carries that session's password, which only the broker and this
+// data-plane know -- neither the vendor nor a page in another isolated session
+// can attach to it. The hub's static web client needs none.
+func setKasmVNCAuth(r *http.Request, toSession bool, vncAuth string) {
+	r.Header.Del("Authorization")
+	if toSession && vncAuth != "" {
+		r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(vncAuth)))
+	}
 }

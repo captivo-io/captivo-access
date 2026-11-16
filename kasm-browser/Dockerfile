@@ -13,6 +13,9 @@ COPY kasm-browser/entrypoint.sh /entrypoint.sh
 COPY kasm-browser/session-ext /session-ext
 COPY kasm-browser/policy.json /captivo-policy.json
 RUN chmod +x /entrypoint.sh /control.py
+# One user per session display (control.py: SESSION_UID_BASE + display); no
+# login shell, no home of their own (control.py makes a 0700 one per session).
+RUN for d in $(seq 2 129); do useradd -M -d /nonexistent -s /usr/sbin/nologin -u $((20000 + d)) "sess$d"; done
 EXPOSE 6901 7900
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["/entrypoint.sh"]

@@ -14,15 +14,27 @@ rm -f /tmp/.X11-unix/X* 2>/dev/null || true
 # Its display is never rendered to (no window manager, no browser) — only
 # per-session Xvnc instances carry live displays. The data-plane routes only the
 # web client here; each live RFB-over-WebSocket goes to a per-session port.
+# Its X display takes a root-only cookie, so no session user can open it.
+xauth -q -f /root/.hub-xauth add :1 . "$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+chmod 600 /root/.hub-xauth
 Xvnc :1 -geometry 1280x800 -depth 24 -websocketPort 6901 -interface 0.0.0.0 \
-  -httpd /usr/share/kasmvnc/www -SecurityTypes None -disableBasicAuth &
+  -httpd /usr/share/kasmvnc/www -SecurityTypes None -disableBasicAuth -auth /root/.hub-xauth &
 sleep 2
 mkdir -p /kasmlog
 # The control service's shared secret (control.py, read by the connector from
 # the same volume). Generated once per install and kept across updates.
 mkdir -p /secret
 [ -s /secret/token ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > /secret/token
-chmod 644 /secret/token
+# Readable by root here and by the connector (uid 10001, same volume), not by
+# the session users isolated browsers run as.
+chown 10001:10001 /secret/token
+chmod 400 /secret/token
+chmod 711 /secret
+# Sessions' homes, profiles and recordings: each session's own directories are
+# 0700 to its user (control.py); these parents must not list them.
+mkdir -p /sess /profiles /rec
+chmod 711 /sess /profiles
+chmod 700 /rec
 # Chromium policy (kasm-browser/policy.json): no file://, chrome://, devtools
 # or incognito, and nothing on this container or its neighbours -- including
 # this container's own addresses, added here because only now are they known.

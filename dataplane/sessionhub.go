@@ -37,6 +37,7 @@ type liveSession struct {
 	kasmAddr                           string
 	kasmPort                           int
 	brokerSID, kasmControlAddr, ftMode string
+	vncAuth                            string // the session's VNC websocket password (isolated)
 
 	mu           sync.Mutex
 	controlOwner string // userID holding control, or "" for the vendor
@@ -50,10 +51,10 @@ func (ls *liveSession) shareInfo() (string, string, string) {
 	return ls.connID, ls.connectorID, ls.guacdAddr
 }
 
-func (ls *liveSession) kasmAttach() (string, string, int) {
+func (ls *liveSession) kasmAttach() (string, string, int, string) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
-	return ls.connectorID, ls.kasmAddr, ls.kasmPort
+	return ls.connectorID, ls.kasmAddr, ls.kasmPort, ls.vncAuth
 }
 
 func (ls *liveSession) addViewer() {
@@ -129,12 +130,13 @@ func (h *SessionHub) Register(sessionID, siteID, userID, protocol, host string, 
 // RegisterIsolated adds an ISOLATED (KasmVNC) session. It has no guacd
 // connID/guacdAddr — viewers attach to the per-session Xvnc instead (Slice 2) — so
 // only the fields the console list + terminate need are set.
-func (h *SessionHub) RegisterIsolated(sessionID, siteID, userID, host string, startedAt time.Time, connectorID, kasmAddr string, kasmPort int, brokerSID, kasmControlAddr, fileTransferMode string) *liveSession {
+func (h *SessionHub) RegisterIsolated(sessionID, siteID, userID, host string, startedAt time.Time, connectorID, kasmAddr string, kasmPort int, brokerSID, kasmControlAddr, fileTransferMode, vncAuth string) *liveSession {
 	ls := &liveSession{
 		id: sessionID, siteID: siteID, userID: userID, protocol: "isolated", host: host,
 		kind:      "isolated",
 		startedAt: startedAt, connectorID: connectorID, kasmAddr: kasmAddr, kasmPort: kasmPort,
 		brokerSID: brokerSID, kasmControlAddr: kasmControlAddr, ftMode: fileTransferMode,
+		vncAuth: vncAuth,
 	}
 	h.mu.Lock()
 	h.m[sessionID] = ls
