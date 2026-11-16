@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { encrypt, decrypt } from "@/lib/crypto";
-import { readPlatformOidc, pickOidcSource } from "./oidc-source";
+import { readPlatformOidc, pickOidcSource, isPlatformIssuer } from "./oidc-source";
 
 
 export type OidcConfigView = {
@@ -79,6 +79,41 @@ export async function getOidcSecret(): Promise<string | null> {
   if (source.kind === "none") return null;
   if (!c || !c.clientSecret) return null;
   return decrypt(c.clientSecret);
+}
+
+/**
+ * The tenant's OWN provider row as stored, whatever pickOidcSource makes of
+ * it -- the SSO page shows this, never Captivo ID's values. Before, the page
+ * was filled from getOidcConfig(), which answers with Captivo ID when the
+ * tenant has no row of its own, so pressing Save copied Captivo ID's issuer
+ * and client ID into a tenant row without a secret.
+ */
+export async function getOwnOidcConfig(): Promise<(OidcConfigView & { ignored: boolean }) | null> {
+  let c;
+  try {
+    c = await db.oidcConfig.findUnique({ where: { tenantId: currentTenantId() } });
+  } catch {
+    return null;
+  }
+  if (!c) return null;
+  return {
+    isPlatform: false,
+    enabled: c.enabled,
+    issuer: c.issuer,
+    clientId: c.clientId,
+    buttonLabel: c.buttonLabel,
+    hasSecret: c.clientSecret.length > 0,
+    lastVerifiedAt: c.lastVerifiedAt,
+    lastVerifiedOk: c.lastVerifiedOk,
+    lastVerifiedDetail: c.lastVerifiedDetail,
+    ignored: isPlatformIssuer(c.issuer, readPlatformOidc(process.env)),
+  };
+}
+
+/** Drop the tenant's own provider: sign-in goes back to Captivo ID (on Cloud) or to passkeys. */
+export async function deleteOidcConfig(): Promise<boolean> {
+  const r = await db.oidcConfig.deleteMany({ where: { tenantId: currentTenantId() } });
+  return r.count > 0;
 }
 
 export async function saveOidcConfig(input: {

@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { requireCapability } from "@/lib/current-user";
-import { getOidcConfig } from "@/lib/auth/oidc-config";
+import { getOwnOidcConfig } from "@/lib/auth/oidc-config";
+import { readPlatformOidc } from "@/lib/auth/oidc-source";
 import { LastVerified } from "@/app/(app)/_shell/last-verified";
 import { SsoForm } from "./sso-form";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -11,7 +12,11 @@ export const metadata = { title: "Single sign-on" };
 
 async function AdminSsoPageImpl() {
   await requireCapability("configure");
-  const cfg = await getOidcConfig();
+  // The tenant's own row only. Captivo ID's values are never put in the form:
+  // saving them created a secret-less "own" provider that replaced Captivo ID.
+  const own = await getOwnOidcConfig();
+  const cfg = own && !own.ignored ? own : null;
+  const captivoId = readPlatformOidc(process.env) !== null;
 
   // Show the redirect URI to register in the IdP — the same base the OIDC
   // start/callback routes use (on Cloud: this tenant's own console host).
@@ -24,6 +29,15 @@ async function AdminSsoPageImpl() {
     buttonLabel: cfg?.buttonLabel ?? "",
     hasSecret: cfg?.hasSecret ?? false,
   };
+  const status = cfg
+    ? cfg.enabled
+      ? "Users sign in with the provider below."
+      : captivoId
+        ? "Your provider below is switched off, so the login page has no SSO button. Remove it to sign in with Captivo again."
+        : "Your provider below is switched off, so the login page has no SSO button."
+    : captivoId
+      ? "Users sign in with Captivo. Add your own identity provider below only if you want it to replace Captivo."
+      : null;
 
   return (
     <main>
@@ -40,7 +54,8 @@ async function AdminSsoPageImpl() {
       </div>
       <div className="card">
         <LastVerified at={cfg?.lastVerifiedAt ?? null} ok={cfg?.lastVerifiedOk ?? null} detail={cfg?.lastVerifiedDetail ?? null} />
-        <SsoForm initial={initial} />
+        {status && <p className="cell-sub" style={{ marginBottom: "1rem" }}>{status}</p>}
+        <SsoForm initial={initial} canRemove={own !== null} captivoId={captivoId} />
       </div>
     </main>
   );

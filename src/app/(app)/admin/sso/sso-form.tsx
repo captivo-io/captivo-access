@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
+import { useConfirm } from "@/app/(app)/_shell/confirm-dialog";
 
 type Initial = { enabled: boolean; issuer: string; clientId: string; buttonLabel: string; hasSecret: boolean };
 
-export function SsoForm({ initial }: { initial: Initial }) {
+export function SsoForm({ initial, canRemove, captivoId }: { initial: Initial; canRemove: boolean; captivoId: boolean }) {
   const [enabled, setEnabled] = useState(initial.enabled);
   const [issuer, setIssuer] = useState(initial.issuer);
   const [clientId, setClientId] = useState(initial.clientId);
@@ -11,6 +12,7 @@ export function SsoForm({ initial }: { initial: Initial }) {
   const [buttonLabel, setButtonLabel] = useState(initial.buttonLabel);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, dialog } = useConfirm();
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -30,9 +32,26 @@ export function SsoForm({ initial }: { initial: Initial }) {
         const map: Record<string, string> = {
           issuer_client_required: "Issuer and Client ID are required.",
           secret_required: "Add the Client secret before enabling SSO.",
+          captivo_id_issuer: "That is Captivo's own sign-in, which is already used when no provider is set here.",
         };
         setNotice({ kind: "error", msg: map[j.error] ?? "Couldn't save — check the fields." });
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    const msg = captivoId
+      ? "Remove your identity provider? Users will sign in with Captivo again."
+      : "Remove your identity provider? The login page will have no SSO button.";
+    if (!(await confirm(msg, { danger: true }))) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/sso", { method: "DELETE" });
+      if (res.ok) window.location.reload();
+      else setNotice({ kind: "error", msg: "Couldn't remove the provider." });
     } finally {
       setBusy(false);
     }
@@ -63,6 +82,7 @@ export function SsoForm({ initial }: { initial: Initial }) {
 
   return (
     <form onSubmit={save}>
+      {dialog}
       <div className="setting" style={{ marginBottom: "1.1rem" }}>
         <div className="setting-main">
           <div className="setting-label">Enable SSO on the login page</div>
@@ -109,6 +129,7 @@ export function SsoForm({ initial }: { initial: Initial }) {
       <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
         <button type="submit" className="btn primary" disabled={busy}>{busy ? "…" : "Save"}</button>
         <button type="button" className="btn" onClick={test} disabled={busy}>{busy ? "…" : "Test IdP connection"}</button>
+        {canRemove && <button type="button" className="btn danger" onClick={remove} disabled={busy}>{busy ? "…" : "Remove provider"}</button>}
       </div>
     </form>
   );
