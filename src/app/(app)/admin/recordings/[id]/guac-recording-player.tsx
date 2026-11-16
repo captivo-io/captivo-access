@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { KeystrokeTimeline, fmtMs as fmt } from "./keystroke-timeline";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
@@ -10,8 +11,6 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [events, setEvents] = useState<{ atMs: number; kind: string; text: string; masked: boolean }[]>([]);
-  const [q, setQ] = useState("");
 
   useEffect(() => {
     let disposed = false;
@@ -82,14 +81,6 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
     r.seek(atMs, () => setPosition(atMs));
   }
 
-  useEffect(() => {
-    fetch(`/api/admin/recordings/${recordingId}/keyevents`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((e) => setEvents(Array.isArray(e) ? e : []))
-      .catch(() => {});
-  }, [recordingId]);
-
-  const shownEvents = events.filter((e) => !q || e.text.toLowerCase().includes(q.toLowerCase()));
 
   if (error) return <p className="notice error">{error}</p>;
 
@@ -112,26 +103,7 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
         />
         <span className="cell-sub">{fmt(position)} / {fmt(duration)}</span>
       </div>
-      {events.length > 0 && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="card-head"><div className="ch-title"><h2>Timeline</h2><span className="sub">Typed input — click to jump</span></div></div>
-          <input className="input" placeholder="Search commands…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 8 }} />
-          <div style={{ maxHeight: "18rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
-            {shownEvents.map((e, i) => (
-              <button key={i} type="button" className="scp-item" style={{ display: "flex", gap: 10, alignItems: "baseline", width: "100%", textAlign: "left" }} onClick={() => jumpTo(e.atMs)} disabled={!ready}>
-                <span style={{ fontVariantNumeric: "tabular-nums", color: "#94a3b8", flexShrink: 0 }}>{fmt(e.atMs)}</span>
-                <span style={{ fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.text}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <KeystrokeTimeline recordingId={recordingId} onJump={jumpTo} disabled={!ready} />
     </div>
   );
-}
-
-function fmt(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  return `${m}:${String(s % 60).padStart(2, "0")}`;
 }

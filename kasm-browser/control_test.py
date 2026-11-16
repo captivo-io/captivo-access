@@ -85,3 +85,35 @@ if __name__ == "__main__":
     test_clamp_dim_floor()
     test_log_format()
     print("ok")
+
+
+def test_key_events_are_cleaned_and_masked():
+    got = control.clean_key_events([
+        {"atMs": 1000, "text": "Search: invoices", "masked": False},
+        {"atMs": 2000, "text": "hunter2", "masked": True},
+        {"atMs": -1, "text": "bad time"},
+        {"atMs": 3000, "text": 5},
+        "junk",
+    ])
+    assert [e["text"] for e in got] == ["Search: invoices", "••••"]
+    assert control.clean_key_events({"not": "a list"}) == []
+
+
+def test_key_timeline_is_timed_from_the_video_start():
+    events = control.clean_key_events([{"atMs": 1_700_000_005_500, "text": "b"}, {"atMs": 1_700_000_001_000, "text": "a"}])
+    tl = control.keys_timeline(events, 1_700_000_000.0)
+    assert [(e["atMs"], e["text"]) for e in tl] == [(1000, "a"), (5500, "b")]
+    assert all(e["kind"] == "text" for e in tl)
+    # No recording, no timeline to place them on.
+    assert control.keys_timeline(events, None) == []
+
+
+def test_keys_extension_is_loaded_only_when_asked(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(control.subprocess, "Popen", lambda args, **kw: calls.append(args) or type("P", (), {"poll": lambda s: None})())
+    monkeypatch.setattr(control.time, "sleep", lambda s: None)
+    home = str(tmp_path / "home")
+    control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext=None)
+    assert not any(a.startswith("--load-extension") for a in calls[-1])
+    control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext="/sess/s1/keys-ext")
+    assert "--load-extension=/sess/s1/keys-ext" in calls[-1]

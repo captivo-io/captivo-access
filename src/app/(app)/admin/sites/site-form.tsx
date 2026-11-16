@@ -9,6 +9,9 @@ import type { KeystrokeMode } from "@/lib/settings/platform";
 import { recordToggleLock } from "@/lib/recording/mode";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 
+// Access modes whose sessions can log typed input (see lib/keystroke/policy.ts).
+const KEYSTROKE_MODES: string[] = ["GATEWAY", "TRANSPARENT", "ISOLATED"];
+
 function errorMessage(code: string | undefined, isEdit: boolean): string {
   switch (code) {
     case "connector_name_upstream_required":
@@ -570,7 +573,7 @@ export function SiteForm({
           </span>
         </div>
       )}
-      {recordingEnabled && accessMode === "GATEWAY" && effectiveRecord && keystrokeMode !== "off" && (
+      {recordingEnabled && KEYSTROKE_MODES.includes(accessMode) && effectiveRecord && keystrokeMode !== "off" && (
         <div className="field">
           <label className="field-label">
             <input
@@ -583,11 +586,13 @@ export function SiteForm({
             {keystrokeMode === "required" && <span className="hint"> — required by Policy</span>}
           </label>
           <span className="hint">
-            Captures typed input (commands for SSH, text for RDP) as a searchable timeline linked to the recording — click an entry to jump to that moment. Warning: this records typed input, which may include passwords typed into the session.
+            {accessMode === "GATEWAY"
+              ? "Captures typed input (commands for SSH, text for RDP) as a searchable timeline linked to the recording — click an entry to jump to that moment. Warning: this records typed input, which may include passwords typed into the session."
+              : "Captures what is typed into the pages as a searchable timeline linked to the recording — click an entry to jump to that moment. Password, username and one-time-code fields are masked."}
           </span>
         </div>
       )}
-      {recordingEnabled && accessMode === "GATEWAY" && effectiveRecord && keystrokeMode === "off" && (
+      {recordingEnabled && KEYSTROKE_MODES.includes(accessMode) && effectiveRecord && keystrokeMode === "off" && (
         <div className="field">
           <span className="hint">Keystroke logging is disabled in Policy.</span>
         </div>

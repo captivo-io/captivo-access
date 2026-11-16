@@ -146,8 +146,10 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 // routed to. If the control plane has no site for host, it returns
 // ErrNoSite. recordSessions reports whether session recording is enabled for
 // this site (see Site.recordSessions). gateway reports whether the site's
-// accessMode is GATEWAY (see setGatewayIdentity in browserproxy.go).
-func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark bool, err error) {
+// accessMode is GATEWAY (see setGatewayIdentity in browserproxy.go). keystrokes
+// reports whether typed input is logged too (the tenant keystroke mode applied
+// to this site; only ever true while recordSessions is).
+func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, keystrokes bool, err error) {
 	var out struct {
 		SiteID             string `json:"siteId"`
 		ConnectorID        string `json:"connectorId"`
@@ -159,14 +161,15 @@ func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, tenantID, 
 		AccessMode         string `json:"accessMode"`
 		ConsentRequired    bool   `json:"recordingConsentRequired"`
 		Watermark          bool   `json:"watermark"`
+		KeystrokeLogging   bool   `json:"keystrokeLogging"`
 	}
 	if err := c.post("/api/internal/site/by-host", map[string]string{"host": host}, &out); err != nil {
 		if he, ok := err.(*httpError); ok && he.code == http.StatusNotFound {
-			return "", "", "", "", "", false, false, false, false, false, ErrNoSite
+			return "", "", "", "", "", false, false, false, false, false, false, ErrNoSite
 		}
-		return "", "", "", "", "", false, false, false, false, false, err
+		return "", "", "", "", "", false, false, false, false, false, false, err
 	}
-	return out.SiteID, out.ConnectorID, out.TenantID, out.UpstreamUrl, out.ClipboardMode, out.InsecureSkipVerify, out.RecordSessions, out.AccessMode == "GATEWAY", out.ConsentRequired, out.Watermark, nil
+	return out.SiteID, out.ConnectorID, out.TenantID, out.UpstreamUrl, out.ClipboardMode, out.InsecureSkipVerify, out.RecordSessions, out.AccessMode == "GATEWAY", out.ConsentRequired, out.Watermark, out.RecordSessions && out.KeystrokeLogging, nil
 }
 
 // RecorderJS returns the rrweb recorder bundle served by the control plane

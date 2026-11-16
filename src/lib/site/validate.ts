@@ -17,6 +17,7 @@ export type SiteValidation =
       insecureSkipVerify: boolean;
       clipboardMode: string | null;
       recordSessions: boolean;
+      keystrokeLogging: boolean;
     }
   | {
       ok: true;
@@ -42,6 +43,7 @@ export type SiteValidation =
       upstreamUrl: string;
       insecureSkipVerify: boolean;
       recordSessions: boolean;
+      keystrokeLogging: boolean;
       clipboardMode: string | null;
       watermark: boolean | null;
       fileTransferMode: string;
@@ -78,6 +80,7 @@ export function validateSiteInput(
       ok: true, mode: "ISOLATED", connectorId, name, description, upstreamUrl,
       insecureSkipVerify: body.insecureSkipVerify === true,
       recordSessions: opts.recordingEnabled && body.recordSessions === true,
+      keystrokeLogging: opts.recordingEnabled && body.recordSessions === true && body.keystrokeLogging === true,
       clipboardMode: CLIP.includes(clip) ? clip : null,
       watermark: body.watermark === true ? true : body.watermark === false ? false : null,
       fileTransferMode: FT.includes(ft) ? ft : "none",
@@ -155,5 +158,6 @@ export function validateSiteInput(
     insecureSkipVerify: body.insecureSkipVerify === true,
     clipboardMode,
     recordSessions,
+    keystrokeLogging: recordSessions && body.keystrokeLogging === true,
   };
 }

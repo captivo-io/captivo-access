@@ -72,6 +72,13 @@ async function handler(req: NextRequest) {
       watermarkText,
       fileTransferMode: site.fileTransferMode,
       insecureSkipVerify: site.insecureSkipVerify,
+      // Typed input in the isolated browser, masked there for credential fields.
+      keystrokeLogging: effectiveKeystrokeLogging({
+        mode: await resolvedKeystrokeLoggingMode(),
+        recordingEnabled: recordingEnabled(),
+        recordSessions: site.recordSessions,
+        siteFlag: site.keystrokeLogging,
+      }),
     });
   }
 
