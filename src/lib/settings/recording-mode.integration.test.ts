@@ -43,6 +43,8 @@ function settingsWith(recordingMode: string | null) {
     notifyAccessDecisions: null,
     requireRequestJustification: null,
     keystrokeLoggingMode: null,
+    isolatedEgressDefault: null,
+    isolatedFileTransferDefault: null,
     recordingMode,
   };
 }

@@ -14,6 +14,12 @@ describe("isolated network rule", () => {
     });
   });
 
+  it("a resource that inherits takes the Policy's mode", () => {
+    const s = { egressMode: null, egressHosts: [], createdAt: after, upstreamUrl: "https://crm.local" };
+    expect(effectiveEgress(s, now, "strict").mode).toBe("strict");
+    expect(effectiveEgress({ ...s, egressMode: "open" }, now, "strict").mode).toBe("open");
+  });
+
   it("defaults to the internet but not the internal network", () => {
     expect(effectiveEgress({ egressMode: null, egressHosts: [], createdAt: after, upstreamUrl: "http://10.0.0.20/" }, now)).toEqual({ mode: "internet", hosts: ["10.0.0.20"], reportOnly: false });
   });

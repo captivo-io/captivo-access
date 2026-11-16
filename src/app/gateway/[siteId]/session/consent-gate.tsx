@@ -4,7 +4,7 @@ import { GatewaySession } from "./session-client";
 import type { GatewayProtocol } from "@/lib/gateway/paste-keys";
 import { IsolatedSession } from "./isolated-client";
 
-export function ConsentGate({ accessMode, siteId, siteName, recorded, clipboardMode, fileTransferMode, protocol }: { accessMode: "GATEWAY" | "ISOLATED"; siteId: string; siteName: string; recorded: boolean; clipboardMode: string; fileTransferMode: string; protocol?: GatewayProtocol }) {
+export function ConsentGate({ accessMode, siteId, siteName, recorded, clipboardMode, fileTransferMode, protocol, watermarkText = null }: { accessMode: "GATEWAY" | "ISOLATED"; siteId: string; siteName: string; recorded: boolean; clipboardMode: string; fileTransferMode: string; protocol?: GatewayProtocol; watermarkText?: string | null }) {
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +21,7 @@ export function ConsentGate({ accessMode, siteId, siteName, recorded, clipboardM
   if (accepted) {
     return accessMode === "ISOLATED"
       ? <IsolatedSession siteId={siteId} siteName={siteName} recorded={recorded} fileTransferMode={fileTransferMode} />
-      : <GatewaySession siteId={siteId} siteName={siteName} recorded={recorded} clipboardMode={clipboardMode} protocol={protocol} />;
+      : <GatewaySession siteId={siteId} siteName={siteName} recorded={recorded} clipboardMode={clipboardMode} protocol={protocol} watermarkText={watermarkText} />;
   }
 
   return (

@@ -22,6 +22,8 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
   const [consent, setConsent] = useState(consentEffective);
   const [watermark, setWatermark] = useState(initial.watermarkDefault ?? watermarkEffective ?? false);
   const [clipboardDefault, setClipboardDefault] = useState(initial.clipboardDefault ?? "allow");
+  const [egressDefault, setEgressDefault] = useState(initial.isolatedEgressDefault ?? "internet");
+  const [ftDefault, setFtDefault] = useState(initial.isolatedFileTransferDefault ?? "none");
   const [ksMode, setKsMode] = useState(initial.keystrokeLoggingMode ?? "per_resource");
   const [recMode, setRecMode] = useState(initial.recordingMode ?? recordingModeEffective ?? "per_resource");
   const [tz, setTz] = useState(initial.displayTimezone ?? "");
@@ -68,6 +70,8 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
         recordingConsentRequired: consent,
         watermarkDefault: watermark,
         clipboardDefault,
+        isolatedEgressDefault: egressDefault,
+        isolatedFileTransferDefault: ftDefault,
         keystrokeLoggingMode: ksMode,
         recordingMode: recMode,
         displayTimezone: tz || null,
@@ -187,6 +191,19 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
               <textarea className="textarea" rows={2} value={ipAllow} onChange={(e) => setIpAllow(e.target.value)} placeholder="203.0.113.0/24, 198.51.100.10, 2001:db8::/32" />
             </div>
           </div>
+          <div className="setting">
+            <div className="setting-main">
+              <div className="setting-label">Isolated browser network access</div>
+              <div className="setting-hint">For isolated-browser resources set to <b>Inherit</b>: what the browser may reach besides the resource itself (always allowed, inside your network or not). Hosts a resource needs are listed on its own form, which can also override this.</div>
+            </div>
+            <div className="setting-ctl">
+              <select id="policy-egress" className="select" value={egressDefault} onChange={(e) => setEgressDefault(e.target.value)}>
+                <option value="internet">The resource and the internet, not the rest of the internal network</option>
+                <option value="strict">Only the resource and its listed hosts</option>
+                <option value="open">Unrestricted</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -218,7 +235,7 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
           <div className="setting">
             <div className="setting-main">
               <div className="setting-label">Screen watermark</div>
-              <div className="setting-hint">Default for Isolated Browser sessions: overlay each session with the vendor&apos;s email + a live clock, visible on their screen and in any screenshot or photo (deters + attributes leaks). A resource can override this on its own form.</div>
+              <div className="setting-hint">Default for every resource: overlay the session with the vendor&apos;s email + a live clock, visible on their screen and in any screenshot or photo (deters + attributes leaks). Drawn into the picture for isolated browsers; laid over the page for web apps and remote desktops. A resource can override this on its own form.</div>
             </div>
             <div className="setting-ctl">
               <label className="switch"><input type="checkbox" checked={watermark} onChange={(e) => setWatermark(e.target.checked)} /><span className="track" /></label>
@@ -227,7 +244,7 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
           <div className="setting">
             <div className="setting-main">
               <div className="setting-label">Default clipboard policy</div>
-              <div className="setting-hint">Applied to resources set to <b>Inherit</b> (copy/paste between the vendor and the remote desktop or isolated browser). Per-resource overrides win. <b>Allow</b> keeps the current behavior.</div>
+              <div className="setting-hint">Applied to resources set to <b>Inherit</b>: copy/paste between the vendor and the web app, remote desktop or isolated browser. Per-resource overrides win. In web apps it is a deterrent (an injected script); in remote desktops and isolated browsers it is enforced server-side.</div>
             </div>
             <div className="setting-ctl">
               <select id="policy-clipboard" className="select" value={clipboardDefault} onChange={(e) => setClipboardDefault(e.target.value)}>
@@ -240,8 +257,22 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
           </div>
           <div className="setting">
             <div className="setting-main">
+              <div className="setting-label">Isolated browser file transfer</div>
+              <div className="setting-hint">For isolated-browser resources set to <b>Inherit</b>: whether vendors may upload files into the browser and download what it saves. Enforced server-side; every transfer is audited. Remote-desktop file transfer (drive, SFTP) is set under Remote-desktop defaults.</div>
+            </div>
+            <div className="setting-ctl">
+              <select id="policy-filetransfer" className="select" value={ftDefault} onChange={(e) => setFtDefault(e.target.value)}>
+                <option value="none">Off</option>
+                <option value="allow">Upload &amp; download</option>
+                <option value="no_download">Upload only</option>
+                <option value="no_upload">Download only</option>
+              </select>
+            </div>
+          </div>
+          <div className="setting">
+            <div className="setting-main">
               <div className="setting-label">Keystroke logging</div>
-              <div className="setting-hint">Governs the SSH/RDP keystroke timeline for gateway sessions. Applies only to sessions where recording is enabled. <b>Per resource</b> lets each resource decide; <b>Required</b> forces it on for every recorded gateway session (a resource cannot turn it off).</div>
+              <div className="setting-hint">Governs the keystroke timeline for every kind of resource: commands and text typed into remote desktops, and what is typed into web apps and isolated browsers (password, username and one-time-code fields masked there). Applies only to recorded sessions. <b>Per resource</b> lets each resource decide; <b>Required</b> forces it on for every recorded session (a resource cannot turn it off).</div>
             </div>
             <div className="setting-ctl">
               <select className="select" value={ksMode} onChange={(e) => setKsMode(e.target.value)} aria-label="Keystroke logging mode">

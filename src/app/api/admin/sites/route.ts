@@ -8,7 +8,6 @@ import { isolationEnabled } from "@/lib/isolation/enabled";
 import { storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
-import { DEFAULT_EGRESS_MODE } from "@/lib/isolation/egress";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { crossTenantHostnameTaken } from "@/lib/site/hostname";
 import { capabilityAllowed, assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
@@ -82,7 +81,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     const site = await db.site.create({
       data: {
         connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description,
-        insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, egressMode: v.egressMode ?? DEFAULT_EGRESS_MODE, egressHosts: v.egressHosts ?? [], accessMode: "ISOLATED", ...logoData,
+        insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, egressMode: v.egressMode ?? null, egressHosts: v.egressHosts ?? [], accessMode: "ISOLATED", ...logoData,
       },
       select: { id: true },
     });

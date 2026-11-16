@@ -289,8 +289,8 @@ model Site {
   keystrokeLogging   Boolean       @default(false) // GATEWAY: capture typed input into a keystroke timeline
   clipboardMode      String?       // null = inherit PlatformSettings.clipboardDefault; else allow | no_copy | no_paste | none (web via proxy; gateway via guacd disable-copy/disable-paste)
   watermark          Boolean?      // isolated DLP watermark; null = inherit the global watermarkDefault
-  fileTransferMode   String        @default("none") // allow | no_upload | no_download | none (ISOLATED only)
-  egressMode         String?       // ISOLATED network rule: internet | strict | open; null = not chosen (src/lib/isolation/egress.ts)
+  fileTransferMode   String?       @default("none") // allow | no_upload | no_download | none (ISOLATED only); null = inherit PlatformSettings.isolatedFileTransferDefault
+  egressMode         String?       // ISOLATED network rule: internet | strict | open; null = inherit PlatformSettings.isolatedEgressDefault (src/lib/isolation/egress.ts)
   egressHosts        String[]      @default([]) // hosts the isolated browser may always reach, besides the resource
   accessMode         SiteAccessMode @default(TRANSPARENT)
   logo               Bytes?
@@ -619,6 +619,8 @@ model PlatformSettings {
   keystrokeLoggingMode  String? // tenant-wide keystroke logging: "off" | "per_resource" | "required"; null → per_resource
   recordingMode String? // null = env/default → "per_resource"; one of off|per_resource|required
   guacParamDefaults     Json? // global default Guacamole connection params (validated allowlist)
+  isolatedEgressDefault String? // network access for isolated resources that inherit: internet | strict | open; null → internet
+  isolatedFileTransferDefault String? // file transfer for isolated resources that inherit: allow | no_upload | no_download | none; null → none
   updatedAt              DateTime @updatedAt
 }
 

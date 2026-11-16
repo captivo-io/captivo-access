@@ -48,8 +48,8 @@ export type SiteValidation =
       keystrokeLogging: boolean;
       clipboardMode: string | null;
       watermark: boolean | null;
-      fileTransferMode: string;
-      egressMode: EgressMode | undefined; // undefined = leave as it is
+      fileTransferMode: string | null; // null = inherit the Policy default
+      egressMode: EgressMode | null | undefined; // null = inherit the Policy default; undefined = leave as it is
       egressHosts: string[] | undefined;
     }
   | { ok: false; error: string };
@@ -80,7 +80,7 @@ export function validateSiteInput(
     } catch { return { ok: false, error: "invalid_upstream_url" }; }
     const clip = str(body.clipboardMode);
     const ft = str(body.fileTransferMode);
-    if (body.egressMode !== undefined && body.egressMode !== null && !isEgressMode(body.egressMode)) return { ok: false, error: "invalid_egress_mode" };
+    if (body.egressMode !== undefined && body.egressMode !== null && body.egressMode !== "inherit" && !isEgressMode(body.egressMode)) return { ok: false, error: "invalid_egress_mode" };
     const egressHosts = body.egressHosts === undefined ? undefined : parseEgressHosts(body.egressHosts);
     if (egressHosts === null) return { ok: false, error: "invalid_egress_hosts" };
     return {
@@ -90,8 +90,8 @@ export function validateSiteInput(
       keystrokeLogging: opts.recordingEnabled && body.recordSessions === true && body.keystrokeLogging === true,
       clipboardMode: CLIP.includes(clip) ? clip : null,
       watermark: body.watermark === true ? true : body.watermark === false ? false : null,
-      fileTransferMode: FT.includes(ft) ? ft : "none",
-      egressMode: isEgressMode(body.egressMode) ? body.egressMode : undefined,
+      fileTransferMode: FT.includes(ft) ? ft : null,
+      egressMode: isEgressMode(body.egressMode) ? body.egressMode : body.egressMode === "inherit" ? null : undefined,
       egressHosts,
     };
   }

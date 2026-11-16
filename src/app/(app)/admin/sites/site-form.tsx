@@ -12,6 +12,8 @@ import { LocalTime } from "@/app/(app)/_shell/local-time";
 
 // Access modes whose sessions can log typed input (see lib/keystroke/policy.ts).
 const KEYSTROKE_MODES: string[] = ["GATEWAY", "TRANSPARENT", "ISOLATED"];
+const FT_LABEL: Record<string, string> = { none: "Off", allow: "Upload & download", no_download: "Upload only", no_upload: "Download only" };
+const EGRESS_LABEL: Record<string, string> = { internet: "This resource and the internet", strict: "Only this resource and listed hosts", open: "Unrestricted" };
 
 function errorMessage(code: string | undefined, isEdit: boolean): string {
   switch (code) {
@@ -67,7 +69,7 @@ type SiteInitial = {
   keystrokeLogging?: boolean;
   clipboardMode: string | null;
   watermark?: boolean | null;
-  fileTransferMode?: string;
+  fileTransferMode?: string | null;
   egressMode?: string | null;
   egressHosts?: string[];
   egressReportOnlyUntil?: string | null; // ISO date while the rule only records
@@ -94,6 +96,8 @@ export function SiteForm({
   guacDefaults = {},
   clipboardDefault = "allow",
   watermarkDefault = false,
+  egressDefault = "internet",
+  fileTransferDefault = "none",
   nativeGateway = false,
   isolationEnabled = false,
   hostSuffix = null,
@@ -109,6 +113,8 @@ export function SiteForm({
   guacDefaults?: GuacParams; // resolved Policy defaults, so "Inherit" shows the effective value
   clipboardDefault?: string; // resolved Policy clipboard default (allow | no_copy | no_paste | none)
   watermarkDefault?: boolean; // resolved Policy watermark default
+  egressDefault?: string; // resolved Policy network access for isolated resources
+  fileTransferDefault?: string; // resolved Policy file transfer for isolated resources
   nativeGateway?: boolean;
   isolationEnabled?: boolean;
   hostSuffix?: string | null;
@@ -142,10 +148,9 @@ export function SiteForm({
   const [watermark, setWatermark] = useState<"inherit" | "on" | "off">(
     site?.watermark == null ? "inherit" : site.watermark ? "on" : "off",
   );
-  const [fileTransferMode, setFileTransferMode] = useState(site?.fileTransferMode ?? "none");
-  // Sent only when chosen: an existing resource that never chose stays in
-  // report-only until the date shown, rather than being switched by an unrelated save.
-  const [egressMode, setEgressMode] = useState<string | null>(site ? (site.egressMode ?? null) : "internet");
+  // "inherit" = follow Policy (stored as null), like clipboard and watermark.
+  const [fileTransferMode, setFileTransferMode] = useState(site ? (site.fileTransferMode ?? "inherit") : "inherit");
+  const [egressMode, setEgressMode] = useState(site?.egressMode ?? "inherit");
   const [egressHosts, setEgressHosts] = useState((site?.egressHosts ?? []).join("\n"));
   const [accessMode, setAccessMode] = useState<"TRANSPARENT" | "GATEWAY" | "ISOLATED">(site?.accessMode ?? "TRANSPARENT");
   // Remote-desktop (GATEWAY) target — seeded from the site's vault credential; the
@@ -521,27 +526,20 @@ export function SiteForm({
             </select>
           </div>
           <div className="field">
-            <label className="field-label" htmlFor="site-watermark">Screen watermark</label>
-            <select id="site-watermark" className="select" value={watermark} onChange={(e) => setWatermark(e.target.value as "inherit" | "on" | "off")}>
-              <option value="inherit">Inherit policy ({watermarkDefault ? "On" : "Off"})</option>
-              <option value="on">On (email + live clock)</option>
-              <option value="off">Off</option>
-            </select>
-            <span className="hint">Rendered by the isolated browser (KasmVNC) — the vendor&apos;s email and a live clock overlay every screen, visible in any screenshot or photo (deters and attributes leaks).</span>
-          </div>
-          <div className="field">
             <label className="field-label" htmlFor="site-filetransfer">File transfer</label>
             <select id="site-filetransfer" className="select" value={fileTransferMode} onChange={(e) => setFileTransferMode(e.target.value)}>
+              <option value="inherit">Inherit policy ({FT_LABEL[fileTransferDefault] ?? fileTransferDefault})</option>
               <option value="none">Off (no file transfer)</option>
               <option value="allow">Upload &amp; download</option>
               <option value="no_download">Upload only</option>
               <option value="no_upload">Download only</option>
             </select>
-            <span className="hint">Move files between the vendor and the isolated browser. Off by default; enforced server-side.</span>
+            <span className="hint">Move files between the vendor and the isolated browser. Enforced server-side.</span>
           </div>
           <div className="field">
             <label className="field-label" htmlFor="site-egress">Network access</label>
-            <select id="site-egress" className="select" value={egressMode ?? "internet"} onChange={(e) => setEgressMode(e.target.value)}>
+            <select id="site-egress" className="select" value={egressMode} onChange={(e) => setEgressMode(e.target.value)}>
+              <option value="inherit">Inherit policy ({EGRESS_LABEL[egressDefault] ?? egressDefault})</option>
               <option value="internet">This resource and the internet — not the rest of the internal network (recommended)</option>
               <option value="strict">Only this resource and the hosts below</option>
               <option value="open">Unrestricted</option>
@@ -549,10 +547,10 @@ export function SiteForm({
             <span className="hint">
               The isolated browser reaches the network only through the connector, which applies this to every request. The resource&apos;s own address is always allowed, inside your network or not; the connector host and cloud metadata addresses never are.
             </span>
-            {site?.egressReportOnlyUntil && egressMode === null && (
+            {site?.egressReportOnlyUntil && egressMode === "inherit" && (
               <p className="notice warn">
                 Report only until <LocalTime iso={site.egressReportOnlyUntil} mode="date" />: nothing is blocked yet; what would be is listed below and in Activity.{" "}
-                <button type="button" className="btn sm" onClick={() => setEgressMode("internet")}>Enforce now</button>
+                <button type="button" className="btn sm" onClick={() => setEgressMode(egressDefault)}>Enforce now</button>
               </p>
             )}
           </div>
@@ -672,7 +670,9 @@ export function SiteForm({
             Captures a replayable recording of vendor sessions on this site for audit purposes.
             {accessMode === "GATEWAY"
               ? " The remote-desktop screen is recorded and replayed in the console."
-              : " Web sessions are captured with an in-page recorder."}
+              : accessMode === "ISOLATED"
+                ? " The isolated browser's screen is recorded as video and replayed in the console."
+                : " Web sessions are captured with an in-page recorder."}
           </span>
         </div>
       )}
@@ -713,6 +713,19 @@ export function SiteForm({
           <span className="hint">Restricts clipboard in the vendor&apos;s browser via an injected script — a deterrent, not a hard control (bypassable if JavaScript is disabled).</span>
         </div>
       )}
+      <div className="field">
+        <label className="field-label" htmlFor="site-watermark">Screen watermark</label>
+        <select id="site-watermark" className="select" value={watermark} onChange={(e) => setWatermark(e.target.value as "inherit" | "on" | "off")}>
+          <option value="inherit">Inherit policy ({watermarkDefault ? "On" : "Off"})</option>
+          <option value="on">On (email + live clock)</option>
+          <option value="off">Off</option>
+        </select>
+        <span className="hint">
+          {accessMode === "ISOLATED"
+            ? "The vendor's email and a live clock are drawn into every frame by the isolated browser — in any screenshot, photo or recording of their screen."
+            : "The vendor's email and a live clock are laid over the session in their browser — in any screenshot or photo of their screen (a deterrent: it is drawn by the page, not into the picture)."}
+        </span>
+      </div>
       <div className="field">
         <label className="field-label" htmlFor="site-logo">Logo (optional)</label>
         <div className="logo-field">

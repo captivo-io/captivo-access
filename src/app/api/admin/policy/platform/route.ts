@@ -3,7 +3,8 @@ import { getCurrentUser } from "@/lib/current-user";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { can } from "@/lib/auth/roles";
-import { getPlatformSettings, savePlatformSettings, saveGuacParamDefaults, CLIPBOARD_MODES } from "@/lib/settings/platform";
+import { getPlatformSettings, savePlatformSettings, saveGuacParamDefaults, CLIPBOARD_MODES, FILE_TRANSFER_MODES } from "@/lib/settings/platform";
+import { isEgressMode } from "@/lib/isolation/egress";
 import { parseGuacParams } from "@/lib/gateway/guac-params";
 import { validateAllowlist } from "@/lib/net/cidr";
 import { withTenantRoute } from "@/lib/tenant/request";
@@ -94,6 +95,10 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     keystrokeLoggingMode: ["off", "per_resource", "required"].includes(body.keystrokeLoggingMode)
       ? (body.keystrokeLoggingMode as string)
       : "per_resource",
+    isolatedEgressDefault: isEgressMode(body.isolatedEgressDefault) ? body.isolatedEgressDefault : null,
+    isolatedFileTransferDefault: typeof body.isolatedFileTransferDefault === "string" && FILE_TRANSFER_MODES.includes(body.isolatedFileTransferDefault)
+      ? body.isolatedFileTransferDefault
+      : null,
     recordingMode: ["off", "per_resource", "required"].includes(body.recordingMode)
       ? (body.recordingMode as string)
       : "per_resource",

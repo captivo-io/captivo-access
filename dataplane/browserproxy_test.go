@@ -1114,3 +1114,12 @@ func TestWatermarkScript(t *testing.T) {
 		t.Fatalf("expected exactly one injection, got: %s", out)
 	}
 }
+
+// Grey at about a third, readable on light and dark pages (black vanished on
+// dark ones).
+func TestWatermarkScriptIsGrey(t *testing.T) {
+	s := watermarkScript("a@b.co")
+	if !strings.Contains(s, "fill=\\'#808080\\'") || !strings.Contains(s, "opacity:.3;") {
+		t.Fatalf("%s", s)
+	}
+}

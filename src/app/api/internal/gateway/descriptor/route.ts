@@ -5,7 +5,7 @@ import { evaluateAccess } from "@/lib/access/evaluate";
 import { getVaultCredential } from "@/lib/vault/store";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { resolvedWatermarkDefault, resolvedClipboardDefault, resolvedGuacParamDefaults, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
+import { resolvedWatermarkDefault, resolvedClipboardDefault, resolvedGuacParamDefaults, resolvedKeystrokeLoggingMode, resolvedIsolatedEgressDefault, resolvedIsolatedFileTransferDefault } from "@/lib/settings/platform";
 import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
 import { currentTenantId } from "@/lib/tenant/context";
 import { parseGuacParams, resolveGuacParams, toGuacArgs } from "@/lib/gateway/guac-params";
@@ -71,10 +71,10 @@ async function handler(req: NextRequest) {
       clipboardMode,
       record,
       watermarkText,
-      fileTransferMode: site.fileTransferMode,
+      fileTransferMode: site.fileTransferMode ?? (await resolvedIsolatedFileTransferDefault()),
       insecureSkipVerify: site.insecureSkipVerify,
       // The browser's network rule, applied by the connector's egress proxy.
-      egress: effectiveEgress(site),
+      egress: effectiveEgress(site, new Date(), await resolvedIsolatedEgressDefault()),
       // Typed input in the isolated browser, masked there for credential fields.
       keystrokeLogging: effectiveKeystrokeLogging({
         mode: await resolvedKeystrokeLoggingMode(),
