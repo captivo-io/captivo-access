@@ -144,6 +144,9 @@ func (h *WebLiveHub) LiveKeys() map[string]string {
 
 // Viewers is the number of admins watching a tab.
 func (h *WebLiveHub) Viewers(key string) int {
+	if h == nil {
+		return 0
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if s := h.streams[key]; s != nil {

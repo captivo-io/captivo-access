@@ -657,6 +657,17 @@ func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, us
 		p.sendRrwebToConnector(connectorID, tenantID, userID, siteID, host, body) // best-effort
 		p.live.Feed(userID, siteID, host, body)
 		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodGet && r.URL.Path == "/__captivo/watched":
+		// The recorder asks whether an admin is watching this tab live, to show
+		// the vendor "being monitored" as the gateway and isolated sessions do.
+		// Answered for this tab's key only; viewing itself is gated in /web-view.
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		n := 0
+		if key := r.URL.Query().Get("key"); key != "" {
+			n = p.live.Viewers(key)
+		}
+		_, _ = io.WriteString(w, `{"watching":`+strconv.Itoa(n)+`}`)
 	case r.Method == http.MethodPost && r.URL.Path == "/__captivo/keys":
 		// Typed input, already masked in the page. Accepted only while this
 		// site's keystroke logging is on: a page that kept an old tag (or a
