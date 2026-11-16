@@ -184,8 +184,9 @@ flowchart TD
   does.
 - **If the connector's data is lost.** A new `/data` volume means a new vault
   key: the stored secrets can no longer be opened by anyone, and each affected
-  resource asks for its password again. Back up the volume (it also holds the
-  recording key) if re-entering them would be a burden.
+  resource asks for its password again. Back up the keys (see
+  [backing up a connector](install.md#backing-up-a-connector)) if re-entering them
+  would be a burden.
 - **Recording.** With **Record sessions** on, the guacd stream is captured and
   replayable at `/admin/recordings`. The bytes are written to the **connector's own
   disk**, AES-256-GCM-encrypted with a key only that connector holds; replay and
