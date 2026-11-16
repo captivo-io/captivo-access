@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
 type fakeBroker struct {
@@ -30,5 +32,26 @@ func TestPullKasmKeys(t *testing.T) {
 	nf := &fakeBroker{Reader: strings.NewReader("HTTP/1.0 404 Not Found\r\n\r\n{}")}
 	if got := pullKasmKeys(nf, "h", "s"); got != nil {
 		t.Fatalf("a missing session must yield nothing, got %+v", got)
+	}
+}
+
+// A finalized video shorter (in chunks) than the live relay must not leave the
+// relay's tail after it on replay.
+func TestBlankStaleVideoChunks(t *testing.T) {
+	var got []tunnel.RecWriteRequest
+	send := func(r tunnel.RecWriteRequest) (int, error) { got = append(got, r); return 0, nil }
+	blankStaleVideoChunks(send, "t", "k", 3, 6)
+	if len(got) != 3 || got[0].Seq != 3 || got[2].Seq != 5 {
+		t.Fatalf("blanked %+v, want seqs 3..5", got)
+	}
+	for _, r := range got {
+		if len(r.Data) != 0 || r.Format != "video" || r.RecordingKey != "k" {
+			t.Fatalf("not an empty video chunk: %+v", r)
+		}
+	}
+	got = nil
+	blankStaleVideoChunks(send, "t", "k", 6, 4)
+	if len(got) != 0 {
+		t.Fatal("nothing to blank when the finalized file is the longer one")
 	}
 }
