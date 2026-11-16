@@ -539,10 +539,13 @@ func clipboardScript(mode string) string {
 // none, so it never blocks the app; refreshed every minute so screenshots carry
 // the time. Deterrent + attribution, like the clipboard guard (a vendor who
 // disables JavaScript loses the overlay, but also the app's own scripts).
+// Mid-grey at about a third: black vanished on dark pages (as KasmVNC's white
+// did on light ones), grey reads on both. Same look as the remote-desktop
+// overlay (src/app/gateway/[siteId]/session/shell/watermark.tsx).
 func watermarkScript(text string) string {
 	quoted, _ := json.Marshal(text)
-	return `<script>(function(){try{var t=` + string(quoted) + `;var d=document.createElement('div');d.id='__captivo_wm';d.setAttribute('style','position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:.14;');` +
-		`function svg(s){return "url(\"data:image/svg+xml;utf8,"+encodeURIComponent('<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'420\' height=\'220\'><text x=\'20\' y=\'120\' transform=\'rotate(-24 210 110)\' font-family=\'system-ui,sans-serif\' font-size=\'18\' font-weight=\'600\' fill=\'#000\'>'+s.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</text></svg>')+"\")";}` +
+	return `<script>(function(){try{var t=` + string(quoted) + `;var d=document.createElement('div');d.id='__captivo_wm';d.setAttribute('style','position:fixed;inset:0;z-index:2147483646;pointer-events:none;opacity:.3;');` +
+		`function svg(s){return "url(\"data:image/svg+xml;utf8,"+encodeURIComponent('<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'420\' height=\'220\'><text x=\'20\' y=\'120\' transform=\'rotate(-24 210 110)\' font-family=\'system-ui,sans-serif\' font-size=\'18\' font-weight=\'600\' fill=\'#808080\'>'+s.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</text></svg>')+"\")";}` +
 		`function paint(){var n=new Date();var hh=('0'+n.getUTCHours()).slice(-2),mm=('0'+n.getUTCMinutes()).slice(-2);d.style.backgroundImage=svg(t+'  \u00b7  '+n.toISOString().slice(0,10)+' '+hh+':'+mm+' UTC');}` +
 		`paint();setInterval(paint,60000);var m=function(){if(document.body)document.body.appendChild(d);};if(document.body)m();else addEventListener('DOMContentLoaded',m);}catch(e){}})();</script>`
 }

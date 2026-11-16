@@ -5,7 +5,7 @@ import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
-import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
+import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults, resolvedClipboardDefault, resolvedWatermarkDefault, resolvedIsolatedEgressDefault, resolvedIsolatedFileTransferDefault } from "@/lib/settings/platform";
 import { getVaultCredentialMeta } from "@/lib/vault/store";
 import { egressReportOnlyUntil } from "@/lib/isolation/egress";
 import { recentEgressEvents } from "@/lib/isolation/egress-events";
@@ -32,7 +32,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
   const keystrokeMode = await resolvedKeystrokeLoggingMode();
   const recordingMode = await resolvedRecordingMode();
   const guacDefaults = await resolvedGuacParamDefaults();
-  const [clipboardDefault, watermarkDefault] = await Promise.all([resolvedClipboardDefault(), resolvedWatermarkDefault()]);
+  const [clipboardDefault, watermarkDefault, egressDefault, fileTransferDefault] = await Promise.all([resolvedClipboardDefault(), resolvedWatermarkDefault(), resolvedIsolatedEgressDefault(), resolvedIsolatedFileTransferDefault()]);
 
   return (
     <main>
@@ -54,6 +54,8 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
             guacDefaults={guacDefaults}
             clipboardDefault={clipboardDefault}
             watermarkDefault={watermarkDefault}
+            egressDefault={egressDefault}
+            fileTransferDefault={fileTransferDefault}
             nativeGateway={nativeGatewayEnabled()}
             isolationEnabled={isolationEnabled()}
             hostSuffix={await siteHostSuffix()}

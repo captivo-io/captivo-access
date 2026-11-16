@@ -10,11 +10,12 @@ import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
 import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
 import { sessionEndMessage } from "@/lib/session/end-reason";
+import { SessionWatermark } from "./shell/watermark";
 
 // Fullscreen HTML5 session: embeds guacamole-common-js and points it at the
 // data-plane guac-tunnel (same origin, fronted by nginx). The server drives the
 // guacd handshake + credential injection; this only renders + sends input.
-export function GatewaySession({ siteId, siteName, recorded, clipboardMode, protocol = "RDP" }: { siteId: string; siteName: string; recorded: boolean; clipboardMode: string; protocol?: GatewayProtocol }) {
+export function GatewaySession({ siteId, siteName, recorded, clipboardMode, protocol = "RDP", watermarkText = null }: { siteId: string; siteName: string; recorded: boolean; clipboardMode: string; protocol?: GatewayProtocol; watermarkText?: string | null }) {
   const caps = clipboardCaps(clipboardMode);
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -515,6 +516,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       {error && !endedMessage && (
         <div style={{ color: "#fff", padding: "1.25rem", fontFamily: "sans-serif" }}>{error}</div>
       )}
+      <SessionWatermark text={watermarkText} />
       <SessionEnded message={endedMessage} />
     </div>
   );

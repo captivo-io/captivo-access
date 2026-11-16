@@ -103,12 +103,14 @@ describe("validateSiteInput", () => {
     expect(validateSiteInput(b, base)).toMatchObject({ ok: true, insecureSkipVerify: false });
     expect(validateSiteInput({ ...b, insecureSkipVerify: true }, base)).toMatchObject({ ok: true, insecureSkipVerify: true });
   });
-  it("ISOLATED: fileTransferMode defaults to none, accepts valid, normalizes invalid", () => {
+  it("ISOLATED: fileTransferMode inherits the Policy unless set, accepts valid, normalizes invalid", () => {
     const b = { connectorId: "c1", name: "Wiki", accessMode: "ISOLATED", upstreamUrl: "https://wiki.internal" };
-    expect(validateSiteInput(b, base)).toMatchObject({ ok: true, mode: "ISOLATED", fileTransferMode: "none" });
+    expect(validateSiteInput(b, base)).toMatchObject({ ok: true, mode: "ISOLATED", fileTransferMode: null });
+    expect(validateSiteInput({ ...b, fileTransferMode: "inherit" }, base)).toMatchObject({ ok: true, fileTransferMode: null });
+    expect(validateSiteInput({ ...b, fileTransferMode: "none" }, base)).toMatchObject({ ok: true, fileTransferMode: "none" });
     expect(validateSiteInput({ ...b, fileTransferMode: "no_download" }, base)).toMatchObject({ ok: true, fileTransferMode: "no_download" });
     expect(validateSiteInput({ ...b, fileTransferMode: "allow" }, base)).toMatchObject({ ok: true, fileTransferMode: "allow" });
-    expect(validateSiteInput({ ...b, fileTransferMode: "bogus" }, base)).toMatchObject({ ok: true, fileTransferMode: "none" });
+    expect(validateSiteInput({ ...b, fileTransferMode: "bogus" }, base)).toMatchObject({ ok: true, fileTransferMode: null });
   });
 });
 
@@ -119,6 +121,7 @@ describe("isolated network rule input", () => {
     expect(validateSiteInput(iso, opts)).toMatchObject({ ok: true, egressMode: undefined, egressHosts: undefined });
     expect(validateSiteInput({ ...iso, egressMode: "strict", egressHosts: "sso.local\n*.okta.com" }, opts)).toMatchObject({ ok: true, egressMode: "strict", egressHosts: ["sso.local", "*.okta.com"] });
     expect(validateSiteInput({ ...iso, egressMode: null }, opts)).toMatchObject({ ok: true, egressMode: undefined });
+    expect(validateSiteInput({ ...iso, egressMode: "inherit" }, opts)).toMatchObject({ ok: true, egressMode: null });
   });
   it("refuses an unknown mode or a malformed host", () => {
     expect(validateSiteInput({ ...iso, egressMode: "lan" }, opts)).toMatchObject({ ok: false, error: "invalid_egress_mode" });

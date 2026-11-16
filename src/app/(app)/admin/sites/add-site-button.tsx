@@ -13,6 +13,8 @@ export function AddSiteButton({
   guacDefaults,
   clipboardDefault,
   watermarkDefault,
+  egressDefault,
+  fileTransferDefault,
   nativeGateway,
   hostSuffix,
   isolationEnabled,
@@ -24,6 +26,8 @@ export function AddSiteButton({
   guacDefaults: GuacParams;
   clipboardDefault: string;
   watermarkDefault: boolean;
+  egressDefault: string;
+  fileTransferDefault: string;
   nativeGateway: boolean;
   hostSuffix: string | null;
   isolationEnabled: boolean;
@@ -35,7 +39,7 @@ export function AddSiteButton({
         Add resource
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title="Add resource" size="lg">
-        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} clipboardDefault={clipboardDefault} watermarkDefault={watermarkDefault} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
+        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} clipboardDefault={clipboardDefault} watermarkDefault={watermarkDefault} egressDefault={egressDefault} fileTransferDefault={fileTransferDefault} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
       </Modal>
     </>
   );

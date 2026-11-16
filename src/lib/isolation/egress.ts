@@ -7,6 +7,9 @@
 //   strict    only the resource and the hosts listed here
 //   open      anything (a deliberate choice)
 //
+// A resource either picks one or inherits the Policy default (Site.egressMode
+// null; PlatformSettings.isolatedEgressDefault, "internet" when unset).
+//
 // Listed hosts ("intranet.local", "*.okta.com") are allowed in every mode,
 // internal or not. Never allowed in any mode: the connector host itself and
 // cloud metadata addresses.
@@ -18,7 +21,7 @@ export const MAX_EGRESS_HOSTS = 50;
 
 // Isolated resources that existed before the rule shipped start in report-only:
 // what it would block is recorded, nothing is blocked, until this date or until
-// an admin picks a mode for the resource.
+// an admin picks a mode for the resource (inheriting is not picking).
 export const EGRESS_SHIPPED_AT = new Date("2026-11-17T00:00:00Z");
 export const EGRESS_REPORT_ONLY_UNTIL = new Date("2026-12-01T00:00:00Z");
 
@@ -58,8 +61,9 @@ export function egressReportOnlyUntil(s: SiteEgress, now = new Date()): Date | n
   return EGRESS_REPORT_ONLY_UNTIL;
 }
 
-// What the data-plane hands the connector for one session.
-export function effectiveEgress(s: SiteEgress, now = new Date()): { mode: EgressMode; hosts: string[]; reportOnly: boolean } {
+// What the data-plane hands the connector for one session. policyDefault is
+// the Policy's mode for resources that inherit.
+export function effectiveEgress(s: SiteEgress, now = new Date(), policyDefault: EgressMode = DEFAULT_EGRESS_MODE): { mode: EgressMode; hosts: string[]; reportOnly: boolean } {
   const hosts = [...s.egressHosts];
   try {
     const own = s.upstreamUrl ? new URL(s.upstreamUrl).hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1") : "";
@@ -68,7 +72,7 @@ export function effectiveEgress(s: SiteEgress, now = new Date()): { mode: Egress
     /* an invalid upstream never opens a session anyway */
   }
   return {
-    mode: isEgressMode(s.egressMode) ? s.egressMode : DEFAULT_EGRESS_MODE,
+    mode: isEgressMode(s.egressMode) ? s.egressMode : policyDefault,
     hosts,
     reportOnly: egressReportOnlyUntil(s, now) !== null,
   };

@@ -2,6 +2,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
+import { DEFAULT_EGRESS_MODE, isEgressMode, type EgressMode } from "@/lib/isolation/egress";
 
 // Tenant-wide operational settings, editable from /admin/policy. Each was
 // previously env-only; the resolvers below read the DB value first, fall back
@@ -29,6 +30,8 @@ export interface PlatformSettings {
   requireRequestJustification: boolean | null;
   keystrokeLoggingMode: string | null;
   recordingMode: string | null;
+  isolatedEgressDefault: string | null;
+  isolatedFileTransferDefault: string | null;
 }
 
 const EMPTY: PlatformSettings = {
@@ -52,6 +55,8 @@ const EMPTY: PlatformSettings = {
   requireRequestJustification: null,
   keystrokeLoggingMode: null,
   recordingMode: null,
+  isolatedEgressDefault: null,
+  isolatedFileTransferDefault: null,
 };
 
 // Keyed by tenant id: a single un-keyed slot would let one tenant's settings
@@ -91,6 +96,8 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
     requireRequestJustification: c?.requireRequestJustification ?? null,
     keystrokeLoggingMode: c?.keystrokeLoggingMode ?? null,
     recordingMode: c?.recordingMode ?? null,
+    isolatedEgressDefault: c?.isolatedEgressDefault ?? null,
+    isolatedFileTransferDefault: c?.isolatedFileTransferDefault ?? null,
   };
   cache.set(tid, { s, at: Date.now() });
   return s;
@@ -194,6 +201,22 @@ export async function resolvedWatermarkDefault(): Promise<boolean> {
 }
 
 export const CLIPBOARD_MODES = ["allow", "no_copy", "no_paste", "none"];
+
+// Isolated browser network access for resources that inherit (Site.egressMode
+// null); see src/lib/isolation/egress.ts. Unknown/null → "internet".
+export async function resolvedIsolatedEgressDefault(): Promise<EgressMode> {
+  const s = await getPlatformSettings();
+  return isEgressMode(s.isolatedEgressDefault) ? s.isolatedEgressDefault : DEFAULT_EGRESS_MODE;
+}
+
+export const FILE_TRANSFER_MODES = ["allow", "no_upload", "no_download", "none"];
+
+// Isolated browser file transfer for resources that inherit (Site.fileTransferMode
+// null). Unknown/null → "none" (off), the long-standing default.
+export async function resolvedIsolatedFileTransferDefault(): Promise<string> {
+  const s = await getPlatformSettings();
+  return s.isolatedFileTransferDefault && FILE_TRANSFER_MODES.includes(s.isolatedFileTransferDefault) ? s.isolatedFileTransferDefault : "none";
+}
 
 // Coerce a stored clipboard default to a concrete mode; unknown/null → "allow".
 export function coerceClipboardDefault(v: string | null): string {
