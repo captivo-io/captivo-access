@@ -51,8 +51,16 @@ const ORDER: ProductCode[] = ["PORTAL", "ACCESS"];
  */
 export const ACCESS_SSO_ENTRY = "/api/auth/oidc/start";
 
+/** Portal's own linkable SSO door -- see app/(auth)/sso/start/route.ts. */
+export const PORTAL_SSO_ENTRY = "/sso/start";
+
 const SSO_ENTRY: Record<ProductCode, string> = {
-  PORTAL: "",
+  // Was "" until 2026-09-24: Portal had no entry a link could point at, because
+  // Auth.js's own requires a POST with a CSRF token. The empty string meant the
+  // identity centre's account page could only offer app.captivo.io's front door,
+  // so a person with a valid centre session was shown a login page and had to
+  // press a button to use the session they already had.
+  PORTAL: PORTAL_SSO_ENTRY,
   ACCESS: ACCESS_SSO_ENTRY,
 };
 
