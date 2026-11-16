@@ -47,6 +47,13 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// The vendor IP allowlist, as for web apps; the descriptor below checks the grant.
+	clientIP := trustedClientIP(r)
+	if allow, why, err := ctrl.CheckAccess(userID, siteID, clientIP); err != nil || !allow {
+		log.Printf("guac-tunnel site=%s user=%s: access refused (%s) err=%v", siteID, userID, why, err)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	conn, guacdAddr, connectorID, tenantID, record, keystrokeLogging, err := ctrl.GatewayDescriptor(userID, siteID)
 	if err != nil {
@@ -143,6 +150,8 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		connID = readyArgs[0] // guacd connection ID — the share key for viewers
 	}
 	ls := hub.Register(sessionID, siteID, userID, conn.Protocol, conn.Hostname, time.Now(), connID, connectorID, guacdAddr)
+	ls.SetAuth(ck.Value, clientIP) // checked again every minute (recheck.go)
+	hub.clearEnded(userID, siteID)
 	// Closing the guacd conn makes the relay error out → goroutines exit → session
 	// tears down (defer c.CloseNow + hub.Remove). This is how admin Terminate works.
 	hub.SetCloser(sessionID, func() { _ = guac.Close() })

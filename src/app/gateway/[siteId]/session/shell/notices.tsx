@@ -94,3 +94,18 @@ export function FirstTips({ siteId, tips, ms = 9000 }: { siteId: string; tips: s
     </div>
   );
 }
+
+// Shown when the periodic access recheck closed the session: why, and the way out.
+export function SessionEnded({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="ss-drop blocked ss-ended" role="alertdialog" aria-label="Session ended">
+      <div className="ss-drop-box">
+        {Icon.block(34)}
+        <div className="ss-drop-title">Your session was ended</div>
+        <div className="ss-drop-sub">{message}</div>
+        <a className="ss-ended-back" href="/access">Back to My access</a>
+      </div>
+    </div>
+  );
+}

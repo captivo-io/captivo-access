@@ -6,7 +6,8 @@ import { keysymToDomKey } from "@/lib/session/dom-key";
 import { KEY } from "@/lib/session/keysyms";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
-import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, type ToastState } from "./shell/notices";
+import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
+import { sessionEndMessage } from "@/lib/session/end-reason";
 
 // ?site pins the session for the data-plane; it sets a cookie so the KasmVNC
 // client's follow-up asset/WS requests (which carry no ?site) inherit it.
@@ -88,6 +89,10 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
   const [dropState, setDropState] = useState<"idle" | "over" | "blocked">("idle");
   const dragDepth = useRef(0);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
+  // Why the access recheck closed the session (dataplane/recheck.go); shown only
+  // once this page had a session, so a reason left from an earlier one is not.
+  const [endReason, setEndReason] = useState<string | null>(null);
+  const endedMessage = connectedAt !== null && endReason ? sessionEndMessage(endReason) : null;
   const frameRef = useRef<HTMLIFrameElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -230,9 +235,13 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
     const poll = async () => {
       try {
         const res = await fetch(`/api/gateway/${siteId}/watch-status`, { cache: "no-store" });
+        if (res.status === 401) {
+          if (!stop) setEndReason("signed_out");
+          return;
+        }
         if (res.ok) {
-          const s = (await res.json()) as { watching: boolean; controlHeld: boolean };
-          if (!stop) { setWatching(s.watching); setControlHeld(s.controlHeld); }
+          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string };
+          if (!stop) { setWatching(s.watching); setControlHeld(s.controlHeld); if (s.ended) setEndReason(s.ended); }
         }
       } catch {
         /* ignore */
@@ -314,6 +323,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
       <RecordingNotice active={recorded && ready} />
       <MonitorNotice watching={watching} controlHeld={controlHeld} />
       <DropOverlay state={dropState} siteName={siteName} />
+      <SessionEnded message={endedMessage} />
       <SessionToast toast={toast} />
       {clipOpen && (
         <div className="clip-overlay" role="dialog" aria-label="Clipboard" aria-modal="true">

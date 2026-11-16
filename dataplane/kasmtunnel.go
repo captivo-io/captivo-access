@@ -266,6 +266,13 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// A WebSocket upgrade IS the session boundary. Open a fresh per-session
 		// browser via the broker and proxy this WS to its port; close it when the
 		// WS ends. Concurrency is capped by the broker (503 capacity).
+		// The vendor IP allowlist, as for web apps; the descriptor checked the grant.
+		clientIP := trustedClientIP(r)
+		if allow, why, err := ctrl.CheckAccess(userID, siteID, clientIP); err != nil || !allow {
+			log.Printf("kasm-tunnel site=%s user=%s: access refused (%s) err=%v", siteID, userID, why, err)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		var id string
 		var port, status int
 		// The session's network rule goes to the connector first; its browser
@@ -412,7 +419,8 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// the deferred broker close above (killing Xvnc/Chromium) — terminate reuses
 		// the normal teardown path.
 		sessionID := newSessionID()
-		hub.RegisterIsolated(sessionID, siteID, userID, d.NavigateUrl, time.Now(), d.ConnectorID, d.KasmAddr, port, id, d.KasmControlAddr, d.FileTransferMode, vncAuth)
+		hub.RegisterIsolated(sessionID, siteID, userID, d.NavigateUrl, time.Now(), d.ConnectorID, d.KasmAddr, port, id, d.KasmControlAddr, d.FileTransferMode, vncAuth).SetAuth(ck.Value, clientIP)
+		hub.clearEnded(userID, siteID)
 		hub.SetCloser(sessionID, func() {
 			connMu.Lock()
 			c := backendConn
