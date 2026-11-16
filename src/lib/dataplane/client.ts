@@ -75,6 +75,15 @@ export interface WebSession {
   host: string;
   startedAt: string;
   lastSeen: string;
+  /** The tab an admin can watch live (/live/web/<liveKey>); absent when the site does not record. */
+  liveKey?: string;
+  viewers?: number;
+}
+
+/** The current tenant's web app tab with this live key, or null. */
+export async function findOwnWebSession(liveKey: string): Promise<WebSession | null> {
+  if (!liveKey) return null;
+  return (await listActiveWebSessions()).find((s) => s.liveKey === liveKey) ?? null;
 }
 
 export async function listActiveWebSessions(): Promise<WebSession[]> {

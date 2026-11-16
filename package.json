@@ -50,6 +50,7 @@
     "eslint": "^9.39.0",
     "eslint-config-next": "^16.2.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "26.1.0",
     "prisma": "^7.9.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"

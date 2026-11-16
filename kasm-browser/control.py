@@ -11,6 +11,10 @@ CHROME = shutil.which("chromium") or shutil.which("chromium-browser") or "chromi
 MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "5"))
 MAX_SESSION_SECONDS = int(os.environ.get("MAX_SESSION_SECONDS", "14400"))
 BASE_PORT = 6900  # per-session port = BASE_PORT + display; hub is 6901 (display :1)
+# The typed-input extension baked into the image (kasm-browser/keys-ext) and a
+# per-session ceiling on what it may store.
+KEYS_EXT_SRC = os.environ.get("KEYS_EXT_DIR", "/keys-ext")
+MAX_KEY_EVENTS = 20000
 FT_MAX_BYTES = int(os.environ.get("ISOLATED_FT_MAX_BYTES", str(100 * 1024 * 1024)))
 
 
@@ -58,7 +62,7 @@ def _clamp_dim(v, lo, hi, default):
     return max(lo, min(hi, v))
 
 
-def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False):
+def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys_ext=None):
     disp = ":%d" % display
     env = {**os.environ, "DISPLAY": disp, "HOME": home}
     os.makedirs(profile, exist_ok=True)
@@ -114,8 +118,12 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
                    "--disable-background-networking", "--disable-sync",
                    "--disable-component-update", "--disable-default-apps", "--no-pings",
                    "--no-proxy-server",
-                   "--disable-features=Translate,MediaRouter,OptimizationHints,MediaSessionService,UsePortalNotifications",
+                   "--disable-features=Translate,MediaRouter,OptimizationHints,MediaSessionService,UsePortalNotifications,DisableLoadExtensionCommandLineSwitch",
                    "--user-data-dir=" + profile]
+    if keys_ext:
+        # Typed-input timeline: the keys extension records what is typed into
+        # pages (credential fields masked) and posts it to this service.
+        chrome_args.append("--load-extension=" + keys_ext)
     if insecure:
         # Opt-in per Resource: the target uses a self-signed / internal-CA cert.
         chrome_args.append("--ignore-certificate-errors")
@@ -145,7 +153,16 @@ def _kill(sess):
             pass
 
 
-def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False):
+def _prepare_keys_ext(home, sid):
+    """A per-session copy of the keys extension, told where to post."""
+    dst = home + "/keys-ext"
+    shutil.copytree(KEYS_EXT_SRC, dst, dirs_exist_ok=True)
+    with open(dst + "/config.json", "w") as f:
+        json.dump({"url": "http://127.0.0.1:7900/session/%s/keys" % sid}, f)
+    return dst
+
+
+def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", insecure=False, keys=False):
     with _lock:
         if len(_sessions) >= MAX_SESSIONS:
             log("capacity reached (%d active) — session refused" % MAX_SESSIONS)
@@ -158,11 +175,17 @@ def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", inse
         sid = "s%d-%d" % (int(time.time()), _seq["n"])
         profile = "/profiles/" + sid
         home = "/sess/" + sid
-        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure)
+        keys_ext = None
+        if keys and os.path.isdir(KEYS_EXT_SRC):
+            try:
+                keys_ext = _prepare_keys_ext(home, sid)
+            except OSError as e:
+                log("session %s: keys extension not prepared (%s); typed input not recorded" % (sid, e))
+        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, keys_ext)
         port = BASE_PORT + display
         _sessions[sid] = {"display": display, "port": port, "procs": procs,
                           "profile": profile, "home": home, "started": time.time(),
-                          "w": w, "h": h}
+                          "w": w, "h": h, "keys": [] if keys_ext else None}
         log("session %s opened -> %s (%dx%d)" % (sid, url, w, h))
         return {"id": sid, "port": port}
 
@@ -212,6 +235,33 @@ def _reaper():
                 threading.Thread(target=_kill, args=(sess,), daemon=True).start()
 
 
+def clean_key_events(batch):
+    """Well-formed events from the extension; a masked one never keeps its text."""
+    out = []
+    if not isinstance(batch, list):
+        return out
+    for e in batch[:200]:
+        if not isinstance(e, dict):
+            continue
+        at = e.get("atMs")
+        text = e.get("text")
+        if not isinstance(at, (int, float)) or at < 0 or not isinstance(text, str) or len(text) > 4096:
+            continue
+        masked = e.get("masked") is True
+        out.append({"at": float(at), "text": "\u2022\u2022\u2022\u2022" if masked else text, "masked": masked})
+    return out
+
+
+def keys_timeline(events, t0):
+    """Absolute page times -> offsets from the video's start (rec_t0, seconds).
+    Without a recording there is no timeline to place them on."""
+    if t0 is None:
+        return []
+    base = t0 * 1000.0
+    return [{"atMs": int(max(0.0, e["at"] - base)), "kind": "text", "text": e["text"], "masked": e["masked"]}
+            for e in sorted(events, key=lambda x: x["at"])]
+
+
 def _safe_name(name):
     # Reduce any client-supplied name to a single safe path segment. Returns the
     # basename with directory parts stripped, or None if nothing usable remains.
@@ -256,6 +306,8 @@ class H(BaseHTTPRequestHandler):
                 if s is not None:
                     s["rec_proc"] = proc
                     s["rec_file"] = recfile
+                    # Typed-input times are offsets from here, the video's zero.
+                    s.setdefault("rec_t0", time.time())
             self.send_response(200)
             self.send_header("Content-Type", "video/webm")
             self.end_headers()
@@ -357,6 +409,17 @@ class H(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
             return
+        # Typed-input timeline for the session, timed from the start of its video.
+        # Pulled by the data-plane at session end, next to the finalized video.
+        if u.path.startswith("/session/") and u.path.endswith("/keys"):
+            sid = u.path[len("/session/"):-len("/keys")]
+            with _lock:
+                s = _sessions.get(sid)
+                events = list(s.get("keys") or []) if s else None
+                t0 = s.get("rec_t0") if s else None
+            if events is None:
+                return self._json(404, {"error": "not_found"})
+            return self._json(200, keys_timeline(events, t0))
         if u.path == "/healthz":
             return self._json(200, {"ok": True})
         self._json(404, {"error": "not_found"})
@@ -380,10 +443,33 @@ class H(BaseHTTPRequestHandler):
             if not isinstance(wtext, str):
                 wtext = ""
             insecure = bool(data.get("insecure", False))
-            res = open_session(url, copy_out, paste_in, w, h, wtext, insecure)
+            keys = data.get("keys") is True
+            res = open_session(url, copy_out, paste_in, w, h, wtext, insecure, keys)
             if res is None:
                 return self._json(503, {"error": "capacity"})
             return self._json(201, res)
+        # From the keys extension inside this container only: anyone else on the
+        # network must not be able to write into a session's timeline.
+        if path.startswith("/session/") and path.endswith("/keys"):
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                return self._json(403, {"error": "forbidden"})
+            sid = path[len("/session/"):-len("/keys")]
+            n = int(self.headers.get("Content-Length", "0") or "0")
+            if n > 65536:
+                return self._json(413, {"error": "too_large"})
+            try:
+                batch = json.loads(self.rfile.read(n) or b"[]")
+            except Exception:
+                return self._json(400, {"error": "bad_body"})
+            with _lock:
+                s = _sessions.get(sid)
+                if s is None or s.get("keys") is None:
+                    return self._json(404, {"error": "not_found"})
+                for e in clean_key_events(batch):
+                    if len(s["keys"]) >= MAX_KEY_EVENTS:
+                        break
+                    s["keys"].append(e)
+            return self._json(200, {"ok": True})
         if path.startswith("/session/") and path.endswith("/close"):
             sid = path[len("/session/"):-len("/close")]
             close_session(sid)

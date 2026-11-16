@@ -61,14 +61,15 @@ func clampKasmDim(v, lo, hi, def int) int {
 	return v
 }
 
-func openKasmSession(rw io.ReadWriter, host, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure bool) (id string, port, status int, err error) {
+func openKasmSession(rw io.ReadWriter, host, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool) (id string, port, status int, err error) {
 	body := `{"url":` + jsonQuoteKasm(target) +
 		`,"copyOut":` + strconv.FormatBool(copyOut) +
 		`,"pasteIn":` + strconv.FormatBool(pasteIn) +
 		`,"w":` + strconv.Itoa(w) +
 		`,"h":` + strconv.Itoa(h) +
 		`,"watermarkText":` + jsonQuoteKasm(watermarkText) +
-		`,"insecure":` + strconv.FormatBool(insecure) + `}`
+		`,"insecure":` + strconv.FormatBool(insecure) +
+		`,"keys":` + strconv.FormatBool(keys) + `}`
 	req := "POST /session HTTP/1.0\r\n" +
 		"Host: " + host + "\r\n" +
 		"Content-Type: application/json\r\n" +
@@ -94,6 +95,39 @@ func openKasmSession(rw io.ReadWriter, host, target string, copyOut, pasteIn boo
 		return "", 0, status, derr
 	}
 	return out.ID, out.Port, status, nil
+}
+
+// pullKasmKeys reads the typed-input events the broker gathered for a session.
+// Anything malformed yields nothing: the timeline is an extra, never a reason
+// to fail the teardown.
+func pullKasmKeys(rw io.ReadWriter, host, id string) []keyEvent {
+	if _, err := io.WriteString(rw, "GET /session/"+id+"/keys HTTP/1.0\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
+		return nil
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(rw), nil)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var events []keyEvent
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&events); err != nil {
+		return nil
+	}
+	out := events[:0]
+	for _, e := range events {
+		if e.AtMs < 0 || len(e.Text) > 4096 {
+			continue
+		}
+		e.Kind = "text"
+		if e.Masked {
+			e.Text = "••••"
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // buildKasmCloseRequest formats the broker POST /session/<id>/close call.
@@ -148,6 +182,9 @@ type kasmDesc struct {
 	WatermarkText      string `json:"watermarkText"`
 	FileTransferMode   string `json:"fileTransferMode"`
 	InsecureSkipVerify bool   `json:"insecureSkipVerify"`
+	// Typed input in the isolated browser (the broker loads its keys extension);
+	// only ever acted on while Record is true.
+	KeystrokeLogging bool `json:"keystrokeLogging"`
 }
 
 // serveKasmTunnel reverse-proxies the vendor's HTTP/WebSocket request to a KasmVNC
@@ -228,7 +265,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		if st, e := dialGuacd(sess, d.KasmControlAddr); e == nil {
 			cw := clampKasmDim(kasmW, 360, 2560, 1280)
 			ch := clampKasmDim(kasmH, 480, 1600, 800)
-			id, port, status, e = openKasmSession(st, d.KasmControlAddr, d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify)
+			id, port, status, e = openKasmSession(st, d.KasmControlAddr, d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging)
 			st.Close()
 			if e != nil {
 				http.Error(w, "isolated browser unavailable", http.StatusBadGateway)
@@ -307,6 +344,18 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 							fresp.Body.Close()
 						}
 						fc.Close()
+					}
+					// Typed input, gathered in the isolated browser by the broker's
+					// keys extension (already masked for credential fields and timed
+					// from the start of this capture), lands next to the video as the
+					// same "keys" stream the gateway writes.
+					if d.KeystrokeLogging {
+						if kc, ke := dialGuacd(sess, d.KasmControlAddr); ke == nil {
+							if events := pullKasmKeys(kc, d.KasmControlAddr, id); len(events) > 0 {
+								newKeyWriter(recSend, d.TenantID, rw.key).post(events)
+							}
+							kc.Close()
+						}
 					}
 				}
 				log.Printf("kasm-tunnel site=%s: recording enabled key=%s", siteID, rw.key)

@@ -21,6 +21,7 @@ import (
 // the three control-plane calls' return values.
 type fakeControl struct {
 	watermark bool // SiteByHost: inject the DLP watermark overlay
+	keystrokes bool // SiteByHost: log typed input on this site
 
 	userID     string
 	email      string
@@ -50,8 +51,8 @@ func (f *fakeControl) ResolveSession(string) (string, string, error) {
 	return f.userID, f.email, f.resolveErr
 }
 
-func (f *fakeControl) SiteByHost(string) (string, string, string, string, string, bool, bool, bool, bool, bool, error) {
-	return f.siteID, f.connID, f.tenantID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.watermark, f.siteErr
+func (f *fakeControl) SiteByHost(string) (string, string, string, string, string, bool, bool, bool, bool, bool, bool, error) {
+	return f.siteID, f.connID, f.tenantID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.watermark, f.keystrokes, f.siteErr
 }
 
 func (f *fakeControl) CheckAccess(string, string, string) (bool, string, error) {
@@ -629,7 +630,7 @@ func TestServeRecording_DropsOversizeBatch(t *testing.T) {
 	big := bytes.Repeat([]byte("x"), maxRecordingBatchBytes+1)
 	req := httptest.NewRequest(http.MethodPost, "/__captivo/rec", bytes.NewReader(big))
 	rec := httptest.NewRecorder()
-	p.serveRecording(rec, req, "u1", "s1", "host", "c1", "acme", true)
+	p.serveRecording(rec, req, "u1", "s1", "host", "c1", "acme", true, false)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
@@ -647,7 +648,7 @@ func TestServeRecording_ForwardsNormalBatch(t *testing.T) {
 	body := []byte(`{"recordingKey":"k","seq":0,"events":[{"type":2}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/__captivo/rec", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
-	p.serveRecording(rec, req, "u1", "s1", "host", "c1", "acme", true)
+	p.serveRecording(rec, req, "u1", "s1", "host", "c1", "acme", true, false)
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)

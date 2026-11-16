@@ -45,7 +45,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
     }
     try {
-      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, clipboardMode: v.clipboardMode, accessMode: "TRANSPARENT", ...logoData } });
+      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, accessMode: "TRANSPARENT", ...logoData } });
     } catch (e) {
       if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2002") {
         return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
@@ -64,7 +64,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   if (v.mode === "ISOLATED") {
     // Isolated browser: URL-only site, no credential. Drop any stale vault from a GATEWAY→ISOLATED switch.
     await db.$transaction(async (tx) => {
-      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, accessMode: "ISOLATED", ...logoData } });
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, accessMode: "ISOLATED", ...logoData } });
       await tx.vaultCredential.deleteMany({ where: { siteId: id } });
     });
     await recordAdminAction({

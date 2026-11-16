@@ -227,7 +227,7 @@ func (p *BrowserProxy) consentPage(w http.ResponseWriter, r *http.Request) {
 // production use.
 type proxyControl interface {
 	ResolveSession(token string) (userID, email string, err error)
-	SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark bool, err error)
+	SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, keystrokes bool, err error)
 	CheckAccess(userID, siteID, clientIP string) (allow bool, reason string, err error)
 	RecorderJS() ([]byte, error)
 	SendRecording(userID, siteID, host string, body []byte) error
@@ -244,6 +244,7 @@ type BrowserProxy struct {
 	audit      *AuditQueue
 	web        *WebActivityTracker
 	webIdle    time.Duration
+	live       *WebLiveHub // live view of web app tabs; nil disables it
 }
 
 func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +260,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Site by host.
-	siteID, connectorID, tenantID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, err := p.ctrl.SiteByHost(host)
+	siteID, connectorID, tenantID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, keystrokes, err := p.ctrl.SiteByHost(host)
 	if err != nil {
 		if errors.Is(err, ErrNoSite) {
 			errorPage(w, http.StatusNotFound, "No application here", "There's no application published at this address.", "Check the link, or contact your administrator.")
@@ -305,7 +306,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// after session/site/access are resolved, so recording is scoped to an
 	// authenticated, allowed user on a recording-enabled site.
 	if strings.HasPrefix(r.URL.Path, "/__captivo/") {
-		p.serveRecording(w, r, userID, siteID, host, connectorID, tenantID, recordSessions)
+		p.serveRecording(w, r, userID, siteID, host, connectorID, tenantID, recordSessions, keystrokes)
 		return
 	}
 
@@ -387,7 +388,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if watermark && !gateway {
 		watermarkText = email
 	}
-	written := p.writeProxyResponse(w, resp, body, recordSessions, clipboardMode, watermarkText)
+	written := p.writeProxyResponse(w, resp, body, recordSessions, keystrokes, clipboardMode, watermarkText)
 	accessLog(userID, siteID, host, r.Method, r.URL.Path, resp.Status, written)
 	// Emit a single session_open when a new web span starts (so the activity feed
 	// shows one "connected" like gateway/isolated), then the per-request ALLOW —
@@ -407,7 +408,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // recomputes Content-Length. Every other response — non-recorded Sites,
 // non-HTML content types, and oversized HTML bodies — is streamed exactly
 // as it arrives, unmodified.
-func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.DialResponse, body io.Reader, recordSessions bool, clipboardMode, watermarkText string) int64 {
+func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.DialResponse, body io.Reader, recordSessions, keystrokes bool, clipboardMode, watermarkText string) int64 {
 	// Two independent reasons to buffer + rewrite an HTML body: session
 	// recording (inject the rrweb recorder) and clipboard restriction
 	// (inject the clipboard guard). Either one needs the same treatment —
@@ -439,7 +440,9 @@ func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.Dia
 	}
 
 	injected := buf
-	if recordSessions {
+	if recordSessions && keystrokes {
+		injected = injectBeforeBody(injected, []byte(recorderScriptTagKeys))
+	} else if recordSessions {
 		injected = injectRecorder(injected)
 	}
 	if clipboardRestricted(clipboardMode) {
@@ -499,6 +502,12 @@ func isCompressed(header map[string][]string) bool {
 // by serveRecording, never proxied upstream) with `defer` so it never blocks
 // page rendering.
 const recorderScriptTag = `<script src="/__captivo/rec.js" defer></script>`
+
+// recorderScriptTagKeys is the same bundle told to log typed input as well
+// (record-init.ts reads data-keys from its own script tag). Credential fields
+// are masked in the page; the server still refuses keys when the site's
+// keystroke logging is off (serveRecording).
+const recorderScriptTagKeys = `<script src="/__captivo/rec.js" data-keys="1" defer></script>`
 
 // clipboardRestricted reports whether a site's clipboardMode calls for
 // injecting the clipboard guard. "allow" (and any unknown value) means no
@@ -616,7 +625,7 @@ const maxRecordingBatchBytes = 8 << 20 // 8 MiB
 // page (a site not recording-enabled yields 404; an oversized batch is dropped
 // with 204), since a recording hiccup must never be visible to the user or
 // break the app being proxied.
-func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, userID, siteID, host, connectorID, tenantID string, recordSessions bool) {
+func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, userID, siteID, host, connectorID, tenantID string, recordSessions, keystrokes bool) {
 	if !recordSessions {
 		http.NotFound(w, r)
 		return
@@ -646,6 +655,22 @@ func (p *BrowserProxy) serveRecording(w http.ResponseWriter, r *http.Request, us
 		// Recording bytes go to the connector, not the control plane. The index
 		// (that a recording exists, and how big) still goes to the manager.
 		p.sendRrwebToConnector(connectorID, tenantID, userID, siteID, host, body) // best-effort
+		p.live.Feed(userID, siteID, host, body)
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/__captivo/keys":
+		// Typed input, already masked in the page. Accepted only while this
+		// site's keystroke logging is on: a page that kept an old tag (or a
+		// hand-made request) must not be able to turn logging on.
+		if !keystrokes {
+			http.NotFound(w, r)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxKeyBatchBytes+1))
+		if err != nil || len(body) > maxKeyBatchBytes {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		p.sendKeysToConnector(connectorID, tenantID, body) // best-effort
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)

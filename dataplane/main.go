@@ -43,6 +43,7 @@ func main() {
 	// Internal API (compose-internal only; guarded by x-dataplane-secret).
 	hub := NewSessionHub()
 	web := NewWebActivityTracker()
+	live := NewWebLiveHub()
 	webIdle := time.Duration(envInt("WEB_SESSION_IDLE_SECS", 120)) * time.Second
 	// Audit queue is created here (not just before the browser proxy) so the internal
 	// mux handlers below — e.g. /kasm-files — can enqueue audit events too.
@@ -242,7 +243,15 @@ func main() {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		writeJSON(w, http.StatusOK, web.List(webIdle))
+		list := web.List(webIdle)
+		keys := live.LiveKeys()
+		for i := range list {
+			list[i].LiveKey = keys[list[i].UserID+webKeySep+list[i].SiteID]
+			if list[i].LiveKey != "" {
+				list[i].Viewers = live.Viewers(list[i].LiveKey)
+			}
+		}
+		writeJSON(w, http.StatusOK, list)
 	})
 	in.HandleFunc("/sessions/control", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {
@@ -294,7 +303,7 @@ func main() {
 		log.Printf("WARNING: MANAGER_PUBLIC_URL is empty; unauthenticated proxy requests will redirect to a relative /login on the site host and may loop")
 	}
 
-	proxy := &BrowserProxy{reg: reg, ctrl: ctrl, managerURL: managerURL, audit: audit, web: web, webIdle: webIdle}
+	proxy := &BrowserProxy{reg: reg, ctrl: ctrl, managerURL: managerURL, audit: audit, web: web, webIdle: webIdle, live: live}
 	// Native gateway WebSocket tunnel (guacamole-common-js <-> guacd). The front
 	// nginx forwards /guac-tunnel here; everything else is the browser proxy.
 	// The gateway/view session-establishment endpoints each make a manager
@@ -320,6 +329,7 @@ func main() {
 	mux.HandleFunc("/guac-view", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveGuacView(hub, ctrl, reg, w, r) }))
 	mux.HandleFunc("/kasm-view", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveKasmView(hub, ctrl, reg, w, r) }))
 	mux.HandleFunc("/kasm-view/", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveKasmView(hub, ctrl, reg, w, r) }))
+	mux.HandleFunc("/web-view", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveWebView(live, ctrl, w, r) }))
 	mux.Handle("/", proxy)
 	log.Fatal(http.ListenAndServe(env("PROXY_ADDR", ":3103"), mux))
 }

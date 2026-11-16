@@ -15,6 +15,10 @@ type WebSessionInfo struct {
 	Host      string    `json:"host"`
 	StartedAt time.Time `json:"startedAt"`
 	LastSeen  time.Time `json:"lastSeen"`
+	// LiveKey names the tab an admin can watch (see WebLiveHub); empty when the
+	// site does not record, since live view rides on the recorder's events.
+	LiveKey string `json:"liveKey,omitempty"`
+	Viewers int    `json:"viewers"`
 }
 
 // WebActivityTracker is a thread-safe, in-memory record of recent web-app access,

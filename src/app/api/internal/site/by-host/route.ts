@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { db } from "@/lib/db";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { resolvedRecordingConsentRequired, resolvedClipboardDefault, resolvedWatermarkDefault } from "@/lib/settings/platform";
+import { resolvedRecordingConsentRequired, resolvedClipboardDefault, resolvedWatermarkDefault, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
+import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
+import { recordingEnabled } from "@/lib/recording/enabled";
 import { requireDataplaneSecret, resolveTenantByHostname, withTenantFrom } from "@/lib/tenant/internal";
 import { currentTenantId } from "@/lib/tenant/context";
 
@@ -29,7 +31,7 @@ async function handler(req: NextRequest) {
   // this lookup runs already scoped in cloud (RLS) via the ambient `db`.
   const site = await db.site.findFirst({
     where: { hostname },
-    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true },
+    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true, keystrokeLogging: true },
   });
   if (!site) return NextResponse.json({ error: "no_site" }, { status: 404 });
 
@@ -52,6 +54,14 @@ async function handler(req: NextRequest) {
     // email + a live clock on every page (isolated sessions get the same from
     // KasmVNC). Per-site override, else the tenant default.
     watermark: site.accessMode === "TRANSPARENT" && (site.watermark ?? (await resolvedWatermarkDefault())),
+    // Typed input on a web app (transparent) site, masked in the page for
+    // credential fields. Same policy as the gateway descriptor.
+    keystrokeLogging: site.accessMode === "TRANSPARENT" && recordSessions && effectiveKeystrokeLogging({
+      mode: await resolvedKeystrokeLoggingMode(),
+      recordingEnabled: recordingEnabled(),
+      recordSessions: site.recordSessions,
+      siteFlag: site.keystrokeLogging,
+    }),
     // Global consent-gate policy; only meaningful when this site records.
     recordingConsentRequired: recordSessions ? await resolvedRecordingConsentRequired() : false,
   });

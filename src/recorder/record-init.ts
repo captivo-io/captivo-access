@@ -1,8 +1,12 @@
 import { record } from "rrweb";
+import { installKeyCapture, type KeyEvent } from "./keys";
 
 type RRWebEvent = { type?: number };
 
 (() => {
+  // The data-plane adds data-keys="1" to this script's tag when the site logs
+  // typed input; read it now, while this script is the current one.
+  const keysOn = (document.currentScript as HTMLScriptElement | null)?.dataset?.keys === "1";
   try {
     const KEY_STORE = "__captivo_rec_key";
     const SEQ_STORE = "__captivo_rec_seq";
@@ -29,6 +33,13 @@ type RRWebEvent = { type?: number };
     const persistSeq = (n: number) => {
       try { sessionStorage.setItem(SEQ_STORE, String(n)); } catch { /* ignore */ }
     };
+    // When this tab's recording began: typed-input times are offsets from it,
+    // the same origin the replay's timeline counts from.
+    let t0 = Date.now();
+    try {
+      const saved = Number(sessionStorage.getItem("__captivo_rec_t0"));
+      if (saved > 0) t0 = saved; else sessionStorage.setItem("__captivo_rec_t0", String(t0));
+    } catch { /* ignore */ }
 
     // Visible, always-on notice that the session is being recorded
     // (transparency / consent). Same look as the gateway/isolated sessions: a
@@ -114,7 +125,29 @@ type RRWebEvent = { type?: number };
       },
       maskAllInputs: true, // conservative: never capture typed input values
     });
-    setInterval(() => flush(), 5000);
+    // Once a second while anything changed: the batches also feed the live view
+    // (data-plane WebLiveHub), where five seconds of lag was noticeable. An idle
+    // page sends nothing.
+    setInterval(() => flush(), 1000);
+
+    if (keysOn) {
+      let kseq = 0;
+      try { kseq = Number(sessionStorage.getItem("__captivo_keys_seq") ?? "0") || 0; } catch { /* ignore */ }
+      let kbuf: KeyEvent[] = [];
+      const sendKeys = (final: boolean) => {
+        if (kbuf.length === 0) return;
+        const body = JSON.stringify({ recordingKey: key, seq: kseq++, events: kbuf });
+        kbuf = [];
+        try { sessionStorage.setItem("__captivo_keys_seq", String(kseq)); } catch { /* ignore */ }
+        try {
+          if (final && navigator.sendBeacon("/__captivo/keys", new Blob([body], { type: "application/json" }))) return;
+          fetch("/__captivo/keys", { method: "POST", body, headers: { "content-type": "application/json" }, keepalive: final }).catch(() => {});
+        } catch { /* recording must never break the app */ }
+      };
+      const capture = installKeyCapture({ start: t0, emit: (e) => { kbuf.push(e); if (kbuf.length >= 20) sendKeys(false); } });
+      setInterval(() => sendKeys(false), 5000);
+      addEventListener("pagehide", () => { capture.flush(); sendKeys(true); });
+    }
     addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flush(true);
     });
