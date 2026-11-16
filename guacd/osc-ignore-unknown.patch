@@ -1,0 +1,66 @@
+diff -ru a/src/terminal/terminal/terminal-handlers.h b/src/terminal/terminal/terminal-handlers.h
+--- a/src/terminal/terminal/terminal-handlers.h	2026-11-16 13:40:57.550301353 +0100
++++ b/src/terminal/terminal/terminal-handlers.h	2026-11-16 13:40:57.578303042 +0100
+@@ -200,6 +200,21 @@
+ int guac_terminal_osc(guac_terminal* term, unsigned char c);
+ 
+ /**
++ * Skips the payload of an OSC sequence this terminal does not implement, up to
++ * its terminator (BEL or ESC \\), then returns to normal echo.
++ *
++ * @param term
++ *     The terminal that received the given character of data.
++ *
++ * @param c
++ *     The character that was received by the given terminal.
++ *
++ * @return
++ *     Zero if the character was handled successfully, non-zero otherwise.
++ */
++int guac_terminal_osc_ignore(guac_terminal* term, unsigned char c);
++
++/**
+  * Handles terminal control function sequences initiated with "ESC #".
+  *
+  * @param term
+diff -ru a/src/terminal/terminal-handlers.c b/src/terminal/terminal-handlers.c
+--- a/src/terminal/terminal-handlers.c	2026-11-16 13:40:57.550301353 +0100
++++ b/src/terminal/terminal-handlers.c	2026-11-16 13:40:57.578303042 +0100
+@@ -1560,6 +1560,24 @@
+ 
+ }
+ 
++int guac_terminal_osc_ignore(guac_terminal* term, unsigned char c) {
++
++    static bool escape = false;
++
++    /* BEL, or ESC \ (ST), ends the sequence. A lone backslash does not: OSC
++     * 3008 writes backslashes inside its values. The 8-bit ST (0x9C) is not
++     * honoured either, as it occurs inside UTF-8 text (e.g. U+00DC). */
++    if (c == 0x07 || (escape && c == '\\')) {
++        escape = false;
++        term->char_handler = guac_terminal_echo;
++    }
++    else
++        escape = (c == 0x1B);
++
++    return 0;
++
++}
++
+ int guac_terminal_osc(guac_terminal* term, unsigned char c) {
+ 
+     static int operation = 0;
+@@ -1599,6 +1617,12 @@
+         else if (operation == 4)
+             term->char_handler = guac_terminal_xterm_palette;
+ 
++        /* Any other OSC (e.g. 7 working directory, 8 hyperlinks, 133 shell
++         * marks, 3008 systemd context) is skipped up to its terminator, as
++         * other terminals do, rather than printed */
++        else
++            term->char_handler = guac_terminal_osc_ignore;
++
+         /* Reset parameter for next OSC */
+         operation = 0;
+ 

@@ -33,7 +33,10 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   const NET = GATEWAY_NETWORK;
   const CONNECTOR = accessImage("connector");
   const KASM = accessImage("kasm-browser");
-  const GUACD = "guacamole/guacd:1.6.0";
+  // Apache's guacd 1.6.0 with libguac-terminal patched (guacd/Dockerfile): the
+  // stock one printed every OSC sequence it does not implement, so SSH to a
+  // systemd 257+ host showed "tart=...;user=root;..." before each prompt.
+  const GUACD = accessImage("guacd");
 
   const network = `docker network inspect ${NET} >/dev/null 2>&1 || docker network create ${NET} >/dev/null 2>&1; `;
   // Own guacd's volumes as uid 1000 (guacd runs non-root) using the pinned guacd
@@ -44,7 +47,10 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // are captured by the data plane and stored on the connector under /data/recordings
   // (see connector/recstore.go). The volume is vestigial, kept only because removing
   // it from a live upgrade command buys nothing. Do not read its name as a location.
-  const chown = `docker run --rm --user 0 --entrypoint chown -v captivo_guacd_recordings:/rec -v captivo_guacd_logs:/log -v captivo_guacd_drive:/drive2 ${GUACD} -R 1000:1000 /rec /log /drive2; `;
+  // Pulled every time: guacd now tracks our :latest (with the OSC fix), and a
+  // tag already on the host is otherwise reused as is, so an update would never
+  // bring a fixed guacd.
+  const chown = `docker pull ${GUACD}; docker run --rm --user 0 --entrypoint chown -v captivo_guacd_recordings:/rec -v captivo_guacd_logs:/log -v captivo_guacd_drive:/drive2 ${GUACD} -R 1000:1000 /rec /log /drive2; `;
   // Re-pair only: drop the token volume so the Go agent re-enrolls with the new code.
   const clear = clearVolume
     ? `docker rm -f access-connector >/dev/null 2>&1; docker volume rm access_connector_data >/dev/null 2>&1; `
