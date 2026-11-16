@@ -200,3 +200,15 @@ def test_waits_for_the_display_not_a_fixed_time(tmp_path, monkeypatch):
     monkeypatch.setattr(control.time, "sleep", lambda s: slept.append(s))
     control._wait_for_display(99, type("P", (), {"poll": lambda s: 1})(), timeout=5)
     assert slept == [0.3]
+
+
+def test_the_watermark_is_grey_so_it_shows_on_light_and_dark_pages(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(control.subprocess, "Popen", lambda args, **kw: calls.append(args) or type("P", (), {"poll": lambda s: None})())
+    monkeypatch.setattr(control.time, "sleep", lambda s: None)
+    monkeypatch.setattr(control, "_wait_for_display", lambda d, p, timeout=10.0: None)
+    control._spawn(5, "https://x.test", str(tmp_path / "p"), str(tmp_path / "h"), True, True, watermark_text="v@x.test")
+    xvnc = next(a for a in calls if a[0] == "Xvnc")
+    tint = next(a for a in xvnc if a.startswith("-DLP_WatermarkTint="))
+    r, g, b, _ = (int(v) for v in tint.split("=")[1].split(","))
+    assert 64 <= r <= 192 and r == g == b, tint
