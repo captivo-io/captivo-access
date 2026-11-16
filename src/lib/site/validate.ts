@@ -1,3 +1,4 @@
+import { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
 
 const CLIP = ["allow", "no_copy", "no_paste", "none"];
@@ -29,7 +30,7 @@ export type SiteValidation =
       targetHost: string;
       targetPort: number;
       username: string;
-      secret: string | null;
+      secret: SecretInput | null; // sealed in the browser, or plaintext (API clients)
       recordSessions: boolean;
       keystrokeLogging: boolean;
       guacParams: GuacParams;
@@ -94,7 +95,7 @@ export function validateSiteInput(
     const targetHost = str(body.targetHost);
     const targetPort = typeof body.targetPort === "number" ? body.targetPort : Number(str(body.targetPort));
     const username = str(body.username);
-    const secret = typeof body.secret === "string" ? body.secret : "";
+    const secret = secretInputFrom(body);
     if (!targetHost || !username) return { ok: false, error: "remote_desktop_fields_required" };
     if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) return { ok: false, error: "invalid_port" };
     if (opts.requireSecret && !secret) return { ok: false, error: "remote_desktop_fields_required" };
@@ -108,7 +109,7 @@ export function validateSiteInput(
       targetHost,
       targetPort,
       username,
-      secret: secret || null,
+      secret,
       recordSessions: opts.recordingEnabled && body.recordSessions === true,
       keystrokeLogging: opts.recordingEnabled && body.recordSessions === true && body.keystrokeLogging === true,
       guacParams: parseGuacParams(body.guacParams),

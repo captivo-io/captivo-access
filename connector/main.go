@@ -37,6 +37,12 @@ func main() {
 		log.Fatalf("recording key: %v", err)
 	}
 	store := newRecStore(recDir, recKey)
+	vk, err := loadOrCreateVaultKey(envOr("VAULT_KEY_FILE", "/data/vault.key"))
+	if err != nil {
+		// Same reasoning as the recording key: never run with a replaced key.
+		log.Fatalf("vault key: %v", err)
+	}
+	vaultKey = vk
 	// Warn loudly if the store will not outlive the container. Recordings are no
 	// longer held by the control plane, so if this volume is lost nobody has a copy.
 	if warn := recordingVolumeWarning(recDir); warn != "" {

@@ -68,7 +68,7 @@ function Actions({
   recordingEnabled,
 }: {
   s: SiteRow;
-  connectors: { id: string; name: string }[];
+  connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   recordingEnabled: boolean;
 }) {
   return (
@@ -86,7 +86,7 @@ export function SitesView({
   recordingEnabled,
 }: {
   sites: SiteRow[];
-  connectors: { id: string; name: string }[];
+  connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   recordingEnabled: boolean;
 }) {
   const [view, setView] = useState<View>("cards");

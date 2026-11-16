@@ -45,7 +45,7 @@ func (c *ControlClient) AuthConnector(token string) (string, error) {
 // ReportStatus tells the control plane a connector went ONLINE/OFFLINE.
 // Best-effort: errors are swallowed since this must never block tunnel
 // teardown/setup.
-func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version string) (egressPolicy, logLevel string, rec RecordingPolicy) {
+func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, vaultPublicKey string) (egressPolicy, logLevel string, rec RecordingPolicy) {
 	var out struct {
 		EgressPolicy           string   `json:"egressPolicy"`
 		LogLevel               string   `json:"logLevel"`
@@ -54,7 +54,7 @@ func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version st
 		PurgeRecordingKeys     []string `json:"purgeRecordingKeys"`
 	}
 	_ = c.post("/api/internal/connector/status",
-		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version}, &out)
+		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version, "vaultPublicKey": vaultPublicKey}, &out)
 	return out.EgressPolicy, out.LogLevel, RecordingPolicy{TenantID: out.TenantID, RetentionDays: out.RecordingRetentionDays, PurgeKeys: out.PurgeRecordingKeys}
 }
 
@@ -120,6 +120,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		TargetPort       int               `json:"targetPort"`
 		Username         string            `json:"username"`
 		Secret           string            `json:"secret"`
+		SealedSecret     string            `json:"sealedSecret"`
 		SecretKind       string            `json:"secretKind"`
 		GuacdAddress     string            `json:"guacdAddress"`
 		ConnectorID      string            `json:"connectorId"`
@@ -132,13 +133,14 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		return GuacConn{}, "", "", "", false, false, err
 	}
 	return GuacConn{
-		Protocol:   out.Protocol,
-		Hostname:   out.TargetHost,
-		Port:       strconv.Itoa(out.TargetPort),
-		Username:   out.Username,
-		Secret:     out.Secret,
-		SecretKind: out.SecretKind,
-		Params:     out.Params,
+		Protocol:     out.Protocol,
+		Hostname:     out.TargetHost,
+		Port:         strconv.Itoa(out.TargetPort),
+		Username:     out.Username,
+		Secret:       out.Secret,
+		SealedSecret: out.SealedSecret,
+		SecretKind:   out.SecretKind,
+		Params:       out.Params,
 	}, out.GuacdAddress, out.ConnectorID, out.TenantID, out.Record, out.KeystrokeLogging, nil
 }
 

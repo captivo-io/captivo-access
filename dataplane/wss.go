@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"net"
 	"net/http"
 	"strings"
@@ -61,11 +62,11 @@ func (s *Server) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 
 	sess := &Session{mux: mux, kasmToken: kasmTokenFromHeader(r.Header.Get("X-Kasm-Control-Token"))}
 	s.reg.Set(connectorID, sess)
-	policy, logLevel, rec := s.ctrl.ReportStatus(connectorID, "ONLINE", r.RemoteAddr, r.Header.Get("X-Connector-Version"))
+	policy, logLevel, rec := s.ctrl.ReportStatus(connectorID, "ONLINE", r.RemoteAddr, r.Header.Get("X-Connector-Version"), vaultPublicKeyFromHeader(r.Header.Get("X-Vault-Public-Key")))
 	go runControl(sess, connectorID, s.ctrl, policy, logLevel, rec)
 	defer func() {
 		if s.reg.RemoveIfSame(connectorID, sess) {
-			_, _, _ = s.ctrl.ReportStatus(connectorID, "OFFLINE", r.RemoteAddr, "")
+			_, _, _ = s.ctrl.ReportStatus(connectorID, "OFFLINE", r.RemoteAddr, "", "")
 		}
 		mux.Close()
 	}()
@@ -99,6 +100,16 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// vaultPublicKeyFromHeader accepts only a base64 X25519 public key (32 bytes):
+// the control plane seals resource secrets to it, for that connector alone.
+func vaultPublicKeyFromHeader(v string) string {
+	b, err := base64.StdEncoding.DecodeString(v)
+	if err != nil || len(b) != 32 {
+		return ""
+	}
+	return v
 }
 
 // kasmTokenFromHeader accepts only a plain token: it is written into raw HTTP

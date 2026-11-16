@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -62,7 +63,15 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		return
 	}
 
-	guac, err := dialGuacd(sess, guacdAddr)
+	var guac net.Conn
+	if conn.SealedSecret != "" {
+		// The secret is sealed to this connector; only it can open it. The
+		// handshake carries a per-session placeholder in its place.
+		conn.Secret = vaultPlaceholder()
+		guac, err = dialGuacdSealed(sess, guacdAddr, conn.SealedSecret, conn.Secret)
+	} else {
+		guac, err = dialGuacd(sess, guacdAddr)
+	}
 	if err != nil {
 		log.Printf("guac-tunnel site=%s: dialGuacd(%s) failed err=%v", siteID, guacdAddr, err)
 		http.Error(w, "guacd unreachable", http.StatusBadGateway)

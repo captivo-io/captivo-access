@@ -103,8 +103,11 @@ func parseInstruction(r *bufio.Reader) (string, []string, error) {
 // GuacConn is the resolved connection descriptor injected into the guacd handshake.
 type GuacConn struct {
 	Protocol, Hostname, Port, Username, Secret, SecretKind string
-	Width, Height, Dpi                                     int
-	Params                                                 map[string]string // resolved guacd arg-name→value (server-layout, color-depth, enable-*, disable-copy/paste)
+	// SealedSecret is the secret sealed to the connector's vault key; when set,
+	// Secret is a placeholder the connector replaces (connector/vault.go).
+	SealedSecret       string
+	Width, Height, Dpi int
+	Params             map[string]string // resolved guacd arg-name→value (server-layout, color-depth, enable-*, disable-copy/paste)
 }
 
 // injectDrivePath gives an RDP drive session-scoped isolation: a fresh

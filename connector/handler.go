@@ -216,6 +216,14 @@ func handleGuacd(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		writeGuacdErr(st, "target not allowed") // egress boundary — fail closed
 		return
 	}
+	var sr *sealedRelay
+	if gr.Sealed != "" {
+		if vaultKey == nil || gr.Placeholder == "" {
+			writeGuacdErr(st, "vault: this connector cannot open sealed secrets")
+			return
+		}
+		sr = newSealedRelay(vaultKey, gr.Sealed, gr.Placeholder)
+	}
 	upstream, err := net.DialTimeout("tcp", gr.Target, 10*time.Second)
 	if err != nil {
 		logUpstreamErr("guacd", gr.Target, err.Error())
@@ -231,8 +239,18 @@ func handleGuacd(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		return
 	}
 	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(st, upstream); done <- struct{}{} }() // guacd -> tunnel
-	go func() { _, _ = io.Copy(upstream, st); done <- struct{}{} }() // tunnel -> guacd
+	if sr == nil {
+		go func() { _, _ = io.Copy(st, upstream); done <- struct{}{} }() // guacd -> tunnel
+		go func() { _, _ = io.Copy(upstream, st); done <- struct{}{} }() // tunnel -> guacd
+	} else {
+		go func() { _ = sr.fromGuacd(st, upstream); done <- struct{}{} }()
+		go func() {
+			if err := sr.toGuacd(upstream, st); err != nil && strings.HasPrefix(err.Error(), "vault") {
+				logUpstreamErr("guacd", gr.Target, err.Error())
+			}
+			done <- struct{}{}
+		}()
+	}
 	<-done
 }
 

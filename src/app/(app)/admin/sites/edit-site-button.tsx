@@ -9,7 +9,7 @@ export function EditSiteButton({
   site,
 }: {
   site: SiteRow;
-  connectors: { id: string; name: string }[];
+  connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   recordingEnabled: boolean;
 }) {
   return (

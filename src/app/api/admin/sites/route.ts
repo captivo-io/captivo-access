@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
-import { encrypt } from "@/lib/crypto";
+import { storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
@@ -96,14 +96,20 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   }
 
   // GATEWAY (remote desktop): the site (null hostname/upstream) + its credential, atomically.
-  const encSecret = encrypt(v.secret as string);
+  let stored;
+  try {
+    stored = await storedSecretFor(v.connectorId, v.secret!, { host: v.targetHost, port: v.targetPort, username: v.username });
+  } catch (e) {
+    if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
+    throw e;
+  }
   const id = await db.$transaction(async (tx) => {
     const site = await tx.site.create({
       data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, accessMode: "GATEWAY", ...logoData },
       select: { id: true },
     });
     await tx.vaultCredential.create({
-      data: { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, secret: encSecret, secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
+      data: { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, secret: stored.secret, sealedTo: stored.sealedTo, secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
     });
     return site.id;
   });

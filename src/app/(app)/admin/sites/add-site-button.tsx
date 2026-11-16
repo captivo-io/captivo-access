@@ -17,7 +17,7 @@ export function AddSiteButton({
   hostSuffix,
   isolationEnabled,
 }: {
-  connectors: { id: string; name: string }[];
+  connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   recordingEnabled: boolean;
   recordingMode: string;
   keystrokeMode: KeystrokeMode;

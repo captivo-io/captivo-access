@@ -45,7 +45,7 @@ async function AdminSitesPageImpl() {
     }),
     db.connector.findMany({
       where: { status: { not: "REVOKED" } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, vaultPublicKey: true },
       orderBy: { name: "asc" },
     }),
   ]);

@@ -21,7 +21,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
       where: { id },
       select: { id: true, connectorId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true, keystrokeLogging: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true, domainVerifiedAt: true },
     }),
-    db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, name: true, vaultPublicKey: true }, orderBy: { name: "asc" } }),
   ]);
 
   // Seed the remote-desktop fields from the site's vault credential (secret excluded).

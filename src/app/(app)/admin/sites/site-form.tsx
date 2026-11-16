@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseGuacParams } from "@/lib/gateway/guac-params";
+import { sealSecret } from "@/lib/vault/seal";
 import { GuacParamsFields, paramsToGuacFields, guacFieldsToParams, type GuacFields } from "@/components/guac-params-fields";
 import type { GuacParams } from "@/lib/gateway/guac-params";
 import type { KeystrokeMode } from "@/lib/settings/platform";
@@ -36,6 +37,13 @@ function errorMessage(code: string | undefined, isEdit: boolean): string {
       return "Connector and name are required.";
     case "forbidden":
       return "Admin privileges are required for this action.";
+    case "vault_secret_required":
+      return "Enter the password again: it was encrypted for the previous host, port, username or connector, and opens only for those.";
+    case "vault_key_changed":
+      return "The connector's encryption key changed while you were editing. Reload the page and enter the password again.";
+    case "invalid_sealed_secret":
+    case "vault_unsupported_browser":
+      return "This browser cannot encrypt the password for the connector. Use a current version of Chrome, Edge, Firefox or Safari.";
     case "limit_reached":
       return "Your plan's resource limit is reached — contact your platform operator to raise it.";
     default:
@@ -85,7 +93,7 @@ export function SiteForm({
   vault,
   onDone,
 }: {
-  connectors: { id: string; name: string }[];
+  connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   site?: SiteInitial;
   recordingEnabled?: boolean;
   recordingMode?: string;
@@ -96,7 +104,7 @@ export function SiteForm({
   nativeGateway?: boolean;
   isolationEnabled?: boolean;
   hostSuffix?: string | null;
-  vault?: { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown };
+  vault?: { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; sealed?: boolean; stale?: boolean };
   onDone?: () => void;
 }) {
   const router = useRouter();
@@ -207,11 +215,39 @@ export function SiteForm({
     }
   }
 
+  // The selected connector's vault key: the password is sealed to it here, in
+  // the browser, so the cloud stores only what that connector can open.
+  const vaultKey = connectors.find((c) => c.id === connectorId)?.vaultPublicKey ?? null;
+  // A sealed password opens only for its target and connector (src/lib/vault/seal.ts).
+  const sealedTargetChanged =
+    !!vault?.sealed &&
+    (vault.targetHost !== targetHost.trim() || vault.targetPort !== Number(targetPort) || vault.username !== username.trim() || site?.connectorId !== connectorId);
+
+  async function secretFields(): Promise<Record<string, string>> {
+    if (!secret) return {};
+    if (!vaultKey) return { secret };
+    const sealedSecret = await sealSecret(vaultKey, secret, { host: targetHost, port: Number(targetPort), username });
+    return { sealedSecret, sealedTo: vaultKey };
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (accessMode === "GATEWAY" && !secret && (vault?.stale || sealedTargetChanged)) {
+      setError(errorMessage("vault_secret_required", !!site));
+      return;
+    }
     setBusy(true);
     try {
+      let secretBody: Record<string, string> = {};
+      if (accessMode === "GATEWAY") {
+        try {
+          secretBody = await secretFields();
+        } catch {
+          setError(errorMessage("vault_unsupported_browser", !!site));
+          return;
+        }
+      }
       const res = await fetch(site ? `/api/admin/sites/${site.id}` : "/api/admin/sites", {
         method: site ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -230,7 +266,7 @@ export function SiteForm({
           watermark: watermark === "inherit" ? null : watermark === "on",
           fileTransferMode,
           ...(accessMode === "GATEWAY"
-            ? { protocol, targetHost, targetPort: Number(targetPort), username, secret, guacParams: guacFieldsToParams(guac) }
+            ? { protocol, targetHost, targetPort: Number(targetPort), username, ...secretBody, guacParams: guacFieldsToParams(guac) }
             : {}),
           logo,
           logoType,
@@ -515,8 +551,15 @@ export function SiteForm({
           </div>
           <div className="field">
             <label className="field-label" htmlFor="site-secret">Password</label>
-            <input id="site-secret" type="password" className="input" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={vault?.hasSecret ? "•••••••• (stored — type to replace)" : "target password"} autoComplete="new-password" />
-            <p className="hint">Stored encrypted and injected into the session — the vendor never sees it.</p>
+            {vault?.stale && (
+              <p className="notice error" role="alert">The connector&apos;s encryption key changed (its data was reset), so the stored password can no longer be opened. Enter it again.</p>
+            )}
+            <input id="site-secret" type="password" className="input" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={vault?.hasSecret && !vault.stale && !sealedTargetChanged ? "•••••••• (stored — type to replace)" : "target password"} autoComplete="new-password" />
+            {vaultKey ? (
+              <p className="hint">Encrypted in your browser for this connector: only the connector can read it — the vendor and Captivo never see it. It opens only for this host, port and username, so changing them needs the password again.</p>
+            ) : (
+              <p className="hint">Stored encrypted and injected into the session — the vendor never sees it. Update the connector so that only the connector can read it.</p>
+            )}
           </div>
           <details className="guac-advanced">
             <summary>Advanced (Guacamole)</summary>

@@ -5,6 +5,8 @@ import { resolvedConnectorLogLevel, resolvedRecordingRetentionDays } from "@/lib
 import { pendingErasuresByConnector } from "@/lib/recording/erasure";
 import { currentTenantId } from "@/lib/tenant/context";
 import { requireDataplaneSecret, resolveTenantByConnector, withTenantFrom } from "@/lib/tenant/internal";
+import { isVaultPublicKey } from "@/lib/vault/seal";
+import { sealLegacyCredentials } from "@/lib/vault/store";
 
 function dataplaneAuthorized(req: NextRequest): boolean {
   const s = process.env.DATAPLANE_SECRET;
@@ -33,8 +35,16 @@ async function handler(req: NextRequest) {
       lastSeenAt: new Date(),
       ...(typeof body.remoteAddr === "string" ? { remoteAddr: body.remoteAddr } : {}),
       ...(typeof body.version === "string" ? { version: body.version } : {}),
+      // The connector's vault key: a changed one means its /data was lost, and
+      // secrets sealed to the old key need entering again (shown on the resource).
+      ...(isVaultPublicKey(body.vaultPublicKey) ? { vaultPublicKey: body.vaultPublicKey } : {}),
     },
   });
+  // Seal what the cloud still holds in a form it can open, now that this
+  // connector can open seals. Never blocks the connector coming online.
+  if (status === "ONLINE" && isVaultPublicKey(body.vaultPublicKey)) {
+    await sealLegacyCredentials({ connectorId }).catch((e) => console.error("vault: sealing legacy secrets failed", e));
+  }
   const c = await db.connector.findUnique({ where: { id: connectorId }, select: { egressPolicy: true, logLevel: true } });
   // Carry the recording policy on connect too, so a reconnecting connector resumes
   // its retention sweep and learns any erasures it still owes — previously the

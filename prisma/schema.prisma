@@ -243,6 +243,7 @@ model Connector {
   remoteAddr String?
   egressPolicy String?
   logLevel   String?         // debug | info | warn | error; null = inherit the policy default — pushed to the connector live
+  vaultPublicKey String?     // X25519 public key (base64) resource secrets are sealed to; the private half stays on the connector
   createdAt  DateTime        @default(now())
   sites      Site[]
   pairings   ConnectorPairing[]
@@ -324,7 +325,8 @@ model VaultCredential {
   targetHost String
   targetPort Int
   username   String
-  secret     String // AES-256-GCM ciphertext (password OR private key)
+  secret     String // sealed to the connector ("cv1:", src/lib/vault/seal.ts) or, before that, AES-256-GCM under ENCRYPTION_KEY
+  sealedTo   String? // the connector vault public key `secret` is sealed to; null = legacy server-side encryption
   secretKind VaultSecretKind @default(PASSWORD)
   guacParams Json? // curated per-resource Guacamole connection params (validated allowlist)
   createdAt  DateTime        @default(now())

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { vaultEnabled } from "@/lib/vault/enabled";
-import { setVaultCredential, clearVaultCredential } from "@/lib/vault/store";
+import { setVaultCredential, clearVaultCredential, secretInputFrom, VaultInputError } from "@/lib/vault/store";
+import { db } from "@/lib/db";
 import { parseGuacParams } from "@/lib/gateway/guac-params";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
@@ -28,14 +29,25 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   const port = Number(b.targetPort);
   const targetHost = typeof b.targetHost === "string" ? b.targetHost.trim() : "";
   const username = typeof b.username === "string" ? b.username.trim() : "";
-  const secret = typeof b.secret === "string" ? b.secret : "";
+  const secret = secretInputFrom(b);
   if (!PROTOCOLS.includes(protocol) || !KINDS.includes(secretKind)) {
     return NextResponse.json({ error: "invalid_protocol" }, { status: 400 });
   }
   if (!targetHost || !Number.isInteger(port) || port < 1 || port > 65535 || !username || !secret) {
     return NextResponse.json({ error: "invalid_fields" }, { status: 400 });
   }
-  await setVaultCredential({ siteId: id, protocol, targetHost, targetPort: port, username, secret, secretKind, guacParams: parseGuacParams(b.guacParams) });
+  // The resource must be this tenant's (RLS hides others'): without this check an
+  // upsert for another tenant's resource id created a stray row under ours that
+  // then blocked that resource's own credential.
+  const site = await db.site.findUnique({ where: { id }, select: { connectorId: true, accessMode: true } });
+  if (!site) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (site.accessMode !== "GATEWAY") return NextResponse.json({ error: "not_remote_desktop" }, { status: 400 });
+  try {
+    await setVaultCredential({ siteId: id, connectorId: site.connectorId, protocol, targetHost, targetPort: port, username, secret, secretKind, guacParams: parseGuacParams(b.guacParams) });
+  } catch (e) {
+    if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
+    throw e;
+  }
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "resource.vault_update", targetType: "resource", targetId: id,

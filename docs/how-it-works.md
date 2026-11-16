@@ -142,9 +142,10 @@ A **Remote desktop** Resource (RDP/SSH/VNC) passes the same first two gates, but
 tail is different: instead of an HTTP round trip to an internal app, the browser
 runs a live session rendered by **guacd** — the remote-desktop engine every
 connector deploys on its own host, alongside the connector itself. The
-target's credential lives **encrypted** in the vault; only the data-plane
-decrypts it, per session, to hand to guacd, so the vendor never sees the
-password and the "internal app" is a live screen streamed to the browser.
+target's password or key is **sealed to the connector** in the admin's browser:
+the vault stores only that sealed form, and only the connector can open it,
+per session, to hand to guacd. Neither the vendor nor the hosted service sees
+it, and the "internal app" is a live screen streamed to the browser.
 
 ```mermaid
 flowchart TD
@@ -153,8 +154,9 @@ flowchart TD
     G1 -->|no| L["Unauthorized"]
     G1 -->|yes| G2{"Gate 2 — allowed?<br/>grant · approval · schedule"}
     G2 -->|no| E403["Forbidden"]
-    G2 -->|yes| CR["Decrypt the vault credential<br/>(server-side only)"]
-    CR -->|outbound tunnel| GD["guacd on the connector host<br/>opens RDP/SSH/VNC to the target<br/>credential injected"]
+    G2 -->|yes| CR["Look up the sealed credential<br/>(the cloud cannot open it)"]
+    CR -->|outbound tunnel| CN["Connector opens it<br/>for this target only"]
+    CN --> GD["guacd on the connector host<br/>opens RDP/SSH/VNC to the target<br/>credential injected"]
     GD --> SCR["Live screen streamed to the browser<br/>(recorded if enabled)"]
     ADM["Admin · /admin/live"] -->|"join by connection ID (WSS /guac-view)"| GD
     GD -.->|"keyframe + live · optional take-control"| ADM
@@ -169,9 +171,20 @@ flowchart TD
   out of the box — its one install command brings up guacd (RDP/SSH/VNC) and
   KasmVNC (isolated browser) alongside the connector on the shared
   `captivo-gateway` network (no separate pack, no toggle).
-- **Credential injection.** The RDP/SSH/VNC username and secret are stored
-  encrypted in the vault; the data-plane decrypts them only to build the guacd
-  handshake — they never reach the vendor's browser.
+- **Credential injection.** Each connector generates a vault key pair on its own
+  disk (`/data/vault.key`) and reports only the public half. When an admin
+  enters an RDP/SSH/VNC password or key, the browser seals it to that key before
+  sending it, bound to the target's host, port and username. The vault stores
+  the sealed form; the data-plane hands guacd a placeholder, and the connector
+  replaces it with the opened secret in the handshake — only if the handshake
+  goes to the host, port and username the secret was entered for. The username
+  and target are stored in clear (they are shown on the resource). Secrets
+  entered before a connector reported its key are sealed automatically when it
+  does.
+- **If the connector's data is lost.** A new `/data` volume means a new vault
+  key: the stored secrets can no longer be opened by anyone, and each affected
+  resource asks for its password again. Back up the volume (it also holds the
+  recording key) if re-entering them would be a burden.
 - **Recording.** With **Record sessions** on, the guacd stream is captured and
   replayable at `/admin/recordings`. The bytes are written to the **connector's own
   disk**, AES-256-GCM-encrypted with a key only that connector holds; replay and
