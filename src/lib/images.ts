@@ -31,6 +31,7 @@ export const PUBLISHED_IMAGES = [
   "connector",
   "migrate",
   "kasm-browser",
+  "guacd",
 ] as const;
 
 export type PublishedImage = (typeof PUBLISHED_IMAGES)[number];

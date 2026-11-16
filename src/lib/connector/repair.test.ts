@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PRUNE_LABEL_FILTER } from "@/lib/images";
+import { PRUNE_LABEL_FILTER, accessImage } from "@/lib/images";
 import {
   canRepairConnector,
   buildReconfigureCommand,
@@ -123,12 +123,18 @@ describe("every connector bundles guacd on the shared network", () => {
     const cmd = buildInstallCommand("CODE123", m, t);
     expect(cmd).toContain("--name captivo-guacd");
     expect(cmd).toContain("captivo_guacd_recordings");
-    expect(cmd).toContain("guacamole/guacd:1.6.0");
+    // Our patched guacd (guacd/Dockerfile), not Apache's stock image.
+    expect(cmd).toContain(accessImage("guacd"));
+    expect(cmd).not.toContain("guacamole/guacd");
     expect(cmd).toContain("docker run -d --name access-connector");
   });
   it("update re-provisions guacd", () => {
     const cmd = buildConnectorUpdateCommand(m, t);
     expect(cmd).toContain("--name captivo-guacd");
+    // :latest is only refreshed by a pull, and it must come before the chown
+    // that already runs the image.
+    expect(cmd).toContain(`docker pull ${accessImage("guacd")}`);
+    expect(cmd.indexOf(`docker pull ${accessImage("guacd")}`)).toBeLessThan(cmd.indexOf("--entrypoint chown"));
     expect(cmd).toContain("docker pull ghcr.io/captivo-io/captivo-access-connector:latest");
   });
   it("install/update bundle the KasmVNC (hi-fi) browser, pulled fresh", () => {
@@ -140,7 +146,7 @@ describe("every connector bundles guacd on the shared network", () => {
     const cmd = buildInstallCommand("CODE123", m, t);
     expect(cmd).toContain("-v captivo_guacd_logs:/guaclog ");
     // guacd 1.6.0's entrypoint swallows a CMD; bypass it so our tee wrapper runs.
-    expect(cmd).toContain("--entrypoint /bin/sh guacamole/guacd:1.6.0");
+    expect(cmd).toContain(`--entrypoint /bin/sh ${accessImage("guacd")}`);
     expect(cmd).toContain("tee /guaclog/guacd.log");
     // File-transfer drive volume: mounted on guacd + chowned + mounted on the connector for pruning.
     expect(cmd).toContain("captivo_guacd_drive");

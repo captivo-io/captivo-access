@@ -35,6 +35,11 @@ jobs:
           - image: kasm-browser
             dockerfile: kasm-browser/Dockerfile
             platforms: linux/amd64
+          # guacd with the OSC fix (guacd/Dockerfile): it runs beside the
+          # connector, so it follows the connector's architectures.
+          - image: guacd
+            dockerfile: guacd/Dockerfile
+            platforms: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v4
 
