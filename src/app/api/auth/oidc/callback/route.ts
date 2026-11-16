@@ -22,6 +22,7 @@ import { currentTenantId } from "@/lib/tenant/context";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { IDP_TIMEOUT_MS } from "@/lib/auth/oidc";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
 
 export const dynamic = "force-dynamic";
 
@@ -244,6 +245,16 @@ async function handler(req: NextRequest) {
   if (!invite && onTenantConsole) {
     const grant = tenantOrg ? accessGrantFor(claims, tenantOrg) : null;
     if (grant) {
+      // The plan's user cap. Invites check it when they are created; this
+      // path creates a user with no invite, and on a workspace linked to an
+      // organisation it is the ONLY way internal people arrive (the console
+      // invites vendors only), so without this the cap held nobody back.
+      try {
+        await assertWithinLimit("maxUsers", await db.user.count());
+      } catch (e) {
+        if (e instanceof LimitError) return fail(req, "user_limit", `org member refused: ${e.key} ${e.max} reached on tenant ${currentTenantId()}`);
+        throw e;
+      }
       let joined;
       try {
         joined = await db.user.create({

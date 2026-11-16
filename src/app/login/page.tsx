@@ -39,6 +39,7 @@ async function LoginPageImpl({
   const errorMsg =
     errorCode === "disabled" ? "Your account is disabled — contact an administrator."
     : errorCode === "no_account" ? "No account for that identity — ask an administrator to invite you."
+    : errorCode === "user_limit" ? "This workspace has reached its user limit — ask an administrator to remove a user or raise the plan."
     : errorCode === "sso" ? "Sign-in with your identity provider failed. Please try again."
     : errorCode === "support" ? "This support link is invalid, expired or already used. Open the tenant again from the platform console."
     : errorCode === "revoked" ? "Your access has been revoked — you are no longer a member of an authorized directory group."
