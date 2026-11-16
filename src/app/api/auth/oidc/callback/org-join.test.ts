@@ -47,3 +47,20 @@ describe("oidc callback: the centre's word on a returning user", () => {
     expect(ROUTE).toMatch(/outcome === "update"[\s\S]*?user = await db\.user\.update\(\{ where: \{ id: user\.id \}, data: \{ role, centerRole, status \} \}\)/);
   });
 });
+
+describe("oidc callback: the plan's user cap", () => {
+  // Invites check maxUsers when they are created; the organisation-member join
+  // creates a user with no invite and used to skip it entirely.
+  it("is checked before an organisation member is created", () => {
+    const join = ROUTE.indexOf("if (!invite && onTenantConsole)");
+    const cap = ROUTE.indexOf('assertWithinLimit("maxUsers", await db.user.count())', join);
+    expect(cap).toBeGreaterThan(join);
+    expect(cap).toBeLessThan(ROUTE.indexOf("joined = await db.user.create(", join));
+  });
+
+  it("a full workspace refuses with its own code, and the login page explains it", () => {
+    expect(ROUTE).toMatch(/if \(e instanceof LimitError\) return fail\(req, "user_limit"/);
+    const LOGIN = readFileSync(join(__dirname, "..", "..", "..", "..", "login", "page.tsx"), "utf8");
+    expect(LOGIN).toMatch(/errorCode === "user_limit" \? "This workspace has reached its user limit/);
+  });
+});
