@@ -69,10 +69,23 @@ export function readPlatformOidc(env: Record<string, string | undefined>): Platf
  * what remain.
  */
 export function pickOidcSource(tenant: TenantOidc | null, platform: PlatformOidc | null): OidcSource {
+  // A tenant row naming Captivo ID's own issuer is not a provider of the
+  // tenant's: it is what the SSO page used to save when it showed Captivo ID's
+  // values prefilled and an admin pressed Save -- with no secret, so the
+  // login button failed at the token exchange and Captivo ID was gone.
+  // Two Cloud tenants were left like that. Such a row is ignored.
+  if (tenant && platform && isPlatformIssuer(tenant.issuer, platform)) tenant = null;
   if (tenant) {
     return tenant.enabled ? { kind: "tenant" } : { kind: "none" };
   }
   return platform ? { kind: "platform", config: platform } : { kind: "none" };
+}
+
+/** Whether an issuer is Captivo ID's own (trailing slash and case ignored). */
+export function isPlatformIssuer(issuer: string, platform: PlatformOidc | null): boolean {
+  if (!platform) return false;
+  const norm = (u: string) => u.trim().replace(/\/+$/, "").toLowerCase();
+  return norm(issuer) === norm(platform.issuer);
 }
 
 /*

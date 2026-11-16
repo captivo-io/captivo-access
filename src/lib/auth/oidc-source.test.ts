@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readPlatformOidc, pickOidcSource } from "./oidc-source";
+import { readPlatformOidc, pickOidcSource, isPlatformIssuer } from "./oidc-source";
 
 const PLATFORM = { issuer: "https://id.captivo.io", clientId: "captivo-access", clientSecret: "s3cret" };
 // Captivo ID is a hosted-service feature, so every case below that expects it
@@ -78,3 +78,24 @@ describe("which provider applies", () => {
   });
 });
 
+
+describe("a tenant row that names Captivo ID itself", () => {
+  // The SSO page used to open prefilled with Captivo ID's issuer and client ID;
+  // pressing Save stored them as the tenant's "own" provider with no secret.
+  // On two Cloud tenants that replaced the working Captivo ID button with one
+  // that failed at the token exchange.
+  const COPY = { enabled: true, issuer: "https://id.captivo.io", clientId: "captivo-access", hasSecret: false };
+
+  it("is ignored: sign-in stays on Captivo ID, enabled or not", () => {
+    expect(pickOidcSource(COPY, PLATFORM)).toEqual({ kind: "platform", config: PLATFORM });
+    expect(pickOidcSource({ ...COPY, enabled: false }, PLATFORM)).toEqual({ kind: "platform", config: PLATFORM });
+    expect(pickOidcSource({ ...COPY, issuer: "https://ID.captivo.io/" }, PLATFORM)).toEqual({ kind: "platform", config: PLATFORM });
+  });
+
+  it("a real provider of the tenant's still wins, and without a platform nothing is ignored", () => {
+    expect(isPlatformIssuer("https://acme.okta.com", PLATFORM)).toBe(false);
+    expect(isPlatformIssuer("https://id.captivo.io/", PLATFORM)).toBe(true);
+    expect(isPlatformIssuer("https://id.captivo.io", null)).toBe(false);
+    expect(pickOidcSource(COPY, null)).toEqual({ kind: "tenant" });
+  });
+});
