@@ -41,6 +41,7 @@ type RRWebEvent = { type?: number };
       if (saved > 0) t0 = saved; else sessionStorage.setItem("__captivo_rec_t0", String(t0));
     } catch { /* ignore */ }
 
+    let setWatched: (on: boolean) => void = () => {};
     // Visible, always-on notice that the session is being recorded
     // (transparency / consent). Same look as the gateway/isolated sessions: a
     // branded card for the first seconds, then a compact "REC" pill. Injected
@@ -53,12 +54,24 @@ type RRWebEvent = { type?: number };
       const base = "position:fixed;z-index:2147483647;display:flex;align-items:center;gap:10px;background:rgba(11,20,36,.93);color:#fff;border:1px solid rgba(255,107,122,.35);box-shadow:0 8px 24px rgba(0,0,0,.35);pointer-events:none;font-family:" + FONT + ";transition:all .25s ease;";
       const dot = '<span style="width:9px;height:9px;border-radius:50%;background:#ff4d4f;flex:0 0 auto;box-shadow:0 0 0 3px rgba(255,77,79,.25)"></span>';
       const expanded = () => {
+        expandedNow = true;
         badge.setAttribute("style", base + "top:16px;left:50%;transform:translateX(-50%);border-radius:14px;padding:10px 16px 10px 14px;");
         badge.innerHTML = dot + MARK + '<span style="display:flex;flex-direction:column;gap:2px"><b style="font:600 13px/1.2 ' + FONT + '">This session is being recorded</b><span style="font:400 11px/1.2 ' + FONT + ';color:#8ea0ba">Captivo Access · security &amp; compliance</span></span>';
       };
+      let watched = false;
+      let expandedNow = false;
       const compact = () => {
+        expandedNow = false;
         badge.setAttribute("style", base + "bottom:12px;left:12px;border-radius:999px;padding:6px 12px 6px 10px;");
-        badge.innerHTML = dot + '<span style="font:700 11px/1 ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#ff8a8f">REC</span>';
+        badge.innerHTML = dot + '<span style="font:700 11px/1 ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#ff8a8f">REC</span>' +
+          (watched ? '<span style="font:600 11px/1 ' + FONT + ';color:#fff">This session is being monitored live.</span>' : "");
+      };
+      // Same notice the gateway and isolated sessions show while an admin
+      // watches (WebLiveHub on the data-plane): asked every few seconds.
+      setWatched = (on: boolean) => {
+        if (on === watched) return;
+        watched = on;
+        if (!expandedNow) compact();
       };
       // Show the full card once per tab (first page of the session), the pill after.
       let seen = false;
@@ -129,6 +142,14 @@ type RRWebEvent = { type?: number };
     // (data-plane WebLiveHub), where five seconds of lag was noticeable. An idle
     // page sends nothing.
     setInterval(() => flush(), 1000);
+    const askWatched = () => {
+      fetch("/__captivo/watched?key=" + encodeURIComponent(key), { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (j) setWatched(Number(j.watching) > 0); })
+        .catch(() => {});
+    };
+    askWatched();
+    setInterval(askWatched, 4000);
 
     if (keysOn) {
       let kseq = 0;

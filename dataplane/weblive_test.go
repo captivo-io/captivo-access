@@ -121,3 +121,27 @@ func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
 }
+
+// The recorder asks this to show the vendor "being monitored" while an admin
+// watches -- the notice gateway and isolated sessions already show.
+func TestServeRecording_WatchedAnswersForTheTab(t *testing.T) {
+	h := NewWebLiveHub()
+	h.Feed("u1", "s1", "h", batch("tab", `{"type":4}`))
+	p := &BrowserProxy{ctrl: &fakeControl{}, live: h}
+	ask := func() string {
+		rec := httptest.NewRecorder()
+		p.serveRecording(rec, httptest.NewRequest(http.MethodGet, "/__captivo/watched?key=tab", nil), "u1", "s1", "h", "c1", "acme", true, false)
+		return rec.Body.String()
+	}
+	if got := ask(); got != `{"watching":0}` {
+		t.Fatalf("nobody watching: %s", got)
+	}
+	_, _, _, cancel, _ := h.Subscribe("tab")
+	if got := ask(); got != `{"watching":1}` {
+		t.Fatalf("one admin watching: %s", got)
+	}
+	cancel()
+	if got := ask(); got != `{"watching":0}` {
+		t.Fatalf("admin left: %s", got)
+	}
+}
