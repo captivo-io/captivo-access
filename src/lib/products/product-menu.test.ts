@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { productMenu, ACCESS_SSO_ENTRY } from "./product-menu";
+import { productMenu, ACCESS_SSO_ENTRY, PORTAL_SSO_ENTRY } from "./product-menu";
 import type { CenterEntitlements } from "@/lib/auth/captivo-id-client";
 
 const NOW = new Date("2026-09-22T12:00:00Z");
@@ -34,20 +34,20 @@ describe("productMenu", () => {
       data([ent("PORTAL"), ent("ACCESS")], [link("PORTAL", BRIDGED_PORTAL)]),
       "ACCESS", HREFS, NOW,
     );
-    expect(menu[0]).toEqual({ product: "PORTAL", state: "open", href: BRIDGED_PORTAL });
+    expect(menu[0]).toEqual({ product: "PORTAL", state: "open", href: BRIDGED_PORTAL + PORTAL_SSO_ENTRY });
     expect(menu[0].href).not.toBe(HREFS.portal);
   });
 
   it("offers setup for an entitled product that is not set up", () => {
     const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "ACCESS", HREFS, NOW);
-    expect(menu[0]).toEqual({ product: "PORTAL", state: "setup", href: HREFS.portal });
+    expect(menu[0]).toEqual({ product: "PORTAL", state: "setup", href: HREFS.portal + PORTAL_SSO_ENTRY });
   });
 
   it("keeps a bridged product whose console origin was never recorded", () => {
     // Portal registers no origin by design. Dropping the item would strand
     // someone from a product they actually have.
     const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")], [link("PORTAL", null)]), "ACCESS", HREFS, NOW);
-    expect(menu[0]).toEqual({ product: "PORTAL", state: "open", href: HREFS.portal });
+    expect(menu[0]).toEqual({ product: "PORTAL", state: "open", href: HREFS.portal + PORTAL_SSO_ENTRY });
   });
 
   it("leaves out a product the organisation is not entitled to", () => {
@@ -69,7 +69,7 @@ describe("productMenu", () => {
     const menu = productMenu(
       data([ent("ACCESS", "2026-09-01T00:00:00.000Z"), ent("PORTAL")]), "ACCESS", HREFS, NOW,
     );
-    expect(menu).toEqual([{ product: "PORTAL", state: "setup", href: HREFS.portal }]);
+    expect(menu).toEqual([{ product: "PORTAL", state: "setup", href: HREFS.portal + PORTAL_SSO_ENTRY }]);
   });
 
   it("keeps an entitlement that expires in the future", () => {
@@ -84,7 +84,7 @@ describe("productMenu", () => {
     // surviving menu is non-empty and the assertion is about absence, not
     // about the collapse rule getting there first.
     const menu = productMenu(data([ent("ACCESS", "not-a-date"), ent("PORTAL")]), "ACCESS", HREFS, NOW);
-    expect(menu).toEqual([{ product: "PORTAL", state: "setup", href: HREFS.portal }]);
+    expect(menu).toEqual([{ product: "PORTAL", state: "setup", href: HREFS.portal + PORTAL_SSO_ENTRY }]);
   });
 
   it("still shows the way out when your own entitlement has lapsed", () => {
@@ -93,7 +93,7 @@ describe("productMenu", () => {
     const menu = productMenu(
       data([ent("PORTAL")], [link("PORTAL", BRIDGED_PORTAL)]), "ACCESS", HREFS, NOW,
     );
-    expect(menu).toEqual([{ product: "PORTAL", state: "open", href: BRIDGED_PORTAL }]);
+    expect(menu).toEqual([{ product: "PORTAL", state: "open", href: BRIDGED_PORTAL + PORTAL_SSO_ENTRY }]);
   });
 
   it("does not let one product's bridge mark another as set up", () => {
@@ -147,12 +147,12 @@ describe("productMenu", () => {
     expect(notSetUp[1].href).toBe(HREFS.accessSetup + "/api/auth/oidc/start");
   });
 
-  it("leaves the Portal link as a bare address", () => {
-    // Auth.js has no sign-in entry a link can use: /api/auth/signin/captivo-id
-    // answers a redirect to /login (measured), so pointing there would swap
-    // one login page for another.
+  it("points the Portal link at Portal's own linkable SSO door", () => {
+    // Auth.js's own entry needs a POST (/api/auth/signin/captivo-id answers a
+    // redirect to /login), so Portal has /sso/start for links. Without it the
+    // switcher landed a signed-in person on Portal's login page.
     const menu = productMenu(data([ent("PORTAL"), ent("ACCESS")]), "ACCESS", HREFS, NOW);
-    expect(menu[0].href).toBe(HREFS.portal);
+    expect(menu[0].href).toBe(HREFS.portal + PORTAL_SSO_ENTRY);
     expect(menu[0].href).not.toContain("/api/");
   });
 

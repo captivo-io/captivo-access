@@ -182,7 +182,8 @@ Four consequences, and none of them are optional reading:
 1. **Back up the connector's volume.** Nobody else has a copy — not us. If the volume
    is lost the recordings are gone permanently.
 2. **Back up `/data/recording.key` with it.** The recordings cannot be read without
-   that file, and it cannot be reissued or recovered.
+   that file, and it cannot be reissued or recovered. See
+   [backing up a connector](#backing-up-a-connector).
 3. **A recording is searchable and playable only while its connector is online.** When
    a connector is offline the console says an answer is incomplete rather than
    pretending nothing matched.
@@ -192,6 +193,73 @@ Four consequences, and none of them are optional reading:
 
 The connector warns in its log at start-up if the recording directory is not on a
 mounted volume, because that means a `docker rm` would destroy every recording.
+
+### Backing up a connector
+
+The console has the same commands under **Connectors → Backup & restore**. Run them
+on each connector's host.
+
+The connector's data volume, `access_connector_data`, holds:
+
+| File | What it opens | If it is lost |
+|---|---|---|
+| `recording.key` | every recording on this connector | its recordings can never be played again |
+| `vault.key` | the remote-desktop passwords saved for its resources (sealed to this connector) | each of those passwords has to be entered again |
+| `recordings/` | — (the recordings themselves, encrypted) | they are gone |
+| `token` | the connector's sign-in to the service | nothing: **Re-pair** issues a new one |
+
+Neither key exists anywhere else — not with the service either. That is what keeps
+the service from reading your recordings and passwords, and it is why the backup is
+yours to make.
+
+**1. The keys** (once, and again after replacing a connector):
+
+```bash
+mkdir -p captivo-connector-keys && chmod 700 captivo-connector-keys \
+  && docker cp access-connector:/data/recording.key captivo-connector-keys/ \
+  && { docker cp access-connector:/data/vault.key captivo-connector-keys/ 2>/dev/null \
+       || echo "no vault.key yet: update the connector, then back up again"; } \
+  && chmod 600 captivo-connector-keys/*.key && ls -l captivo-connector-keys
+```
+
+Keep `captivo-connector-keys/` away from the host — a password manager or an
+encrypted vault. Treat it like the recordings themselves: whoever holds both can
+read them.
+
+**2. The recordings** (optional, on your usual backup schedule) — one archive of the
+volume without the token:
+
+```bash
+docker run --rm --user 0 --entrypoint tar \
+  -v access_connector_data:/data:ro ghcr.io/captivo-io/captivo-access-connector:latest \
+  -czf - -C /data --exclude=./token . > captivo-connector-$(date +%F).tar.gz
+```
+
+**Restoring.** On a new host, restore **before** the first install or re-pair: a
+connector that starts without its keys generates new ones, and anything it records
+with those cannot be read once the old keys are back. From the folder holding the
+backup:
+
+```bash
+# keys only
+docker stop access-connector >/dev/null 2>&1
+docker run --rm --user 0 --entrypoint sh \
+  -v access_connector_data:/data -v "$PWD/captivo-connector-keys":/backup:ro \
+  ghcr.io/captivo-io/captivo-access-connector:latest \
+  -c 'cp /backup/*.key /data/ && chown 10001:10001 /data/*.key && chmod 600 /data/*.key'
+docker start access-connector >/dev/null 2>&1 || true
+
+# or keys and recordings
+docker stop access-connector >/dev/null 2>&1
+docker run --rm --user 0 --entrypoint sh \
+  -v access_connector_data:/data -v "$PWD":/backup:ro \
+  ghcr.io/captivo-io/captivo-access-connector:latest \
+  -c 'tar -xzf /backup/captivo-connector-YYYY-MM-DD.tar.gz -C /data && chown -R 10001:10001 /data'
+docker start access-connector >/dev/null 2>&1 || true
+```
+
+Then use **Re-pair** on the Connectors page to sign the connector in (the token was
+not in the backup). Re-pair keeps the volume: it deletes only the token.
 
 ## Step 5 — Bring the stack up
 

@@ -10,6 +10,9 @@ export function canRepairConnector(status: string): boolean {
 // Shared docker network the connector + guacd join so the connector can reach
 // guacd (`captivo-guacd`) by name.
 export const GATEWAY_NETWORK = "captivo-gateway";
+// The connector's /data: its token, its recordings, its recording key and its
+// vault key. Nothing else holds the last three (see backup.ts).
+export const CONNECTOR_DATA_VOLUME = "access_connector_data";
 // The isolated browser alone, with no route out (see runCommand).
 export const ISOLATED_NETWORK = "captivo-isolated";
 
@@ -65,16 +68,19 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // (connector/kasmtoken.go); the broker reads it from the same volume
   // (kasm-browser/control.py). Made with the guacd image just pulled above.
   const kasmSecret = `docker run --rm --user 0 --entrypoint sh -v captivo_kasm_secret:/secret ${GUACD} -c '[ -s /secret/token ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d " \\n" > /secret/token; chown 10001:10001 /secret/token; chmod 400 /secret/token; chmod 711 /secret'; `;
-  // Re-pair only: drop the token volume so the Go agent re-enrolls with the new code.
+  // Re-pair only: delete the stored token so the Go agent re-enrolls with the new
+  // code. ONLY the token: the same volume holds the connector's recordings, its
+  // recording key and its vault key, none of which exist anywhere else. (This
+  // used to remove the whole volume, silently destroying all three.)
   const clear = clearVolume
-    ? `docker rm -f access-connector >/dev/null 2>&1; docker volume rm access_connector_data >/dev/null 2>&1; `
+    ? `docker rm -f access-connector >/dev/null 2>&1; docker run --rm --user 0 --entrypoint rm -v ${CONNECTOR_DATA_VOLUME}:/data ${GUACD} -f /data/token; `
     : "";
   const connector =
     `docker pull ${CONNECTOR}; docker rm -f access-connector >/dev/null 2>&1; ` +
     `docker run -d --name access-connector --restart unless-stopped --network ${NET} ` +
     `-e MANAGER_URL=${managerUrl} -e DATAPLANE_URL=${tunnelUrl} ` +
     (code ? `-e PAIR_CODE=${code} ` : "") +
-    `-v access_connector_data:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro -v captivo_kasm_secret:/kasmsecret:ro ${CONNECTOR}; ` +
+    `-v ${CONNECTOR_DATA_VOLUME}:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro -v captivo_kasm_secret:/kasmsecret:ro ${CONNECTOR}; ` +
     `docker network connect ${ISOLATED_NETWORK} access-connector >/dev/null 2>&1; `;
   // guacd: bypass the entrypoint so our shell wrapper tees guacd's log into the volume.
   const guacd =
@@ -106,7 +112,7 @@ export function buildInstallCommand(code: string, managerUrl: string, tunnelUrl:
   return buildConnectorRunCommand(code, managerUrl, tunnelUrl);
 }
 
-// Re-pair: clear the token volume so the Go agent (which ignores PAIR_CODE when
+// Re-pair: delete /data/token so the Go agent (which ignores PAIR_CODE when
 // /data/token is present) re-enrolls with the new code and rebinds to the SAME
 // manager-side connector.
 export function buildReconfigureCommand(code: string, managerUrl: string, tunnelUrl: string): string {

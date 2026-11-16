@@ -3,6 +3,8 @@ import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { managerVersion } from "@/lib/version";
 import { buildConnectorUpdateCommand } from "@/lib/connector/repair";
+import { buildFullBackupCommand, buildFullRestoreCommand, buildKeysBackupCommand, buildKeysRestoreCommand } from "@/lib/connector/backup";
+import { BackupConnectorButton } from "./backup-connector-button";
 import { connectorTunnelUrl, isLocalManagerUrl } from "@/lib/url";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { AddConnectorButton } from "./add-connector-button";
@@ -66,6 +68,11 @@ async function AdminConnectorsPageImpl() {
           <PlanUsageNote usage={connectorUsage} noun="connectors" />
         </div>
         <div className="row-actions">
+          {connectors.length > 0 && (
+            <BackupConnectorButton
+              commands={{ keysBackup: buildKeysBackupCommand(), fullBackup: buildFullBackupCommand(), keysRestore: buildKeysRestoreCommand(), fullRestore: buildFullRestoreCommand() }}
+            />
+          )}
           <AddConnectorButton />
         </div>
       </div>

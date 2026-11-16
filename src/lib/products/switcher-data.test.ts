@@ -38,7 +38,7 @@ describe("getProductMenu", () => {
       links: [],
     } as never);
     const portal = (await getProductMenu()).find((m) => m.product === "PORTAL");
-    expect(portal?.href).toBe("https://app.captivo.io");
+    expect(portal?.href).toBe("https://app.captivo.io/sso/start");
   });
 
   it("prefers the bridge's own console address over the built-in Portal one", async () => {
@@ -54,7 +54,7 @@ describe("getProductMenu", () => {
       links: [{ product: "PORTAL", tenantId: "t_1", consoleOrigin: "https://acme.portal.example.test" }],
     } as never);
     const portal = (await getProductMenu()).find((m) => m.product === "PORTAL");
-    expect(portal?.href).toBe("https://acme.portal.example.test");
+    expect(portal?.href).toBe("https://acme.portal.example.test/sso/start");
     expect(portal?.state).toBe("open");
   });
 });
