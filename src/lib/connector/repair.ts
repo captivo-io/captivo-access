@@ -51,6 +51,12 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // tag already on the host is otherwise reused as is, so an update would never
   // bring a fixed guacd.
   const chown = `docker pull ${GUACD}; docker run --rm --user 0 --entrypoint chown -v captivo_guacd_recordings:/rec -v captivo_guacd_logs:/log -v captivo_guacd_drive:/drive2 ${GUACD} -R 1000:1000 /rec /log /drive2; `;
+  // The isolated browser's control-service secret: generated once on this host,
+  // kept across updates, never sent anywhere but the data-plane connection. It
+  // must exist BEFORE the connector starts, which reads it for its handshake
+  // (connector/kasmtoken.go); the broker reads it from the same volume
+  // (kasm-browser/control.py). Made with the guacd image just pulled above.
+  const kasmSecret = `docker run --rm --user 0 --entrypoint sh -v captivo_kasm_secret:/secret ${GUACD} -c '[ -s /secret/token ] || head -c 32 /dev/urandom | od -An -tx1 | tr -d " \\n" > /secret/token; chmod 644 /secret/token'; `;
   // Re-pair only: drop the token volume so the Go agent re-enrolls with the new code.
   const clear = clearVolume
     ? `docker rm -f access-connector >/dev/null 2>&1; docker volume rm access_connector_data >/dev/null 2>&1; `
@@ -60,7 +66,7 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
     `docker run -d --name access-connector --restart unless-stopped --network ${NET} ` +
     `-e MANAGER_URL=${managerUrl} -e DATAPLANE_URL=${tunnelUrl} ` +
     (code ? `-e PAIR_CODE=${code} ` : "") +
-    `-v access_connector_data:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro ${CONNECTOR}; `;
+    `-v access_connector_data:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro -v captivo_kasm_secret:/kasmsecret:ro ${CONNECTOR}; `;
   // guacd: bypass the entrypoint so our shell wrapper tees guacd's log into the volume.
   const guacd =
     `docker rm -f captivo-guacd >/dev/null 2>&1; ` +
@@ -68,7 +74,7 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
     `-v captivo_guacd_recordings:/recordings -v captivo_guacd_logs:/guaclog -v captivo_guacd_drive:/drive ` +
     `--entrypoint /bin/sh ${GUACD} -c '/opt/guacamole/sbin/guacd -b 0.0.0.0 -L info -f 2>&1 | tee /guaclog/guacd.log'; `;
   // High-fidelity isolated browser (KasmVNC) — the sole isolated-browser transport.
-  const kasm = `docker pull ${KASM}; docker rm -f captivo-kasm >/dev/null 2>&1; docker run -d --name captivo-kasm --restart unless-stopped --network ${NET} --shm-size=1g -v captivo_kasm_logs:/kasmlog ${KASM}; `;
+  const kasm = `docker pull ${KASM}; docker rm -f captivo-kasm >/dev/null 2>&1; docker run -d --name captivo-kasm --restart unless-stopped --network ${NET} --shm-size=1g -v captivo_kasm_logs:/kasmlog -v captivo_kasm_secret:/secret ${KASM}; `;
   // LAST, and that position is the whole point. Before the pulls the superseded
   // images are still tagged :latest, so nothing is dangling yet and a prune here
   // reclaims NOTHING. It used to run first and therefore always cleaned the
@@ -80,7 +86,7 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   // in-use images, and never named volumes.
   const prune = `docker image prune -f --filter ${PRUNE_LABEL_FILTER} >/dev/null 2>&1`;
 
-  return network + chown + clear + connector + guacd + kasm + prune;
+  return network + chown + kasmSecret + clear + connector + guacd + kasm + prune;
 }
 
 export function buildConnectorRunCommand(code: string, managerUrl: string, tunnelUrl: string): string {

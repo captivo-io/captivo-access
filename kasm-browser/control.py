@@ -4,17 +4,40 @@
 # kiosk Chromium on demand and reaps it on close. No docker socket: sessions are
 # PROCESSES inside this one container. The hub (Xvnc :1 on 6901, started by
 # entrypoint.sh) serves the static web client; per-session ports serve live RFB.
-import json, os, shutil, signal, subprocess, threading, time, urllib.parse
+import hmac, json, os, secrets, shutil, signal, subprocess, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CHROME = shutil.which("chromium") or shutil.which("chromium-browser") or "chromium"
 MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "5"))
 MAX_SESSION_SECONDS = int(os.environ.get("MAX_SESSION_SECONDS", "14400"))
 BASE_PORT = 6900  # per-session port = BASE_PORT + display; hub is 6901 (display :1)
-# The typed-input extension baked into the image (kasm-browser/keys-ext) and a
-# per-session ceiling on what it may store.
-KEYS_EXT_SRC = os.environ.get("KEYS_EXT_DIR", "/keys-ext")
+# The session extension baked into the image (kasm-browser/session-ext): it
+# closes the non-kiosk windows a shortcut can open and, when asked, records
+# typed input. Plus a per-session ceiling on what it may store.
+SESSION_EXT_SRC = os.environ.get("SESSION_EXT_DIR", "/session-ext")
 MAX_KEY_EVENTS = 20000
+
+
+def _read_control_token(path):
+    """The shared secret every caller of this service must present (written by
+    entrypoint.sh, read by the connector from the same volume, sent by the
+    data-plane). Without it, any page in an isolated browser -- they run in this
+    container -- could open, close or spy on other vendors' sessions."""
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+CONTROL_TOKEN = _read_control_token(os.environ.get("KASM_TOKEN_FILE", "/secret/token"))
+
+
+def control_authorized(header_value, token=None):
+    token = CONTROL_TOKEN if token is None else token
+    if not token:
+        return True  # an image started without a token file (manual install)
+    return hmac.compare_digest((header_value or "").strip(), token)
 FT_MAX_BYTES = int(os.environ.get("ISOLATED_FT_MAX_BYTES", str(100 * 1024 * 1024)))
 
 
@@ -121,8 +144,9 @@ def _spawn(display, url, profile, home, copy_out, paste_in, w=1280, h=800, water
                    "--disable-features=Translate,MediaRouter,OptimizationHints,MediaSessionService,UsePortalNotifications,DisableLoadExtensionCommandLineSwitch",
                    "--user-data-dir=" + profile]
     if keys_ext:
-        # Typed-input timeline: the keys extension records what is typed into
-        # pages (credential fields masked) and posts it to this service.
+        # The session extension: closes extra non-kiosk windows and, when the
+        # session logs keystrokes, records typed input (credential fields
+        # masked) and posts it to this service.
         chrome_args.append("--load-extension=" + keys_ext)
     if insecure:
         # Opt-in per Resource: the target uses a self-signed / internal-CA cert.
@@ -153,12 +177,14 @@ def _kill(sess):
             pass
 
 
-def _prepare_keys_ext(home, sid):
-    """A per-session copy of the keys extension, told where to post."""
-    dst = home + "/keys-ext"
-    shutil.copytree(KEYS_EXT_SRC, dst, dirs_exist_ok=True)
+def _prepare_session_ext(home, sid, keys, keys_token):
+    """A per-session copy of the session extension, told whether to record typed
+    input, where to post it and with which per-session token (pages cannot read
+    the extension's files, so they cannot learn it)."""
+    dst = home + "/session-ext"
+    shutil.copytree(SESSION_EXT_SRC, dst, dirs_exist_ok=True)
     with open(dst + "/config.json", "w") as f:
-        json.dump({"url": "http://127.0.0.1:7900/session/%s/keys" % sid}, f)
+        json.dump({"keys": keys, "url": "http://127.0.0.1:7900/session/%s/keys" % sid, "token": keys_token}, f)
     return dst
 
 
@@ -175,17 +201,19 @@ def open_session(url, copy_out, paste_in, w=1280, h=800, watermark_text="", inse
         sid = "s%d-%d" % (int(time.time()), _seq["n"])
         profile = "/profiles/" + sid
         home = "/sess/" + sid
-        keys_ext = None
-        if keys and os.path.isdir(KEYS_EXT_SRC):
+        session_ext = None
+        keys_token = secrets.token_hex(16)
+        if os.path.isdir(SESSION_EXT_SRC):
             try:
-                keys_ext = _prepare_keys_ext(home, sid)
+                session_ext = _prepare_session_ext(home, sid, keys, keys_token)
             except OSError as e:
-                log("session %s: keys extension not prepared (%s); typed input not recorded" % (sid, e))
-        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, keys_ext)
+                log("session %s: session extension not prepared (%s)" % (sid, e))
+        procs = _spawn(display, url, profile, home, copy_out, paste_in, w, h, watermark_text, insecure, session_ext)
         port = BASE_PORT + display
         _sessions[sid] = {"display": display, "port": port, "procs": procs,
                           "profile": profile, "home": home, "started": time.time(),
-                          "w": w, "h": h, "keys": [] if keys_ext else None}
+                          "w": w, "h": h, "keys": [] if (session_ext and keys) else None,
+                          "keys_token": keys_token}
         log("session %s opened -> %s (%dx%d)" % (sid, url, w, h))
         return {"id": sid, "port": port}
 
@@ -285,8 +313,18 @@ class H(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # the data-plane closed the relay before reading the reply
 
+    def _authorized(self, path):
+        if path == "/healthz":
+            return True
+        if control_authorized(self.headers.get("X-Kasm-Token")):
+            return True
+        self._json(401, {"error": "unauthorized"})
+        return False
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
+        if not self._authorized(u.path):
+            return
         # Live session recording: stream the ffmpeg WebM capture of the session's
         # display until the data-plane disconnects (recording lifecycle = connection
         # lifecycle). The broker never sees the recordingKey — the data-plane owns it.
@@ -426,6 +464,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if not (path.startswith("/session/") and path.endswith("/keys")) and not self._authorized(path):
+            return
         if path == "/session":
             n = int(self.headers.get("Content-Length", "0") or "0")
             try:
@@ -448,12 +488,17 @@ class H(BaseHTTPRequestHandler):
             if res is None:
                 return self._json(503, {"error": "capacity"})
             return self._json(201, res)
-        # From the keys extension inside this container only: anyone else on the
-        # network must not be able to write into a session's timeline.
+        # From the session's own extension only: loopback, and the session's
+        # keys token, which pages cannot read. Checked before the control token,
+        # which the extension does not hold.
         if path.startswith("/session/") and path.endswith("/keys"):
             if self.client_address[0] not in ("127.0.0.1", "::1"):
                 return self._json(403, {"error": "forbidden"})
             sid = path[len("/session/"):-len("/keys")]
+            with _lock:
+                want = (_sessions.get(sid) or {}).get("keys_token") or ""
+            if not want or not hmac.compare_digest(self.headers.get("X-Keys-Token") or "", want):
+                return self._json(403, {"error": "forbidden"})
             n = int(self.headers.get("Content-Length", "0") or "0")
             if n > 65536:
                 return self._json(413, {"error": "too_large"})

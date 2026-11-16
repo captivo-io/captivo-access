@@ -115,5 +115,26 @@ def test_keys_extension_is_loaded_only_when_asked(tmp_path, monkeypatch):
     home = str(tmp_path / "home")
     control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext=None)
     assert not any(a.startswith("--load-extension") for a in calls[-1])
-    control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext="/sess/s1/keys-ext")
-    assert "--load-extension=/sess/s1/keys-ext" in calls[-1]
+    control._spawn(5, "https://x.test", str(tmp_path / "p"), home, True, True, keys_ext="/sess/s1/session-ext")
+    assert "--load-extension=/sess/s1/session-ext" in calls[-1]
+
+
+def test_control_token_is_required_when_set():
+    assert control.control_authorized("abc", token="abc")
+    assert not control.control_authorized("", token="abc")
+    assert not control.control_authorized("abd", token="abc")
+    # An image started without a token file (manual install) keeps working.
+    assert control.control_authorized("", token="")
+
+
+def test_session_extension_config_carries_the_keys_flag_and_token(tmp_path, monkeypatch):
+    src = tmp_path / "ext"
+    src.mkdir()
+    (src / "manifest.json").write_text("{}")
+    monkeypatch.setattr(control, "SESSION_EXT_SRC", str(src))
+    import json as _json
+    for keys in (True, False):
+        home = tmp_path / ("h%d" % keys)
+        dst = control._prepare_session_ext(str(home), "s9-1", keys, "tok123")
+        cfg = _json.load(open(dst + "/config.json"))
+        assert cfg == {"keys": keys, "url": "http://127.0.0.1:7900/session/s9-1/keys", "token": "tok123"}

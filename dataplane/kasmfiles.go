@@ -83,7 +83,7 @@ func serveKasmFiles(hub *SessionHub, reg *Registry, audit *AuditQueue, w http.Re
 			return
 		}
 		req := "POST /session/" + brokerSID + "/upload HTTP/1.0\r\n" +
-			"Host: " + ctrlAddr + "\r\n" +
+			"Host: " + ctrlAddr + "\r\n" + kasmAuth(sess) +
 			"X-Filename: " + name + "\r\n" +
 			"Content-Type: application/octet-stream\r\n" +
 			"Content-Length: " + r.Header.Get("Content-Length") + "\r\n" +
@@ -104,11 +104,11 @@ func serveKasmFiles(hub *SessionHub, reg *Registry, audit *AuditQueue, w http.Re
 			return
 		}
 		req := "GET /session/" + brokerSID + "/downloads/" + url.PathEscape(name) + " HTTP/1.0\r\n" +
-			"Host: " + ctrlAddr + "\r\nConnection: close\r\n\r\n"
+			"Host: " + ctrlAddr + "\r\n" + kasmAuth(sess) + "Connection: close\r\n\r\n"
 		_, _ = io.WriteString(conn, req)
 	default: // list
 		req := "GET /session/" + brokerSID + "/downloads HTTP/1.0\r\n" +
-			"Host: " + ctrlAddr + "\r\nConnection: close\r\n\r\n"
+			"Host: " + ctrlAddr + "\r\n" + kasmAuth(sess) + "Connection: close\r\n\r\n"
 		_, _ = io.WriteString(conn, req)
 	}
 

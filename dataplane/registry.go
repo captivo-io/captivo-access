@@ -23,6 +23,20 @@ type Session struct {
 
 	ctrlMu     sync.Mutex
 	ctrlStream io.Writer
+
+	// kasmToken is the isolated-browser control service's secret, as the
+	// connector presented it at the handshake. Memory only, this connection only.
+	kasmToken string
+}
+
+// kasmAuth is the header line that authorizes a call to this connector's
+// isolated-browser control service; empty when the connector sent no token
+// (an older connector and broker, which do not check one).
+func kasmAuth(s *Session) string {
+	if s == nil || s.kasmToken == "" {
+		return ""
+	}
+	return "X-Kasm-Token: " + s.kasmToken + "\r\n"
 }
 
 func (s *Session) setControl(w io.Writer) {

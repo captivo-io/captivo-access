@@ -61,7 +61,7 @@ func clampKasmDim(v, lo, hi, def int) int {
 	return v
 }
 
-func openKasmSession(rw io.ReadWriter, host, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool) (id string, port, status int, err error) {
+func openKasmSession(rw io.ReadWriter, host, auth, target string, copyOut, pasteIn bool, w, h int, watermarkText string, insecure, keys bool) (id string, port, status int, err error) {
 	body := `{"url":` + jsonQuoteKasm(target) +
 		`,"copyOut":` + strconv.FormatBool(copyOut) +
 		`,"pasteIn":` + strconv.FormatBool(pasteIn) +
@@ -71,7 +71,7 @@ func openKasmSession(rw io.ReadWriter, host, target string, copyOut, pasteIn boo
 		`,"insecure":` + strconv.FormatBool(insecure) +
 		`,"keys":` + strconv.FormatBool(keys) + `}`
 	req := "POST /session HTTP/1.0\r\n" +
-		"Host: " + host + "\r\n" +
+		"Host: " + host + "\r\n" + auth +
 		"Content-Type: application/json\r\n" +
 		"Content-Length: " + strconv.Itoa(len(body)) + "\r\n" +
 		"Connection: close\r\n\r\n" + body
@@ -100,8 +100,8 @@ func openKasmSession(rw io.ReadWriter, host, target string, copyOut, pasteIn boo
 // pullKasmKeys reads the typed-input events the broker gathered for a session.
 // Anything malformed yields nothing: the timeline is an extra, never a reason
 // to fail the teardown.
-func pullKasmKeys(rw io.ReadWriter, host, id string) []keyEvent {
-	if _, err := io.WriteString(rw, "GET /session/"+id+"/keys HTTP/1.0\r\nHost: "+host+"\r\nConnection: close\r\n\r\n"); err != nil {
+func pullKasmKeys(rw io.ReadWriter, host, auth, id string) []keyEvent {
+	if _, err := io.WriteString(rw, "GET /session/"+id+"/keys HTTP/1.0\r\nHost: "+host+"\r\n"+auth+"Connection: close\r\n\r\n"); err != nil {
 		return nil
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(rw), nil)
@@ -131,9 +131,9 @@ func pullKasmKeys(rw io.ReadWriter, host, id string) []keyEvent {
 }
 
 // buildKasmCloseRequest formats the broker POST /session/<id>/close call.
-func buildKasmCloseRequest(host, id string) string {
-	return "POST /session/" + id + "/close HTTP/1.0\r\nHost: " + host +
-		"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+func buildKasmCloseRequest(host, auth, id string) string {
+	return "POST /session/" + id + "/close HTTP/1.0\r\nHost: " + host + "\r\n" + auth +
+		"Content-Length: 0\r\nConnection: close\r\n\r\n"
 }
 
 // kasmSessionAddr keeps the host of kasmAddr (host[:port]) and swaps in the
@@ -265,7 +265,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		if st, e := dialGuacd(sess, d.KasmControlAddr); e == nil {
 			cw := clampKasmDim(kasmW, 360, 2560, 1280)
 			ch := clampKasmDim(kasmH, 480, 1600, 800)
-			id, port, status, e = openKasmSession(st, d.KasmControlAddr, d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging)
+			id, port, status, e = openKasmSession(st, d.KasmControlAddr, kasmAuth(sess), d.NavigateUrl, co, pi, cw, ch, d.WatermarkText, d.InsecureSkipVerify, d.Record && d.KeystrokeLogging)
 			st.Close()
 			if e != nil {
 				http.Error(w, "isolated browser unavailable", http.StatusBadGateway)
@@ -298,7 +298,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 				kidx := &recIndexReporter{send: ctrl.SendRecording, userID: userID, siteID: siteID, host: d.NavigateUrl, format: "video"}
 				rw := newKasmRecWriter(recSend, kidx, d.TenantID,
 					newRecordingKey(siteID, userID), siteID, userID, d.NavigateUrl, recordingMaxBytes())
-				_, _ = io.WriteString(recConn, "GET /session/"+id+"/rec HTTP/1.0\r\nHost: "+d.KasmControlAddr+"\r\nConnection: close\r\n\r\n")
+				_, _ = io.WriteString(recConn, "GET /session/"+id+"/rec HTTP/1.0\r\nHost: "+d.KasmControlAddr+"\r\n"+kasmAuth(sess)+"Connection: close\r\n\r\n")
 				recDone := make(chan struct{})
 				go func() {
 					defer close(recDone)
@@ -327,7 +327,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 					recConn.Close()
 					<-recDone
 					if fc, fe := dialGuacd(sess, d.KasmControlAddr); fe == nil {
-						_, _ = io.WriteString(fc, "GET /session/"+id+"/recording HTTP/1.0\r\nHost: "+d.KasmControlAddr+"\r\nConnection: close\r\n\r\n")
+						_, _ = io.WriteString(fc, "GET /session/"+id+"/recording HTTP/1.0\r\nHost: "+d.KasmControlAddr+"\r\n"+kasmAuth(sess)+"Connection: close\r\n\r\n")
 						if fresp, fre := http.ReadResponse(bufio.NewReader(fc), nil); fre == nil && fresp.StatusCode == 200 {
 							seq := 0
 							fbuf := make([]byte, 262144)
@@ -358,7 +358,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 					// same "keys" stream the gateway writes.
 					if d.KeystrokeLogging {
 						if kc, ke := dialGuacd(sess, d.KasmControlAddr); ke == nil {
-							if events := pullKasmKeys(kc, d.KasmControlAddr, id); len(events) > 0 {
+							if events := pullKasmKeys(kc, d.KasmControlAddr, kasmAuth(sess), id); len(events) > 0 {
 								newKeyWriter(recSend, d.TenantID, rw.key).post(events)
 							}
 							kc.Close()
@@ -377,7 +377,7 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 				recCleanup()
 			}
 			if st, e := dialGuacd(sess, d.KasmControlAddr); e == nil {
-				_, _ = st.Write([]byte(buildKasmCloseRequest(d.KasmControlAddr, id)))
+				_, _ = st.Write([]byte(buildKasmCloseRequest(d.KasmControlAddr, kasmAuth(sess), id)))
 				_ = st.Close()
 			}
 			log.Printf("kasm-tunnel site=%s: hi-fi session %s closed", siteID, id)
