@@ -37,6 +37,9 @@ func handleRecWrite(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		writeRecFrame(st, tunnel.RecWriteResponse{Error: err.Error()})
 		return
 	}
+	if req.Protocol != "" {
+		store.NoteProtocol(req.TenantID, req.RecordingKey, req.Format, req.Protocol)
+	}
 	writeRecFrame(st, tunnel.RecWriteResponse{Written: n})
 }
 
@@ -106,15 +109,19 @@ func handleRecFetch(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 		return
 	}
 
-	chunks, err := store.Read(req.TenantID, req.RecordingKey, req.Format, req.FromSeq)
-	if err != nil {
-		writeRecFrame(st, tunnel.RecFetchResponse{Error: err.Error()})
-		return
-	}
+	// Chunk by chunk, so a long recording is never held in memory whole, and in
+	// frames no bigger than the tunnel allows: a repacked stream's chunks are
+	// 4 MiB (recmaint.go). An empty chunk is not sent: the reader takes an empty
+	// frame as the end.
 	writeRecFrame(st, tunnel.RecFetchResponse{TotalBytes: total})
-	for _, c := range chunks {
-		if tunnel.WriteFrame(st, c.Data) != nil {
-			return
+	_ = store.EachChunk(req.TenantID, req.RecordingKey, req.Format, req.FromSeq, func(b []byte) error {
+		for len(b) > 0 {
+			n := min(len(b), recRangeFrame)
+			if err := tunnel.WriteFrame(st, b[:n]); err != nil {
+				return err
+			}
+			b = b[n:]
 		}
-	}
+		return nil
+	})
 }

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"os"
@@ -88,6 +89,15 @@ func main() {
 	if _, err := os.Stat("/kasmlog"); err == nil {
 		go tailKasmLog("/kasmlog/kasm.log")
 	}
+	// Recordings of ended sessions: video for RDP/VNC, compression, repair of
+	// cut-off isolated-browser videos (see recmaint.go).
+	if tools := findMediaTools(); tools != nil {
+		recMaintenance = newRecMaint(store, tools)
+	} else {
+		logWarn("recording maintenance: no video encoder in this image; recordings are kept as written")
+		recMaintenance = newRecMaint(store, nil)
+	}
+	go recMaintenance.run(context.Background())
 	// The isolated browser's only way out (see egress.go).
 	startEgressProxy(envOr("EGRESS_PROXY_LISTEN", ":3128"), allow)
 	runClient(dataplaneURL, token, allow, store)

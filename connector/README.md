@@ -85,6 +85,11 @@ What that means for whoever runs this container:
 - **An erasure completes on the next connection.** The console records the request
   at once; the bytes go when this connector confirms.
 
+After a session ends the connector also turns RDP/VNC recordings into VP9 video
+(with a patched `guacenc`, see `guacd/guacenc-for-recordings.patch`), compresses
+what it keeps, and repairs an isolated-browser video that was cut off; see
+`recmaint.go` and [what the connector does with a recording](../docs/install.md#what-the-connector-does-with-a-recording-after-the-session).
+
 ## Building
 
 The Docker build context is the **repository root** (not this directory),

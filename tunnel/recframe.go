@@ -6,8 +6,9 @@ package tunnel
 // Each mirrors the ProbeRequest/ProbeResponse shape already used on this tunnel.
 
 // RecWriteRequest carries one chunk to the connector's store. Data is the raw
-// (already gzipped by the caller, not yet encrypted) chunk payload; the connector
-// encrypts with its own key before it touches the disk.
+// chunk payload, neither compressed nor encrypted; the connector compresses it
+// (every stream but video) and encrypts it with its own key before it touches
+// the disk.
 type RecWriteRequest struct {
 	Kind         string `json:"kind"` // "recwrite"
 	TenantID     string `json:"tenantId"`

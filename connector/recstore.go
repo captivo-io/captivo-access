@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,10 @@ import (
 type recStore struct {
 	root string
 	key  []byte
+	// mu orders whole-recording changes: erasure and retention against the
+	// maintenance worker's rewrites (recmaint.go), so a recording being erased is
+	// never written back. Chunk appends do not take it.
+	mu sync.Mutex
 }
 
 type recChunk struct {
@@ -99,6 +104,12 @@ func (s *recStore) open(sealed []byte) ([]byte, error) {
 
 // Append seals one chunk and writes it. Returns the plaintext byte count so the
 // caller can keep the central byte counter honest.
+//
+// Every stream but video is compressed before it is sealed (see compressible):
+// a guac instruction stream is text and base64 images, rrweb and keystrokes are
+// JSON, and stored raw they took 2-10 times the disk they need. A compressed
+// chunk is <seq>-<plain length>.zst; a raw one <seq>.bin. Writing either removes
+// the other for the same seq, so a rewrite never leaves two answers for it.
 func (s *recStore) Append(tenantID, recordingKey, format string, seq int, plain []byte) (int, error) {
 	d, err := s.dir(tenantID, recordingKey, format)
 	if err != nil {
@@ -107,52 +118,137 @@ func (s *recStore) Append(tenantID, recordingKey, format string, seq int, plain 
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return 0, err
 	}
-	sealed, err := s.seal(plain)
-	if err != nil {
-		return 0, err
-	}
-	if err := os.WriteFile(filepath.Join(d, strconv.Itoa(seq)+".bin"), sealed, 0o600); err != nil {
+	if err := s.writeChunk(d, seq, plain, compressible(format)); err != nil {
 		return 0, err
 	}
 	return len(plain), nil
+}
+
+// compressible reports whether a stream's chunks are worth compressing. Video is
+// already compressed by its codec, and its chunks are addressed by byte range,
+// which needs their plaintext sizes from the file sizes alone.
+func compressible(format string) bool { return format != "video" }
+
+// writeChunk seals plain (compressed when asked and when that saves space) into
+// dir as chunk seq, replacing whatever that seq held.
+func (s *recStore) writeChunk(dir string, seq int, plain []byte, compress bool) error {
+	name := strconv.Itoa(seq) + ".bin"
+	body := plain
+	if compress && len(plain) > 0 {
+		if z := zstdEncoder.EncodeAll(plain, nil); len(z) < len(plain) {
+			name = strconv.Itoa(seq) + "-" + strconv.Itoa(len(plain)) + ".zst"
+			body = z
+		}
+	}
+	sealed, err := s.seal(body)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(filepath.Join(dir, name), sealed); err != nil {
+		return err
+	}
+	// The other spelling of this seq, if any, is now stale.
+	if refs, err := chunkFiles(dir); err == nil {
+		for _, c := range refs.all {
+			if c.seq == seq && filepath.Base(c.path) != name {
+				_ = os.Remove(c.path)
+			}
+		}
+	}
+	return nil
+}
+
+// writeFileAtomic writes through a temporary name and renames, so a reader never
+// sees half a chunk and a crash never leaves one.
+func writeFileAtomic(path string, data []byte) error {
+	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// openChunk decrypts one chunk file and, for a compressed one, inflates it.
+func (s *recStore) openChunk(c chunkRef) ([]byte, error) {
+	sealed, err := os.ReadFile(c.path)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := s.open(sealed)
+	if err != nil {
+		return nil, err
+	}
+	if !c.compressed {
+		return plain, nil
+	}
+	return zstdDecoder.DecodeAll(plain, make([]byte, 0, c.plain))
 }
 
 // Read returns the decrypted chunks from fromSeq onward, in sequence order. A chunk
 // that fails to decrypt is skipped rather than failing the whole read: one corrupt
 // chunk must not make an otherwise good recording unplayable.
 func (s *recStore) Read(tenantID, recordingKey, format string, fromSeq int) ([]recChunk, error) {
-	d, err := s.dir(tenantID, recordingKey, format)
+	idx, err := s.index(tenantID, recordingKey, format)
 	if err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(d)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	var out []recChunk
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
+	for _, c := range idx {
+		if c.seq < fromSeq {
 			continue
 		}
-		seq, err := strconv.Atoi(strings.TrimSuffix(e.Name(), ".bin"))
-		if err != nil || seq < fromSeq {
-			continue
-		}
-		sealed, err := os.ReadFile(filepath.Join(d, e.Name()))
+		plain, err := s.openChunk(c)
 		if err != nil {
 			continue
 		}
-		plain, err := s.open(sealed)
-		if err != nil {
-			continue
-		}
-		out = append(out, recChunk{Seq: seq, Data: plain})
+		out = append(out, recChunk{Seq: c.seq, Data: plain})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
 	return out, nil
+}
+
+// EachChunk hands a stream's decrypted chunks to fn in order, one at a time, so a
+// long recording is never held in memory whole. A chunk that does not open is
+// skipped, as in Read.
+func (s *recStore) EachChunk(tenantID, recordingKey, format string, fromSeq int, fn func([]byte) error) error {
+	idx, err := s.index(tenantID, recordingKey, format)
+	if err != nil {
+		return err
+	}
+	for _, c := range idx {
+		if c.seq < fromSeq {
+			continue
+		}
+		plain, err := s.openChunk(c)
+		if err != nil {
+			continue
+		}
+		if err := fn(plain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// NoteProtocol remembers which protocol a guac stream records (ssh, rdp, ...),
+// once, beside its chunks: the maintenance worker turns graphical sessions into
+// video and leaves terminal ones as they are.
+func (s *recStore) NoteProtocol(tenantID, recordingKey, format, protocol string) {
+	if format != "guac" || !safeSegment.MatchString(protocol) {
+		return
+	}
+	d, err := s.dir(tenantID, recordingKey, format)
+	if err != nil {
+		return
+	}
+	p := filepath.Join(d, ".protocol")
+	if _, err := os.Stat(p); err == nil {
+		return
+	}
+	_ = os.WriteFile(p, []byte(strings.ToLower(protocol)), 0o600)
 }
 
 // Formats lists the streams a recording holds, e.g. ["guac", "keys"]. It replaces
@@ -170,7 +266,8 @@ func (s *recStore) Formats(tenantID, recordingKey string) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.IsDir() {
+		// A leading dot is work in progress (recmaint.go), not a stream yet.
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
 			out = append(out, e.Name())
 		}
 	}
@@ -198,44 +295,87 @@ func (s *recStore) TotalPlaintextBytes(tenantID, recordingKey, format string) (i
 const sealOverhead = 12 + 16
 
 type chunkRef struct {
-	seq   int
-	path  string
-	plain int64
+	seq        int
+	path       string
+	plain      int64
+	compressed bool
+	sealed     int64
 }
 
-// index lists a stream's chunks in order with their plaintext sizes, taken from
-// the file sizes: answering "how long is it" and "where is byte N" must not mean
-// decrypting the whole recording, which a player scrubbing a long video asks for
-// on every Range request.
-func (s *recStore) index(tenantID, recordingKey, format string) ([]chunkRef, error) {
-	d, err := s.dir(tenantID, recordingKey, format)
+// chunkSet is one stream directory's chunk files: all of them, and the one that
+// answers for each seq.
+type chunkSet struct {
+	all    []chunkRef
+	byPlay []chunkRef // one per seq, in order
+}
+
+// chunkFiles lists a stream directory's chunks with their plaintext sizes, taken
+// from the file names and sizes: answering "how long is it" and "where is byte N"
+// must not mean decrypting the whole recording, which a player scrubbing a long
+// video asks for on every Range request. A seq present in both spellings (a
+// rewrite interrupted between its two steps) is answered by the compressed one,
+// which is written first.
+func chunkFiles(dir string) (chunkSet, error) {
+	var set chunkSet
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return set, err
 	}
-	entries, err := os.ReadDir(d)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var out []chunkRef
+	bySeq := map[int]chunkRef{}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
-			continue
-		}
-		seq, err := strconv.Atoi(strings.TrimSuffix(e.Name(), ".bin"))
-		if err != nil {
+		name := e.Name()
+		if e.IsDir() || strings.HasPrefix(name, ".") {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil || info.Size() < sealOverhead {
 			continue
 		}
-		out = append(out, chunkRef{seq: seq, path: filepath.Join(d, e.Name()), plain: info.Size() - sealOverhead})
+		c := chunkRef{path: filepath.Join(dir, name), sealed: info.Size()}
+		switch {
+		case strings.HasSuffix(name, ".bin"):
+			seq, err := strconv.Atoi(strings.TrimSuffix(name, ".bin"))
+			if err != nil {
+				continue
+			}
+			c.seq, c.plain = seq, info.Size()-sealOverhead
+		case strings.HasSuffix(name, ".zst"):
+			seqStr, lenStr, ok := strings.Cut(strings.TrimSuffix(name, ".zst"), "-")
+			seq, err1 := strconv.Atoi(seqStr)
+			n, err2 := strconv.ParseInt(lenStr, 10, 64)
+			if !ok || err1 != nil || err2 != nil || n < 0 {
+				continue
+			}
+			c.seq, c.plain, c.compressed = seq, n, true
+		default:
+			continue
+		}
+		set.all = append(set.all, c)
+		if prev, seen := bySeq[c.seq]; !seen || (c.compressed && !prev.compressed) {
+			bySeq[c.seq] = c
+		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].seq < out[j].seq })
-	return out, nil
+	for _, c := range bySeq {
+		set.byPlay = append(set.byPlay, c)
+	}
+	sort.Slice(set.byPlay, func(i, j int) bool { return set.byPlay[i].seq < set.byPlay[j].seq })
+	return set, nil
+}
+
+// index lists a stream's chunks in order, one per seq, with their plaintext sizes.
+func (s *recStore) index(tenantID, recordingKey, format string) ([]chunkRef, error) {
+	d, err := s.dir(tenantID, recordingKey, format)
+	if err != nil {
+		return nil, err
+	}
+	set, err := chunkFiles(d)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return set.byPlay, nil
 }
 
 // ReadRange returns the plaintext bytes from..to INCLUSIVE, measured over the
@@ -262,11 +402,10 @@ func (s *recStore) ReadRange(tenantID, recordingKey, format string, from, to int
 		if start > to {
 			break // wholly after it; chunks are in order
 		}
-		sealed, err := os.ReadFile(c.path)
-		if err != nil {
+		if _, err := os.Stat(c.path); err != nil {
 			return nil, err
 		}
-		plain, err := s.open(sealed)
+		plain, err := s.openChunk(c)
 		if err != nil || int64(len(plain)) != c.plain {
 			// A chunk that does not open still holds its place: zeros of its
 			// length keep every later byte where the total said it was, and a
@@ -303,20 +442,15 @@ func (s *recStore) Bytes(tenantID, recordingKey string) (int64, error) {
 	}
 	var total int64
 	for _, sd := range streams {
-		if !sd.IsDir() {
+		if !sd.IsDir() || strings.HasPrefix(sd.Name(), ".") {
 			continue
 		}
-		entries, err := os.ReadDir(filepath.Join(d, sd.Name()))
+		set, err := chunkFiles(filepath.Join(d, sd.Name()))
 		if err != nil {
 			continue
 		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".bin") {
-				continue
-			}
-			if info, err := e.Info(); err == nil {
-				total += info.Size()
-			}
+		for _, c := range set.all {
+			total += c.sealed
 		}
 	}
 	return total, nil
@@ -329,6 +463,8 @@ func (s *recStore) Delete(tenantID, recordingKey string) error {
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return os.RemoveAll(d)
 }
 
@@ -340,6 +476,8 @@ func (s *recStore) Purge(tenantID string, olderThan time.Time) (int, error) {
 		return 0, fmt.Errorf("invalid tenant id")
 	}
 	base := filepath.Join(s.root, tenantID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

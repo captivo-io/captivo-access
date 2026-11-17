@@ -1,0 +1,241 @@
+diff -ruN pa/src/guacenc/display-flatten.c pb/src/guacenc/display-flatten.c
+--- a/src/guacenc/display-flatten.c	2026-11-17 13:58:40.051868868 +0100
++++ b/src/guacenc/display-flatten.c	2026-11-17 14:00:17.861784657 +0100
+@@ -105,8 +105,11 @@
+     guacenc_buffer* src = cursor->buffer;
+     guacenc_buffer* dst = def_layer->frame;
+ 
+-    /* Render cursor to layer */
+-    if (src->width > 0 && src->height > 0) {
++    /* Render cursor to layer. Captivo: an RDP session can set its cursor
++     * before the default layer has a frame, and drawing onto that missing
++     * frame crashed guacenc. */
++    if (src->width > 0 && src->height > 0
++            && src->surface != NULL && dst->cairo != NULL) {
+         cairo_set_source_surface(dst->cairo, src->surface,
+                 cursor->x - cursor->hotspot_x,
+                 cursor->y - cursor->hotspot_y);
+diff -ruN pa/src/guacenc/guacenc.c pb/src/guacenc/guacenc.c
+--- a/src/guacenc/guacenc.c	2026-11-17 13:58:40.051868868 +0100
++++ b/src/guacenc/guacenc.c	2026-11-17 14:00:17.865784899 +0100
+@@ -23,6 +23,7 @@
+ #include "guacenc.h"
+ #include "log.h"
+ #include "parse.h"
++#include "video.h"
+ 
+ #include <libavcodec/avcodec.h>
+ #include <libavformat/avformat.h>
+@@ -30,6 +31,7 @@
+ #include <getopt.h>
+ #include <stdbool.h>
+ #include <stdio.h>
++#include <string.h>
+ 
+ int main(int argc, char* argv[]) {
+ 
+@@ -40,10 +42,12 @@
+     int width = GUACENC_DEFAULT_WIDTH;
+     int height = GUACENC_DEFAULT_HEIGHT;
+     int bitrate = GUACENC_DEFAULT_BITRATE;
++    const char* codec = "mpeg4";
++    const char* output = NULL;
+ 
+     /* Parse arguments */
+     int opt;
+-    while ((opt = getopt(argc, argv, "s:r:f")) != -1) {
++    while ((opt = getopt(argc, argv, "s:r:fc:o:F:g:x:")) != -1) {
+ 
+         /* -s: Dimensions (WIDTHxHEIGHT) */
+         if (opt == 's') {
+@@ -53,9 +57,12 @@
+             }
+         }
+ 
+-        /* -r: Bitrate (bits per second) */
++        /* -r: Bitrate (bits per second). Captivo: 0 sets no target, for a
++         * codec told to keep a constant quality instead (-x crf=N). */
+         else if (opt == 'r') {
+-            if (guacenc_parse_int(optarg, &bitrate)) {
++            if (strcmp(optarg, "0") == 0)
++                bitrate = 0;
++            else if (guacenc_parse_int(optarg, &bitrate)) {
+                 guacenc_log(GUAC_LOG_ERROR, "Invalid bitrate.");
+                 goto invalid_options;
+             }
+@@ -65,6 +72,35 @@
+         else if (opt == 'f')
+             force = true;
+ 
++        /* Captivo -c: codec name, as libavcodec knows it */
++        else if (opt == 'c')
++            codec = optarg;
++
++        /* Captivo -o: output file (one input only); its extension picks the
++         * container */
++        else if (opt == 'o')
++            output = optarg;
++
++        /* Captivo -F: frames per second */
++        else if (opt == 'F') {
++            if (guacenc_parse_int(optarg, &guacenc_video_framerate)) {
++                guacenc_log(GUAC_LOG_ERROR, "Invalid framerate.");
++                goto invalid_options;
++            }
++        }
++
++        /* Captivo -g: most frames between keyframes */
++        else if (opt == 'g') {
++            if (guacenc_parse_int(optarg, &guacenc_video_gop)) {
++                guacenc_log(GUAC_LOG_ERROR, "Invalid keyframe interval.");
++                goto invalid_options;
++            }
++        }
++
++        /* Captivo -x: encoder options, "key=value:key=value" */
++        else if (opt == 'x')
++            guacenc_video_options = optarg;
++
+         /* Invalid option */
+         else {
+             goto invalid_options;
+@@ -97,6 +133,11 @@
+ 
+     guacenc_log(GUAC_LOG_INFO, "%i input file(s) provided.", total_files);
+ 
++    if (output != NULL && total_files != 1) {
++        guacenc_log(GUAC_LOG_ERROR, "-o takes exactly one input file.");
++        goto invalid_options;
++    }
++
+     guacenc_log(GUAC_LOG_INFO, "Video will be encoded at %ix%i "
+             "and %i bps.", width, height, bitrate);
+ 
+@@ -108,7 +149,9 @@
+ 
+         /* Generate output filename */
+         char out_path[4096];
+-        int len = snprintf(out_path, sizeof(out_path), "%s.m4v", path);
++        int len = output != NULL
++            ? snprintf(out_path, sizeof(out_path), "%s", output)
++            : snprintf(out_path, sizeof(out_path), "%s.m4v", path);
+ 
+         /* Do not write if filename exceeds maximum length */
+         if (len >= sizeof(out_path)) {
+@@ -118,7 +161,7 @@
+         }
+ 
+         /* Attempt encoding, log granular success/failure at debug level */
+-        if (guacenc_encode(path, out_path, "mpeg4",
++        if (guacenc_encode(path, out_path, codec,
+                     width, height, bitrate, force)) {
+             failures++;
+             guacenc_log(GUAC_LOG_DEBUG,
+@@ -129,10 +172,13 @@
+ 
+     }
+ 
+-    /* Warn if at least one file failed */
+-    if (failures != 0)
++    /* Warn if at least one file failed. Captivo: and say so in the exit
++     * status, which a caller checks before trusting the output. */
++    if (failures != 0) {
+         guacenc_log(GUAC_LOG_WARNING, "Encoding failed for %i of %i file(s).",
+                 failures, total_files);
++        return 1;
++    }
+ 
+     /* Notify of success */
+     else
+@@ -148,6 +194,7 @@
+             " [-s WIDTHxHEIGHT]"
+             " [-r BITRATE]"
+             " [-f]"
++            " [-c CODEC] [-o OUTPUT] [-F FPS] [-g GOP] [-x KEY=VALUE:...]"
+             " [FILE]...\n", argv[0]);
+ 
+     return 1;
+diff -ruN pa/src/guacenc/video.c pb/src/guacenc/video.c
+--- a/src/guacenc/video.c	2026-11-17 13:58:40.051868868 +0100
++++ b/src/guacenc/video.c	2026-11-17 14:00:17.865784899 +0100
+@@ -29,6 +29,7 @@
+ #include <libavformat/avformat.h>
+ #endif
+ #include <libavutil/common.h>
++#include <libavutil/dict.h>
+ #include <libavutil/imgutils.h>
+ #include <libswscale/swscale.h>
+ #include <guacamole/client.h>
+@@ -45,6 +46,10 @@
+ #include <string.h>
+ #include <unistd.h>
+ 
++int guacenc_video_framerate = 25;
++int guacenc_video_gop = 10;
++const char* guacenc_video_options = NULL;
++
+ guacenc_video* guacenc_video_alloc(const char* path, const char* codec_name,
+         int width, int height, int bitrate) {
+ 
+@@ -83,7 +88,7 @@
+     /* Retrieve encoding context */
+     AVCodecContext* avcodec_context =
+             guacenc_build_avcodeccontext(video_stream, codec, bitrate, width,
+-                    height, /*gop size*/ 10, /*qmax*/ 31, /*qmin*/ 2,
++                    height, /*gop size*/ guacenc_video_gop, /*qmax*/ 31, /*qmin*/ 2,
+                     /*pix fmt*/ AV_PIX_FMT_YUV420P,
+                     /*time base*/ (AVRational) { 1, GUACENC_VIDEO_FRAMERATE });
+ 
+@@ -98,11 +103,21 @@
+         avcodec_context->flags |= GUACENC_FLAG_GLOBAL_HEADER;
+     }
+ 
+-    /* Open codec for use */
+-    if (guacenc_open_avcodec(avcodec_context, codec, NULL, video_stream) < 0) {
++    /* Open codec for use, with any options given on the command line */
++    AVDictionary* options = NULL;
++    if (guacenc_video_options != NULL
++            && av_dict_parse_string(&options, guacenc_video_options, "=", ":", 0) < 0) {
++        guacenc_log(GUAC_LOG_ERROR, "Invalid encoder options \"%s\".",
++                guacenc_video_options);
++        av_dict_free(&options);
++        goto fail_codec_open;
++    }
++    if (guacenc_open_avcodec(avcodec_context, codec, &options, video_stream) < 0) {
+         guacenc_log(GUAC_LOG_ERROR, "Failed to open codec \"%s\".", codec_name);
++        av_dict_free(&options);
+         goto fail_codec_open;
+     }
++    av_dict_free(&options);
+ 
+     /* Allocate corresponding frame */
+     AVFrame* frame = av_frame_alloc();
+diff -ruN pa/src/guacenc/video.h pb/src/guacenc/video.h
+--- a/src/guacenc/video.h	2026-11-17 13:58:40.051868868 +0100
++++ b/src/guacenc/video.h	2026-11-17 14:00:17.861784657 +0100
+@@ -39,8 +39,24 @@
+ 
+ /**
+  * The framerate at which video should be encoded, in frames per second.
++ * Captivo: chosen on the command line (-F), 25 unless given.
+  */
+-#define GUACENC_VIDEO_FRAMERATE 25
++extern int guacenc_video_framerate;
++#define GUACENC_VIDEO_FRAMERATE guacenc_video_framerate
++
++/**
++ * Captivo: the most frames between two keyframes (-g), 10 unless given. A
++ * screen recording changes little between frames, so keyframes are most of
++ * its size; a long interval keeps it small and a player still seeks by
++ * decoding forward from the keyframe before the target.
++ */
++extern int guacenc_video_gop;
++
++/**
++ * Captivo: encoder options as "key=value:key=value" (-x), passed to the codec
++ * when it is opened, or NULL for none.
++ */
++extern const char* guacenc_video_options;
+ 
+ /**
+  * A video which is actively being encoded. Frames can be added to the video
