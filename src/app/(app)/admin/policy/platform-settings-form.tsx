@@ -24,6 +24,7 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
   const [clipboardDefault, setClipboardDefault] = useState(initial.clipboardDefault ?? "allow");
   const [egressDefault, setEgressDefault] = useState(initial.isolatedEgressDefault ?? "internet");
   const [ftDefault, setFtDefault] = useState(initial.isolatedFileTransferDefault ?? "none");
+  const [webFtDefault, setWebFtDefault] = useState(initial.webAppFileTransferDefault ?? "allow");
   const [ksMode, setKsMode] = useState(initial.keystrokeLoggingMode ?? "per_resource");
   const [recMode, setRecMode] = useState(initial.recordingMode ?? recordingModeEffective ?? "per_resource");
   const [tz, setTz] = useState(initial.displayTimezone ?? "");
@@ -72,6 +73,7 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
         clipboardDefault,
         isolatedEgressDefault: egressDefault,
         isolatedFileTransferDefault: ftDefault,
+        webAppFileTransferDefault: webFtDefault,
         keystrokeLoggingMode: ksMode,
         recordingMode: recMode,
         displayTimezone: tz || null,
@@ -266,6 +268,20 @@ export function PlatformSettingsForm({ initial, consentEffective, watermarkEffec
                 <option value="allow">Upload &amp; download</option>
                 <option value="no_download">Upload only</option>
                 <option value="no_upload">Download only</option>
+              </select>
+            </div>
+          </div>
+          <div className="setting">
+            <div className="setting-main">
+              <div className="setting-label">Web app file transfer</div>
+              <div className="setting-hint">For web app resources set to <b>Inherit</b>: whether vendors may download files the app sends as attachments and upload files through its forms. Blocked at the proxy and every file is audited. The app&apos;s screen, and files the page builds itself, cannot be held back this way: for strict control use an isolated browser.</div>
+            </div>
+            <div className="setting-ctl">
+              <select id="policy-webfiletransfer" className="select" value={webFtDefault} onChange={(e) => setWebFtDefault(e.target.value)}>
+                <option value="allow">Upload &amp; download</option>
+                <option value="no_download">Upload only</option>
+                <option value="no_upload">Download only</option>
+                <option value="none">Off</option>
               </select>
             </div>
           </div>

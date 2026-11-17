@@ -99,6 +99,9 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     isolatedFileTransferDefault: typeof body.isolatedFileTransferDefault === "string" && FILE_TRANSFER_MODES.includes(body.isolatedFileTransferDefault)
       ? body.isolatedFileTransferDefault
       : null,
+    webAppFileTransferDefault: typeof body.webAppFileTransferDefault === "string" && FILE_TRANSFER_MODES.includes(body.webAppFileTransferDefault)
+      ? body.webAppFileTransferDefault
+      : null,
     recordingMode: ["off", "per_resource", "required"].includes(body.recordingMode)
       ? (body.recordingMode as string)
       : "per_resource",

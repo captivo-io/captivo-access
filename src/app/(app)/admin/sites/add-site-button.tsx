@@ -15,6 +15,7 @@ export function AddSiteButton({
   watermarkDefault,
   egressDefault,
   fileTransferDefault,
+  webFileTransferDefault,
   nativeGateway,
   hostSuffix,
   isolationEnabled,
@@ -28,6 +29,7 @@ export function AddSiteButton({
   watermarkDefault: boolean;
   egressDefault: string;
   fileTransferDefault: string;
+  webFileTransferDefault: string;
   nativeGateway: boolean;
   hostSuffix: string | null;
   isolationEnabled: boolean;
@@ -39,7 +41,7 @@ export function AddSiteButton({
         Add resource
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title="Add resource" size="lg">
-        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} clipboardDefault={clipboardDefault} watermarkDefault={watermarkDefault} egressDefault={egressDefault} fileTransferDefault={fileTransferDefault} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
+        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} clipboardDefault={clipboardDefault} watermarkDefault={watermarkDefault} egressDefault={egressDefault} fileTransferDefault={fileTransferDefault} webFileTransferDefault={webFileTransferDefault} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
       </Modal>
     </>
   );

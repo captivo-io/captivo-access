@@ -69,3 +69,17 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- 4. Web app file transfer (2.20.0): Site.fileTransferMode was ISOLATED-only, so
+-- every web app (TRANSPARENT) row holds the column default "none" that no admin
+-- chose. Once the data-plane enforces it, that would cut every web app's
+-- downloads and uploads. Before the column that ships with it exists (so once),
+-- web apps go to null: inherit the Policy default, which is "allow".
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'PlatformSettings')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'PlatformSettings' AND column_name = 'webAppFileTransferDefault')
+     AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Site' AND column_name = 'fileTransferMode') THEN
+    UPDATE "Site" SET "fileTransferMode" = NULL WHERE "accessMode" = 'TRANSPARENT';
+  END IF;
+END $$;

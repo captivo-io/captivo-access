@@ -45,7 +45,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
     }
     try {
-      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, accessMode: "TRANSPARENT", ...logoData } });
+      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, accessMode: "TRANSPARENT", ...logoData } });
     } catch (e) {
       if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2002") {
         return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
@@ -96,7 +96,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     }
   }
   await db.$transaction(async (tx) => {
-    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, accessMode: "GATEWAY", ...logoData } });
+    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, accessMode: "GATEWAY", ...logoData } });
     await tx.vaultCredential.upsert({
       where: { siteId: id },
       create: { siteId: id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...(secretUpdate as StoredSecret), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
