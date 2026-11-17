@@ -15,7 +15,8 @@ import { withRequestTenant } from "@/lib/tenant/request";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Grants" };
 
-async function AdminGrantsPageImpl() {
+async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
+  const openNew = (await searchParams).new === "1";
   const user = await requireCapability("read_console");
   const canApprove = can(user.role, "approve_grants");
   const canConfigure = can(user.role, "configure");
@@ -55,7 +56,7 @@ async function AdminGrantsPageImpl() {
           <div className="page-title-row"><span className="page-icon"><GrantsIcon /></span><h1>Access grants</h1></div>
           <p>Grant a user time-boxed access to a resource. Leave the end date empty for permanent access.</p>
         </div>
-        {canApprove && users.length > 0 && sites.length > 0 && <AddGrantButton users={users} sites={sites} />}
+        {canApprove && users.length > 0 && sites.length > 0 && <AddGrantButton users={users} sites={sites} initialOpen={openNew} />}
       </div>
 
       {pending.length > 0 && (

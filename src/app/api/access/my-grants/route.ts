@@ -3,10 +3,14 @@ import { getCurrentUser } from "@/lib/current-user";
 import { listUserGrants } from "@/lib/access/grants";
 import { classifyGrant } from "@/lib/access/evaluate";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { isConsoleUser } from "@/lib/auth/roles";
+import { workspaceView } from "@/lib/mobile/views";
 
 export const dynamic = "force-dynamic";
 
-// The signed-in user's currently-active grants, for the login "access-ready" step.
+// The signed-in user's currently-active grants, for the login "access-ready" step,
+// with who signed in to which workspace (the step's facts table) and whether
+// they land in the console or in My access.
 // Wrapped so its DB work runs under the request's tenant scope in cloud
 // (pass-through on self-host). First proof site for withTenantRoute.
 export const GET = withTenantRoute(async () => {
@@ -26,5 +30,11 @@ export const GET = withTenantRoute(async () => {
       scheduled: g.schedule != null,
     }));
 
-  return NextResponse.json({ grants });
+  const ws = await workspaceView().catch(() => null);
+  return NextResponse.json({
+    grants,
+    account: user.email,
+    workspace: ws ? ws.slug ?? ws.name : null,
+    console: isConsoleUser(user.role),
+  });
 });

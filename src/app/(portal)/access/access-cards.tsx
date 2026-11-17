@@ -1,70 +1,99 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Remaining } from "@/lib/portal/time-remaining";
 import type { CardVM } from "./portal-home";
+import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 
-const TONE_COLOR: Record<Remaining["tone"], string> = { urgent: "#dc2626", soon: "#d97706", ok: "#0f766e", schedule: "#78716c" };
-const PAGE_SIZE = 12;
+type TypeFilter = "all" | "web" | "remote";
+const PAGE_SIZE = 25;
 
-// Client-side search + pagination over the vendor's access cards. Both aids only
-// appear once the list is large enough to need them.
+/**
+ * The person's resources as a table: search and a type filter above, then each
+ * resource with its access window (a bar that turns amber in its last fifth)
+ * and an Open button.
+ */
 export function AccessCards({ cards }: { cards: CardVM[] }) {
   const [q, setQ] = useState("");
+  const [type, setType] = useState<TypeFilter>("all");
   const [page, setPage] = useState(0);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return cards;
-    return cards.filter((c) => c.siteName.toLowerCase().includes(s) || c.hostname.toLowerCase().includes(s));
-  }, [cards, q]);
+    return cards.filter((c) => {
+      const remote = c.accessMode === "GATEWAY";
+      if (type === "web" && remote) return false;
+      if (type === "remote" && !remote) return false;
+      return !s || c.siteName.toLowerCase().includes(s) || c.hostname.toLowerCase().includes(s);
+    });
+  }, [cards, q, type]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const cur = Math.min(page, pageCount - 1);
   const shown = filtered.slice(cur * PAGE_SIZE, cur * PAGE_SIZE + PAGE_SIZE);
 
   return (
-    <div className="vp-cards">
-      {cards.length > 6 && (
-        <input
-          className="vp-search"
-          type="search"
-          placeholder="Search resources…"
-          value={q}
-          onChange={(e) => { setQ(e.target.value); setPage(0); }}
-          aria-label="Search resources"
-        />
-      )}
-
-      {filtered.length === 0 ? (
-        <div className="vp-empty">{cards.length === 0 ? "You don't have any access yet." : "No resources match your search."}</div>
-      ) : shown.map((c) => (
-        <div key={c.id} className="vp-card">
-          <div className="vp-card-top">
-            <div className="vp-icon">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {c.hasLogo ? <img src={`/api/sites/${c.siteId}/logo`} alt="" width={44} height={44} className="vp-icon-img" /> : c.glyph}
-            </div>
-            <div className="vp-card-id">
-              <div className="vp-card-title"><span className="vp-card-name">{c.siteName}</span><span className="vp-chip">{c.accessMode === "GATEWAY" ? "REMOTE" : "WEB"}</span></div>
-              <div className="vp-card-host">{c.hostname}</div>
-            </div>
-            {c.status === "active"
-              ? <a className="vp-open" href={c.href} target="_blank" rel="noopener noreferrer">Open ↗</a>
-              : <span className="vp-open vp-open-off">{c.status === "pending" ? "Pending" : c.status === "off_hours" ? "Off hours" : "—"}</span>}
-          </div>
-          <div className="vp-meter">
-            <div className="vp-meter-row"><span className="vp-meter-label">Access window</span><span className="vp-meter-remain" style={{ color: TONE_COLOR[c.time.tone] }}>{c.time.text}</span></div>
-            <div className="vp-bar"><div className="vp-bar-fill" style={{ width: `${c.time.pct}%`, background: TONE_COLOR[c.time.tone] }} /></div>
-          </div>
+    <div className="ma-main">
+      <div className="ma-tools">
+        <label className="ma-search">
+          <NavIcon name="search" size={16} />
+          <input type="search" placeholder="Search resources…" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} aria-label="Search resources" />
+        </label>
+        <div className="seg" role="group" aria-label="Type">
+          {([["all", "All"], ["web", "Web"], ["remote", "Remote desktop"]] as const).map(([k, l]) => (
+            <button key={k} type="button" className={type === k ? "seg-opt on" : "seg-opt"} aria-pressed={type === k} onClick={() => { setType(k); setPage(0); }}>{l}</button>
+          ))}
         </div>
-      ))}
+      </div>
+
+      <div className="table-wrap ma-table">
+        <div className="ma-row ma-th" aria-hidden="true"><span>Resource</span><span>Access window</span><span /></div>
+        {filtered.length === 0 ? (
+          <div className="ma-empty">
+            {cards.length === 0 ? "You don't have access to anything yet. Request access to a resource to get started." : "No resource matches your search."}
+          </div>
+        ) : shown.map((c) => {
+          const remote = c.accessMode === "GATEWAY";
+          // A window with an end depletes; permanent and recurring ones do not.
+          const timed = c.time.tone !== "schedule" && c.time.text !== "Permanent";
+          const low = c.time.pct < 20;
+          return (
+            <div key={c.id} className="ma-row">
+              <span className="ma-res">
+                <span className={remote ? "ma-tile violet" : "ma-tile"}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {c.hasLogo ? <img src={`/api/sites/${c.siteId}/logo`} alt="" width={36} height={36} /> : c.glyph}
+                </span>
+                <span className="ma-res-main">
+                  <span className="ma-res-t"><b>{c.siteName}</b><span className={remote ? "chip violet" : "chip"}>{remote ? "REMOTE" : "WEB"}</span></span>
+                  {c.hostname && <span className="mono t-muted ma-host">{c.hostname}</span>}
+                </span>
+              </span>
+              <span className="ma-win">
+                {c.status === "pending" ? <span className="pill warn">Pending approval</span>
+                  : c.status === "off_hours" ? <span className="pill neutral">Outside its hours</span>
+                  : !timed ? <span className="t-muted">{c.time.tone === "schedule" ? "⟳" : "∞"} {c.time.text}</span>
+                  : (
+                    <>
+                      <span className={low ? "t-warn" : undefined}>{c.time.text}</span>
+                      <span className="ma-bar"><span className={low ? "warn" : undefined} style={{ width: `${c.time.pct}%` }} /></span>
+                    </>
+                  )}
+              </span>
+              <span className="ma-act">
+                {c.status === "active"
+                  ? <a className="btn ink sm" href={c.href} target="_blank" rel="noopener noreferrer">Open ↗</a>
+                  : <span className="btn sm" aria-disabled="true">Open</span>}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {pageCount > 1 && (
-        <div className="vp-pager">
-          <button type="button" className="vp-pager-btn" disabled={cur === 0} onClick={() => setPage(cur - 1)}>← Prev</button>
-          <span className="vp-pager-info">Page {cur + 1} of {pageCount}</span>
-          <button type="button" className="vp-pager-btn" disabled={cur >= pageCount - 1} onClick={() => setPage(cur + 1)}>Next →</button>
+        <div className="ma-pager">
+          <button type="button" className="btn sm" disabled={cur === 0} onClick={() => setPage(cur - 1)}>← Prev</button>
+          <span className="cell-sub">Page {cur + 1} of {pageCount}</span>
+          <button type="button" className="btn sm" disabled={cur >= pageCount - 1} onClick={() => setPage(cur + 1)}>Next →</button>
         </div>
       )}
     </div>

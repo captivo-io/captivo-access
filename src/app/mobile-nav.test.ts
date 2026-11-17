@@ -40,7 +40,6 @@ const code = (f: string) =>
  */
 const PAIRS = [
   { hidden: "tn-primary", replacement: ["tn-burger", "tn-drawer"] },
-  { hidden: "vp-navlinks", replacement: ["vp-burger", "vp-mmenu"] },
 ] as const;
 
 describe("mobil navigasyon", () => {
@@ -100,12 +99,26 @@ describe("mobil navigasyon", () => {
     const offenders: string[] = [];
     for (const f of SOURCES) {
       const src = code(f);
-      for (const m of src.matchAll(/<button[^>]*className="(tn-burger|vp-burger)"[^>]*>/g)) {
+      for (const m of src.matchAll(/<button[^>]*className="(?:[^"]* )?(tn-burger|ah-burger)"[^>]*>/g)) {
         if (!m[0].includes("aria-controls")) offenders.push(`${f}: .${m[1]} aria-controls yok`);
         if (!m[0].includes("aria-expanded")) offenders.push(`${f}: .${m[1]} aria-expanded yok`);
       }
     }
     expect(offenders, "hamburger aria baglarini tasimiyor").toEqual([]);
+  });
+
+  it("konsolun kabugu: cekmece dar ekranda menuyu yerinde aciyor", () => {
+    // The app shell keeps one sidebar and slides it in as a drawer below 1000px:
+    // nothing is hidden for good, the header's button opens it, and the shell
+    // renders the two together.
+    expect(CSS).toMatch(/\.ah \.ah-burger\{display:none;\}/);
+    expect(CSS).toMatch(/@media \(max-width:999px\)\{[\s\S]*?\.sb\{position:fixed;[^}]*transform:translateX\(-102%\)/);
+    expect(CSS).toMatch(/html\[data-nav-open="1"\] \.sb\{transform:none;/);
+    const shell = code("src/app/(app)/_shell/shell.tsx");
+    expect(shell).toContain("<Sidebar");
+    expect(shell).toContain("<AppHeader");
+    expect(code("src/app/(app)/_shell/sidebar.tsx")).toContain('id="app-sidebar"');
+    expect(code("src/app/(app)/_shell/app-header.tsx")).toContain('aria-controls="app-sidebar"');
   });
 
   it("aria-controls'un isaret ettigi id GERCEKTEN render ediliyor", () => {
@@ -115,7 +128,9 @@ describe("mobil navigasyon", () => {
     for (const f of SOURCES) {
       const src = code(f);
       for (const m of src.matchAll(/aria-controls="([^"]+)"/g)) {
-        if (!src.includes(`id="${m[1]}"`)) offenders.push(`${f}: #${m[1]} yok`);
+        // The shell's header names the sidebar the shell renders beside it.
+        const sibling = f.endsWith("_shell/app-header.tsx") ? code(f.replace("app-header.tsx", "sidebar.tsx")) : "";
+        if (!src.includes(`id="${m[1]}"`) && !sibling.includes(`id="${m[1]}"`)) offenders.push(`${f}: #${m[1]} yok`);
       }
     }
     expect(offenders, "aria-controls bos bir id'ye isaret ediyor").toEqual([]);

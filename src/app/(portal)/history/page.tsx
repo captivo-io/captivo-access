@@ -13,11 +13,11 @@ export default async function HistoryPage() {
     const user = await requireUser();
     const initial = await historyPage(user.id, 0);
     return (
-      <div className="vp-home">
-        <div className="vp-head">
+      <div>
+        <div className="page-head">
           <div>
-            <h1 className="vp-greet">Session history</h1>
-            <p className="vp-sub">Your past remote sessions.</p>
+            <h1>Session history</h1>
+            <p>Your past remote sessions.</p>
           </div>
         </div>
         <HistoryList initial={initial} pageSize={HISTORY_PAGE_SIZE} />

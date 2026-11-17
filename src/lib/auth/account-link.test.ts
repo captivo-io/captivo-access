@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { captivoAccountUrl } from "./captivo-id-client";
 
-const TOPNAV = readFileSync(path.join(__dirname, "..", "..", "app", "(app)", "_shell", "topnav.tsx"), "utf-8");
+const TOPNAV = readFileSync(path.join(__dirname, "..", "..", "app", "(app)", "_shell", "sidebar.tsx"), "utf-8");
 
 /**
  * The account page shipped with nothing anywhere linking to it. The person who

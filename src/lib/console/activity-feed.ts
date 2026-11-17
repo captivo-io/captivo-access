@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 
 export type ActivityTone = "ok" | "deny" | "info" | "muted";
+/** What the console's audit stream filters by. */
+export type ActivityCategory = "session" | "recording" | "policy";
 
 // One line in the console's activity stream. `kind` is the event-type slug shown as
 // the badge (e.g. "access.allow", "grant.approve", "rec.saved"); `text` is the
@@ -11,6 +13,7 @@ export interface ActivityItem {
   kind: string;
   text: string;
   tone: ActivityTone;
+  category: ActivityCategory;
 }
 
 // Pure: merge several event streams into one reverse-chronological feed, capped at
@@ -52,11 +55,11 @@ export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
     const who = e.userEmail ?? "someone";
     const where = e.siteName ?? e.host;
     if (reason.startsWith("session_open")) {
-      return { id: `a:${e.id}`, at: e.timestamp, kind: "session.connect", text: `${who} connected to ${where}`, tone: "ok" };
+      return { id: `a:${e.id}`, at: e.timestamp, kind: "session.connect", text: `${who} connected to ${where}`, tone: "ok", category: "session" };
     }
     if (reason.startsWith("session_close")) {
       const dur = reason.slice("session_close".length).trim();
-      return { id: `a:${e.id}`, at: e.timestamp, kind: "session.disconnect", text: `${who} disconnected from ${where}${dur ? ` · ${dur}` : ""}`, tone: "muted" };
+      return { id: `a:${e.id}`, at: e.timestamp, kind: "session.disconnect", text: `${who} disconnected from ${where}${dur ? ` · ${dur}` : ""}`, tone: "muted", category: "session" };
     }
     return {
       id: `a:${e.id}`,
@@ -64,6 +67,8 @@ export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
       kind: e.decision === "ALLOW" ? "access.allow" : "access.deny",
       text: `${who} ${e.decision === "ALLOW" ? "accessed" : "blocked at"} ${where}`,
       tone: e.decision === "ALLOW" ? "ok" : "deny",
+      // A refusal is the policy at work; an allowed request is part of a session.
+      category: e.decision === "ALLOW" ? "session" : "policy",
     };
   });
 
@@ -73,6 +78,7 @@ export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
     kind: e.action,
     text: e.actorEmail ? `${e.actorEmail} · ${e.summary}` : e.summary,
     tone: /revoke|deny|delete|disable/.test(e.action) ? "deny" : "info",
+    category: e.action.startsWith("recording.") ? "recording" : "policy",
   }));
 
   const recItems: ActivityItem[] = recs.map((r) => ({
@@ -81,6 +87,7 @@ export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
     kind: "rec.saved",
     text: `session recording · ${r.host}`,
     tone: "muted",
+    category: "recording",
   }));
 
   return mergeActivity([accessItems, adminItems, recItems], limit);

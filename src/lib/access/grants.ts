@@ -115,9 +115,9 @@ export async function createAccessRequest(input: {
 // are getting) access to — an active/upcoming/pending/off-hours grant hides the
 // site so they can't request a duplicate. Only revoked/denied/expired grants free
 // the site to be requested again.
-export async function listSitesForRequest(userId: string): Promise<{ id: string; name: string }[]> {
+export async function listSitesForRequest(userId: string): Promise<{ id: string; name: string; hostname: string | null; accessMode: string }[]> {
   const [all, grants] = await Promise.all([
-    db.site.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.site.findMany({ select: { id: true, name: true, hostname: true, accessMode: true }, orderBy: { name: "asc" } }),
     listUserGrants(userId),
   ]);
   const now = new Date();
@@ -172,8 +172,8 @@ export async function listUserRequests(userId: string) {
     orderBy: { createdAt: "desc" },
     select: {
       id: true, createdAt: true, startsAt: true, endsAt: true,
-      status: true, approvedAt: true, denyReason: true, note: true,
-      site: { select: { name: true } },
+      status: true, approvedAt: true, approvedById: true, denyReason: true, note: true, schedule: true,
+      site: { select: { name: true, hostname: true, accessMode: true } },
     },
   });
 }

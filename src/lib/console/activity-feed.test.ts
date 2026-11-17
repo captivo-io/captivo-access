@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mergeActivity, type ActivityItem } from "./activity-feed";
 
 const item = (id: string, iso: string): ActivityItem => ({
-  id, at: new Date(iso), kind: "access.allow", text: id, tone: "ok",
+  id, at: new Date(iso), kind: "access.allow", text: id, tone: "ok", category: "session",
 });
 
 describe("mergeActivity", () => {

@@ -21,17 +21,17 @@ export function HistoryList({ initial, pageSize }: { initial: HistoryRowJSON[]; 
     setBusy(false);
   }
 
-  if (rows.length === 0) return <div className="vp-empty">No sessions yet.</div>;
+  if (rows.length === 0) return <div className="empty">No sessions yet.</div>;
   return (
-    <div className="vp-railcard">
+    <div className="card">
       {rows.map((r) => (
-        <div key={r.id} className="vp-recent">
-          <span className="vp-recent-name">{r.name}{r.protocol ? ` · ${r.protocol.toUpperCase()}` : ""}</span>
-          <span className="vp-recent-meta"><LocalTime iso={r.date} mode="shortdate" /> · {r.durationText}</span>
+        <div key={r.id} className="hist-row">
+          <span className="hist-name">{r.name}{r.protocol ? ` · ${r.protocol.toUpperCase()}` : ""}</span>
+          <span className="mono t-muted hist-meta"><LocalTime iso={r.date} mode="shortdate" /> · {r.durationText}</span>
         </div>
       ))}
       {!done && (
-        <button type="button" className="vp-loadmore" disabled={busy} onClick={loadMore}>
+        <button type="button" className="btn sm hist-more" disabled={busy} onClick={loadMore}>
           {busy ? "Loading…" : "Load more"}
         </button>
       )}

@@ -109,8 +109,8 @@ export interface Insights {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export async function getInsights(now = new Date()): Promise<Insights> {
-  const since = new Date(now.getTime() - 30 * DAY_MS);
+export async function getInsights(now = new Date(), rangeDays = 30): Promise<Insights> {
+  const since = new Date(now.getTime() - rangeDays * DAY_MS);
   const tenant = currentTenantId();
   const in7d = new Date(now.getTime() + 7 * DAY_MS);
   const expiringWhere = { status: "ACTIVE" as const, endsAt: { gte: now, lte: in7d } };
@@ -175,13 +175,13 @@ export async function getInsights(now = new Date()): Promise<Insights> {
     db.sessionRecording.findMany({ where: { startedAt: { gte: since } }, select: { startedAt: true, lastEventAt: true } }),
   ]);
 
-  const days = zeroFillDays(now);
+  const days = zeroFillDays(now, rangeDays);
   const allowByDay: DailyCount[] = vendorsByDay.filter((r) => r.decision === "ALLOW").map((r) => ({ day: r.day, count: Number(r.n) }));
   const denyByDay: DailyCount[] = vendorsByDay.filter((r) => r.decision === "DENY").map((r) => ({ day: r.day, count: Number(r.n) }));
   const longestStartedAt = active.length ? [...active].map((a) => a.startedAt).sort()[0] : null;
 
   return {
-    trend: buildTrend(allowByDay, denyByDay, now),
+    trend: buildTrend(allowByDay, denyByDay, now, rangeDays),
     heatmap: buildHeatmap(heatmapRows.map((r) => ({ dow: r.dow, hour: r.hour, count: Number(r.n) }))),
     topResources: toRefCounts(topResRows.map((r) => ({ id: r.id, label: r.label, count: Number(r.n) }))),
     topVendors: toRefCounts(topVenRows.map((r) => ({ id: r.id, label: r.label, count: Number(r.n) }))),

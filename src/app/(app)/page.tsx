@@ -1,40 +1,48 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/current-user";
-import { db } from "@/lib/db";
-import { managerVersion } from "@/lib/version";
-import { isConnectorOutdated } from "@/lib/updates/semver";
 import { getSetupStatus } from "@/lib/dashboard/stats";
-import { isConsoleUser, ROLE_LABELS } from "@/lib/auth/roles";
+import { can, isConsoleUser, ROLE_LABELS } from "@/lib/auth/roles";
 import { getConsoleData } from "@/lib/console/data";
-import { SecurityConsole } from "./_console/security-console";
+import { workspaceView } from "@/lib/mobile/views";
+import { ConsoleHome } from "./_console/console-home";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Overview" };
+export const metadata = { title: "Console" };
 
 async function DashboardPageImpl() {
   const user = await requireUser();
-
-  const head = (
-    <div className="page-head">
-      <div>
-        <h1>Welcome, {user.name}</h1>
-        <p><span className="pill neutral">{ROLE_LABELS[user.role] ?? user.role}</span></p>
-      </div>
-    </div>
-  );
-
   if (!isConsoleUser(user.role)) {
     redirect("/access");
   }
+  const ws = await workspaceView().catch(() => ({ name: "", slug: null as string | null }));
+  const first = user.name.trim().split(/\s+/)[0] || user.name;
+  const role = ROLE_LABELS[user.role] ?? user.role;
+
+  const head = (actions: boolean) => (
+    <div className="page-head">
+      <div>
+        <div className="eyebrow">
+          Console{ws.slug ? ` · ${ws.slug}` : ""} <span className="chip violet">{role}</span>
+        </div>
+        <h1>Hello, {first}</h1>
+      </div>
+      {actions && (
+        <div className="row-actions">
+          <Link href="/admin/invites?new=1" className="btn">Invite vendor</Link>
+          {can(user.role, "approve_grants") && <Link href="/admin/grants?new=1" className="btn primary">+ Grant access</Link>}
+        </div>
+      )}
+    </div>
+  );
 
   if (user.role !== "ADMIN") {
     return (
       <main>
-        {head}
+        {head(false)}
         <div className="card">
-          <p>Use the navigation above to review access grants and the audit log.</p>
+          <p>Use the menu to review access grants, live sessions and the audit log.</p>
         </div>
       </main>
     );
@@ -46,12 +54,11 @@ async function DashboardPageImpl() {
     { done: setup.sites >= 1, title: "Add an internal app", hint: "Define a Resource for an app the connector can reach.", href: "/admin/sites" },
     { done: setup.grants >= 1, title: "Grant someone access", hint: "Tie a user to a resource — optionally time-boxed, approved, or scheduled.", href: "/admin/grants" },
   ];
-  const allDone = steps.every((st) => st.done);
 
-  if (!allDone) {
+  if (!steps.every((st) => st.done)) {
     return (
       <main>
-        {head}
+        {head(false)}
         <div className="card">
           <div className="card-head"><h2>Getting started</h2></div>
           <ol className="checklist">
@@ -71,21 +78,11 @@ async function DashboardPageImpl() {
     );
   }
 
-  const conns = await db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { version: true } });
-  const mgr = managerVersion();
-  const outdated = conns.filter((c) => isConnectorOutdated(c.version, mgr)).length;
   const data = await getConsoleData();
-
   return (
     <main>
-      {head}
-      {outdated > 0 && (
-        <div className="notice">
-          {outdated} connector{outdated === 1 ? "" : "s"} {outdated === 1 ? "is" : "are"} older than the manager (v{mgr}).{" "}
-          <Link href="/admin/connectors">Review →</Link>
-        </div>
-      )}
-      <SecurityConsole data={data} />
+      {head(true)}
+      <ConsoleHome data={data} />
     </main>
   );
 }
@@ -93,4 +90,3 @@ async function DashboardPageImpl() {
 export default async function DashboardPage(...args: Parameters<typeof DashboardPageImpl>) {
   return withRequestTenant(() => DashboardPageImpl(...args));
 }
-

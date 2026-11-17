@@ -5,17 +5,31 @@ import { getActivityFeed, type ActivityItem } from "@/lib/console/activity-feed"
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { effectiveRecordSessions } from "@/lib/recording/mode";
 import { resolvedRecordingMode } from "@/lib/settings/platform";
+import { managerVersion } from "@/lib/version";
+import { isConnectorOutdated } from "@/lib/updates/semver";
 
 export type ConsoleAuditRow = ActivityItem;
 
-export interface ConsoleKpis { grants: number; live: number; pending: number; expiring24h: number; recordings7d: number }
+export interface ConsoleKpis {
+  grants: number;
+  /** Grants created in the last 7 days that are still active. */
+  grantsThisWeek: number;
+  live: number;
+  /** When the longest-running live session started, if any. */
+  longestLiveSince: string | null;
+  pending: number;
+  expiring24h: number;
+  recordings7d: number;
+  /** Sessions opened in the last 7 days, to say what share was recorded. */
+  sessions7d: number;
+}
 export type LiveCard =
-  | { kind: "gateway"; sessionId: string; protocol: string; host: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
-  | { kind: "isolated"; sessionId: string; host: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
+  | { kind: "gateway"; sessionId: string; protocol: string; host: string; siteName: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
+  | { kind: "isolated"; sessionId: string; host: string; siteName: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
   | { kind: "web"; userLabel: string; siteName: string; host: string; startedAt: string; lastSeen: string; grantId: string | null; liveKey: string | null; viewerCount: number };
 export interface PendingCard { id: string; userLabel: string; siteName: string; detail: string }
 export interface ExpiringRow { id: string; userLabel: string; siteName: string; endsAt: string }
-export interface ConnectorRow { id: string; name: string; online: boolean }
+export interface ConnectorRow { id: string; name: string; online: boolean; version: string | null; lastSeenAt: string | null; outdated: boolean }
 export interface ConsoleData {
   kpis: ConsoleKpis;
   live: LiveCard[];
@@ -23,6 +37,8 @@ export interface ConsoleData {
   expiring: ExpiringRow[];
   connectors: ConnectorRow[];
   audit: ConsoleAuditRow[];
+  /** This console's version: what an outdated connector should run. */
+  managerVersion: string;
 }
 
 // Read-only snapshot for the security console home. Reuses existing helpers;
@@ -37,8 +53,10 @@ export async function getConsoleData(): Promise<ConsoleData> {
   // per-resource toggle. recEnabled is applied alongside below (see effectiveSiteRecording).
   const recMode = await resolvedRecordingMode();
 
-  const [grants, pending, expiring24h, recordings7d, sessions, webSessions, pendingRows, expiringRows, connectors, audit] = await Promise.all([
+  const [grants, grantsThisWeek, sessions7d, pending, expiring24h, recordings7d, sessions, webSessions, pendingRows, expiringRows, connectors, audit] = await Promise.all([
     db.accessGrant.count({ where: { status: "ACTIVE" } }),
+    db.accessGrant.count({ where: { status: "ACTIVE", createdAt: { gte: weekAgo } } }),
+    db.auditEvent.count({ where: { timestamp: { gte: weekAgo }, reason: { startsWith: "session_open" } } }),
     countPendingGrants(),
     db.accessGrant.count({ where: { status: "ACTIVE", endsAt: { gt: now, lte: in24h } } }),
     db.sessionRecording.count({ where: { startedAt: { gte: weekAgo } } }),
@@ -50,8 +68,8 @@ export async function getConsoleData(): Promise<ConsoleData> {
       orderBy: { endsAt: "asc" }, take: 6,
       select: { id: true, endsAt: true, user: { select: { name: true, email: true } }, site: { select: { name: true } } },
     }),
-    db.connector.findMany({ where: { status: { not: "REVOKED" } }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true } }),
-    getActivityFeed(8),
+    db.connector.findMany({ where: { status: { not: "REVOKED" } }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, version: true, lastSeenAt: true } }),
+    getActivityFeed(12),
   ]);
 
   const webUserIds = webSessions.map((s) => s.userId);
@@ -76,14 +94,14 @@ export async function getConsoleData(): Promise<ConsoleData> {
 
   const gatewayCards: LiveCard[] = sessions.filter((s) => s.kind !== "isolated").map((s) => ({
     kind: "gateway" as const,
-    sessionId: s.sessionId, protocol: s.protocol, host: s.host,
+    sessionId: s.sessionId, protocol: s.protocol, host: s.host, siteName: siteNameMap.get(s.siteId) ?? s.host,
     userLabel: userMap.get(s.userId) ?? "unknown", startedAt: s.startedAt,
     recorded: recEnabled && (recMap.get(s.siteId) ?? false), viewerCount: s.viewerCount,
     grantId: grantMap.get(s.userId + "\x1f" + s.siteId) ?? null,
   }));
   const isolatedCards: LiveCard[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({
     kind: "isolated" as const,
-    sessionId: s.sessionId, host: s.host,
+    sessionId: s.sessionId, host: s.host, siteName: siteNameMap.get(s.siteId) ?? s.host,
     userLabel: userMap.get(s.userId) ?? "unknown", startedAt: s.startedAt,
     recorded: recEnabled && (recMap.get(s.siteId) ?? false), viewerCount: s.viewerCount,
     grantId: grantMap.get(s.userId + "\x1f" + s.siteId) ?? null,
@@ -98,12 +116,22 @@ export async function getConsoleData(): Promise<ConsoleData> {
   }));
   const live: LiveCard[] = [...gatewayCards, ...isolatedCards, ...webCards];
 
+  const starts = live.map((c) => c.startedAt).filter(Boolean).sort();
+  const mgr = managerVersion();
   return {
-    kpis: { grants, live: sessions.length + webSessions.length, pending, expiring24h, recordings7d },
+    kpis: {
+      grants, grantsThisWeek, live: sessions.length + webSessions.length, longestLiveSince: starts[0] ?? null,
+      pending, expiring24h, recordings7d, sessions7d,
+    },
     live,
     pending: pendingRows.map((p) => ({ id: p.id, userLabel: p.user.name || p.user.email, siteName: p.site.name, detail: p.note ?? "" })),
     expiring: expiringRows.map((e) => ({ id: e.id, userLabel: e.user.name || e.user.email, siteName: e.site.name, endsAt: (e.endsAt as Date).toISOString() })),
-    connectors: connectors.map((c) => ({ id: c.id, name: c.name, online: c.status === "ONLINE" })),
+    connectors: connectors.map((c) => ({
+      id: c.id, name: c.name, online: c.status === "ONLINE", version: c.version,
+      lastSeenAt: c.lastSeenAt ? c.lastSeenAt.toISOString() : null,
+      outdated: !!c.version && isConnectorOutdated(c.version, mgr),
+    })),
     audit,
+    managerVersion: mgr,
   };
 }
