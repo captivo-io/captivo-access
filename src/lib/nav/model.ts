@@ -9,9 +9,9 @@ export type NavIconKey =
   | "mail" | "download"
   | "grid" | "inbox" | "clock" | "settings";
 
-export type BadgeTone = "ok" | "warn" | "muted" | "info";
+export type BadgeTone = "ok" | "warn" | "bad" | "muted" | "info";
 
-export interface NavItem { label: string; href: string; icon: NavIconKey; badge?: number; badgeTone?: BadgeTone }
+export interface NavItem { label: string; href: string; icon: NavIconKey; badge?: number; badgeTone?: BadgeTone; badgeTitle?: string }
 export interface NavSection { label: string; items: NavItem[] }
 export interface NavModel {
   /** The console's menu (admins, operators, auditors). Empty for vendors. */
@@ -38,8 +38,8 @@ export interface NavCounts {
   myPending?: number;
 }
 
-const badge = (n: number | undefined, tone: BadgeTone): Pick<NavItem, "badge" | "badgeTone"> =>
-  n && n > 0 ? { badge: n, badgeTone: tone } : {};
+const badge = (n: number | undefined, tone: BadgeTone, title?: string): Pick<NavItem, "badge" | "badgeTone" | "badgeTitle"> =>
+  n && n > 0 ? { badge: n, badgeTone: tone, ...(title ? { badgeTitle: `${n} ${title}` } : {}) } : {};
 
 // The sidebar, grouped as the design hand-off lays it out. read_console gives
 // Overview, Grants, Sessions and Audit (plus search and notifications);
@@ -58,7 +58,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
       { label: "Insights", href: "/admin/insights", icon: "chart" },
     ] });
     admin.push({ label: "Operate", items: [
-      { label: "Grants", href: "/admin/grants", icon: "key", ...badge(grants ? counts.pending : 0, "warn") },
+      { label: "Grants", href: "/admin/grants", icon: "key", ...badge(grants ? counts.pending : 0, "warn", "waiting for a decision") },
       { label: "Sessions", href: "/admin/live", icon: "activity", ...badge(counts.live, "ok") },
       ...(config ? [{ label: "Recordings", href: "/admin/recordings", icon: "video" as const }] : []),
       { label: "Audit", href: "/admin/audit", icon: "list" },
@@ -66,8 +66,9 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
   }
   if (config) {
     admin.push({ label: "Infrastructure", items: [
-      { label: "Connectors", href: "/admin/connectors", icon: "plug", ...badge(counts.outdatedConnectors, "warn") },
-      { label: "Resources", href: "/admin/sites", icon: "server", ...badge(counts.unreachableResources, "muted") },
+      { label: "Connectors", href: "/admin/connectors", icon: "plug", ...badge(counts.outdatedConnectors, "warn", "out of date") },
+      // Unreachable is a fault, not a total: red, and named on hover.
+      { label: "Resources", href: "/admin/sites", icon: "server", ...badge(counts.unreachableResources, "bad", "unreachable") },
       // Self-host only: the operator runs DNS for the wildcard app domain. On
       // Cloud the platform provisions each tenant's namespace, nothing to do.
       ...(multiTenantEnabled() ? [] : [{ label: "Custom domain", href: "/admin/domain", icon: "globe" as const }]),
@@ -88,7 +89,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
 
   const user: NavSection[] = [{ label: "My access", items: [
     { label: "My access", href: "/access", icon: "grid" },
-    { label: "My requests", href: "/requests", icon: "inbox", ...badge(counts.myPending, "warn") },
+    { label: "My requests", href: "/requests", icon: "inbox", ...badge(counts.myPending, "warn", "waiting for a decision") },
     { label: "History", href: "/history", icon: "clock" },
     { label: "Preferences", href: "/preferences", icon: "settings" },
   ] }];

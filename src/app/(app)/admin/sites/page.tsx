@@ -1,5 +1,4 @@
 import { requireAdmin } from "@/lib/current-user";
-import { SitesIcon } from "@/components/icons";
 import { db } from "@/lib/db";
 import { timeAgo } from "@/lib/format";
 import { recordingEnabled } from "@/lib/recording/enabled";
@@ -38,7 +37,7 @@ async function AdminSitesPageImpl() {
         clipboardMode: true,
         logoType: true,
         connector: { select: { name: true, status: true } },
-        vaultCredential: { select: { targetHost: true, targetPort: true } },
+        vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } },
         _count: { select: { grants: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -58,12 +57,14 @@ async function AdminSitesPageImpl() {
     description: s.description,
     accessMode: s.accessMode,
     gatewayTarget: s.vaultCredential ? `${s.vaultCredential.targetHost}:${s.vaultCredential.targetPort}` : null,
+    protocol: s.accessMode === "GATEWAY" && s.vaultCredential ? String(s.vaultCredential.protocol).toUpperCase() : null,
     hasLogo: s.logoType != null,
     connectorId: s.connectorId,
     insecureSkipVerify: s.insecureSkipVerify,
     recordSessions: s.recordSessions,
     clipboardMode: s.clipboardMode,
     connectorName: s.connector.name,
+    connectorOnline: s.connector.status === "ONLINE",
     grantCount: s._count.grants,
     probeOk: s.probeOk,
     probeDetail: s.probeDetail,
@@ -80,15 +81,15 @@ async function AdminSitesPageImpl() {
     <main>
       <div className="page-head">
         <div>
-          <div className="page-title-row"><span className="page-icon"><SitesIcon /></span><h1>Resources</h1></div>
+          <div className="eyebrow">Infrastructure · {sites.length} resource{sites.length === 1 ? "" : "s"}</div>
+          <h1>Resources</h1>
           <p>
-            A resource is an internal upstream reachable through a connector, addressed by its real internal
-            URL. Use &quot;Test connection&quot; to verify a live round trip through the connector&apos;s
-            tunnel.
+            A resource is an internal upstream reached through a connector. Send a live test to verify the
+            tunnel works end to end.
           </p>
           <PlanUsageNote usage={siteUsage} noun="resources" />
         </div>
-        {connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} clipboardDefault={await resolvedClipboardDefault()} watermarkDefault={await resolvedWatermarkDefault()} egressDefault={await resolvedIsolatedEgressDefault()} fileTransferDefault={await resolvedIsolatedFileTransferDefault()} webFileTransferDefault={await resolvedWebAppFileTransferDefault()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}
+        <div className="row-actions"><span id="rs-head-actions" className="rs-head-actions" />{connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} clipboardDefault={await resolvedClipboardDefault()} watermarkDefault={await resolvedWatermarkDefault()} egressDefault={await resolvedIsolatedEgressDefault()} fileTransferDefault={await resolvedIsolatedFileTransferDefault()} webFileTransferDefault={await resolvedWebAppFileTransferDefault()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}</div>
       </div>
 
       {sites.length === 0 ? (
@@ -101,7 +102,7 @@ async function AdminSitesPageImpl() {
         // Existing sites always render (with edit/delete), even when the only
         // connector is revoked — otherwise a revoked connector's sites become
         // invisible and neither the sites nor the connector can be removed.
-        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} />
+        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} hostSuffix={await siteHostSuffix()} />
       )}
     </main>
   );
