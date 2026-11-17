@@ -462,7 +462,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
             leave={{ label: "Leave session", sub: "Disconnect and return to My access", onClick: () => clientRef.current?.disconnect() }}
           />
           <OnScreenKeyboard sendKey={(keysym, pressed) => clientRef.current?.sendKeyEvent(pressed ? 1 : 0, keysym)} />
-          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Ctrl+V pastes your clipboard", "Controls: top-left tab"]} />
+          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Ctrl+V pastes your clipboard", "Controls: the tab on the left edge (drag to move it)"]} />
         </>
       )}
       {zoomed && <button type="button" className="gw-zoom-reset" onClick={resetZoom}>Reset zoom</button>}

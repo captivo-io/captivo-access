@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BrandMark } from "@/components/brand";
 import { Icon, type IconName } from "./icons";
+import { useEdgeDrag } from "./edge-drag";
 
 export type PanelQuick = { key: string; icon: IconName; label: string; active?: boolean; disabled?: boolean; onClick?: () => void };
 export type PanelItem = {
@@ -27,6 +28,7 @@ export function SessionPanel({ siteName, mode, connectedAt, quick, sections, lea
   leave: { label: string; sub: string; onClick: () => void };
 }) {
   const [open, setOpen] = useState(false);
+  const handle = useEdgeDrag("captivo.session.controls-top");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!open) return;
@@ -42,7 +44,7 @@ export function SessionPanel({ siteName, mode, connectedAt, quick, sections, lea
 
   return (
     <>
-      <button type="button" className={`ss-handle${open ? " open" : ""}`} onClick={() => setOpen((v) => !v)} aria-label="Session controls" aria-expanded={open} title="Session controls">
+      <button type="button" ref={handle.ref} style={handle.style} {...handle.handlers} className={`ss-handle${open ? " open" : ""}`} onClick={() => setOpen((v) => !v)} aria-label="Session controls" aria-expanded={open} title="Session controls · drag to move">
         <BrandMark size={18} />
         <span className="ss-handle-label">Controls</span>
       </button>
