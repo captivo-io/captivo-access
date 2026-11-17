@@ -48,6 +48,7 @@ async function handler(req: NextRequest) {
     await db.sessionRecording.update({
       where: { id: rec.id },
       data: {
+        reportedAt: new Date(),
         ...(rec.format === "GUAC" ? { videoReady: it.video } : {}),
         ...(it.durationMs > 0 ? { durationMs: it.durationMs } : {}),
         ...(it.storedBytes > 0 ? { bytes: it.storedBytes } : {}),

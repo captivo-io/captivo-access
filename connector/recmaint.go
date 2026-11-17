@@ -38,8 +38,11 @@ import (
 //     player cannot seek in it. It is rewritten without re-encoding, which adds
 //     them.
 //
-// A recording is left alone while it is still being written (maintSettle), and
-// the work goes one recording at a time at low CPU priority.
+// The data plane says when a recording is complete (tunnel.RecDone) and the
+// worker starts on it at once, ahead of anything else waiting; without that
+// signal (a dropped connection, an older data plane) a recording is left alone
+// until it has been quiet for maintSettle. The work goes one recording at a time
+// at low CPU priority.
 type recMaint struct {
 	store *recStore
 	tools mediaTools // nil: no encoder in this image, so no conversion or repair
@@ -52,6 +55,9 @@ type recMaint struct {
 	mu      sync.Mutex
 	pending map[string]tunnel.RecReportItem // tenant/key -> unacknowledged report
 	acks    map[string]tunnel.RecReportItem // tenant/key -> confirmed, not yet saved
+	done    map[string]bool                 // tenant/key -> complete, per the data plane
+	wake    chan struct{}
+	queued  chan struct{} // a report is waiting: send it now, not on the next tick
 }
 
 // recMaintenance is the connector's worker; nil in tests that do not start one.
@@ -114,6 +120,9 @@ func newRecMaint(store *recStore, tools mediaTools) *recMaint {
 		settle: maintSettle, grace: maintGrace, retryWait: maintRetryWait,
 		pending: map[string]tunnel.RecReportItem{},
 		acks:    map[string]tunnel.RecReportItem{},
+		done:    map[string]bool{},
+		wake:    make(chan struct{}, 1),
+		queued:  make(chan struct{}, 1),
 	}
 }
 
@@ -122,13 +131,52 @@ func (m *recMaint) run(ctx context.Context) {
 	removeStaleTemp()
 	t := time.NewTicker(maintInterval)
 	defer t.Stop()
+	m.cycle(ctx)
 	for {
-		m.cycle(ctx)
 		select {
 		case <-ctx.Done():
 			return
+		case <-m.wake:
+			m.processDone(ctx)
 		case <-t.C:
+			m.processDone(ctx)
+			m.cycle(ctx)
 		}
+	}
+}
+
+// markDone records that a recording is complete and wakes the worker for it.
+func (m *recMaint) markDone(tenantID, key string) {
+	if !safeSegment.MatchString(tenantID) || !safeSegment.MatchString(key) {
+		return
+	}
+	m.mu.Lock()
+	m.done[tenantID+"/"+key] = true
+	m.mu.Unlock()
+	select {
+	case m.wake <- struct{}{}:
+	default:
+	}
+}
+
+// processDone works on the recordings the data plane has said are complete.
+func (m *recMaint) processDone(ctx context.Context) {
+	for {
+		m.mu.Lock()
+		var id string
+		for k := range m.done {
+			id = k
+			break
+		}
+		m.mu.Unlock()
+		if id == "" || ctx.Err() != nil {
+			return
+		}
+		tenantID, key, _ := strings.Cut(id, "/")
+		m.process(ctx, tenantID, key)
+		m.mu.Lock()
+		delete(m.done, id)
+		m.mu.Unlock()
 	}
 }
 
@@ -162,8 +210,11 @@ func (m *recMaint) process(ctx context.Context, tenantID, key string) {
 	if err != nil {
 		return
 	}
+	m.mu.Lock()
+	complete := m.done[tenantID+"/"+key]
+	m.mu.Unlock()
 	newest, ok := newestChunk(recDir)
-	if !ok || m.now().Sub(newest) < m.settle {
+	if !ok || (!complete && m.now().Sub(newest) < m.settle) {
 		return
 	}
 	st := loadMaintState(recDir)
@@ -579,6 +630,20 @@ func (m *recMaint) queueReport(tenantID, key string, st maintState) {
 	m.mu.Lock()
 	m.pending[tenantID+"/"+key] = item
 	m.mu.Unlock()
+	select {
+	case m.queued <- struct{}{}:
+	default:
+	}
+}
+
+// reportQueued fires when a report is waiting, so the control stream sends it
+// at once: the console is waiting to switch a recording to its video. Nil (never
+// fires) without a worker.
+func (m *recMaint) reportQueued() <-chan struct{} {
+	if m == nil {
+		return nil
+	}
+	return m.queued
 }
 
 // reports returns what is waiting to be confirmed, at most max items.

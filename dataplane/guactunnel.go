@@ -130,6 +130,9 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		send := func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess, req) }
 		idx := &recIndexReporter{send: ctrl.SendRecording, userID: userID, siteID: siteID, host: conn.Hostname, format: "guac", proto: conn.Protocol}
 		rec = newRecWriter(send, idx, tenantID, recKey, siteID, userID, conn.Hostname, conn.Protocol, recordingMaxBytes())
+		// Deferred first, so it runs last: after the tail chunk is flushed and
+		// the keystrokes posted, the recording is complete.
+		defer notifyRecDone(sess, tenantID, recKey)
 		defer rec.Close()
 		log.Printf("guac-tunnel site=%s: recording enabled key=%s", siteID, rec.key)
 	}

@@ -93,3 +93,55 @@ func TestControlDoesNotAckAReportTheControlPlaneRefused(t *testing.T) {
 		t.Fatalf("acked a report that was not recorded: %s", f)
 	}
 }
+
+func TestVersionAtLeast(t *testing.T) {
+	for _, c := range []struct {
+		v    string
+		want bool
+	}{
+		{"2.22.0", true}, {"v2.22.1", true}, {"2.23.0-rc1", true}, {"3.0.0", true},
+		{"2.21.9", false}, {"2.9.99", false}, {"dev", false}, {"", false},
+	} {
+		if got := versionAtLeast(c.v, "2.22.0"); got != c.want {
+			t.Fatalf("versionAtLeast(%q) = %v", c.v, got)
+		}
+	}
+}
+
+func TestNotifyRecDoneOnlyToConnectorsThatKnowIt(t *testing.T) {
+	for _, c := range []struct {
+		version string
+		want    bool
+	}{{"2.22.0", true}, {"2.21.0", false}, {"", false}} {
+		a, b := net.Pipe()
+		dp, _ := yamux.Client(a, nil)
+		conn, _ := yamux.Server(b, nil)
+		s := &Session{mux: dp}
+		if c.version != "" {
+			s.SetTelemetry(&tunnel.Telemetry{Version: c.version})
+		}
+		got := make(chan []byte, 1)
+		go func() {
+			st, err := conn.AcceptStream()
+			if err != nil {
+				return
+			}
+			f, _ := tunnel.ReadFrame(st)
+			got <- f
+		}()
+		notifyRecDone(s, "t1", "k1")
+		select {
+		case f := <-got:
+			var d tunnel.RecDone
+			if !c.want || json.Unmarshal(f, &d) != nil || d.Kind != "recdone" || d.TenantID != "t1" || d.RecordingKey != "k1" {
+				t.Fatalf("version %q: sent %s", c.version, f)
+			}
+		case <-time.After(300 * time.Millisecond):
+			if c.want {
+				t.Fatalf("version %q: nothing sent", c.version)
+			}
+		}
+		dp.Close()
+		conn.Close()
+	}
+}

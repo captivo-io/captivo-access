@@ -36,7 +36,7 @@ import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
 const TICK_MS = 250;
 const LEAD_MS = 5_000;
 
-export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordingId: string; estimatedMs?: number }) {
+export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract }: { recordingId: string; estimatedMs?: number; onInteract?: () => void }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLDivElement>(null);
   const recRef = useRef<any>(null);
@@ -190,6 +190,7 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
   function toggle() {
     const r = recRef.current;
     if (!r) return;
+    onInteract?.();
     if (playing || buffering) {
       wantPlay.current = false;
       setBuffering(false);
@@ -202,6 +203,7 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
   function seekTo(ms: number) {
     const r = recRef.current;
     if (!r) return;
+    onInteract?.();
     const millis = Math.max(0, loadedRef.current ? Math.min(ms, durationRef.current) : ms);
     // Hold playback through the seek; tryResume decides when it goes on, so a
     // target near the loaded end waits for its lead instead of racing.

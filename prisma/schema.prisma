@@ -675,6 +675,10 @@ model SessionRecording {
   // The recording's length as its connector measured it (a video's duration).
   // Null until reported; lastEventAt - startedAt stands in meanwhile.
   durationMs   Int?
+  // When its connector last reported on it, i.e. it has been worked on after
+  // the session (converted, or kept as it is). Null: not yet; an RDP/VNC
+  // recording then shows that its video is being prepared.
+  reportedAt   DateTime?
   chunks       RecordingChunk[]
 
   @@unique([tenantId, recordingKey])
