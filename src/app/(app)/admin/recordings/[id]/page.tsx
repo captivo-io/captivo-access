@@ -1,54 +1,90 @@
+import Link from "next/link";
 import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
-import Link from "next/link";
-import { LocalTime } from "@/app/(app)/_shell/local-time";
-import { RecordingPlayer } from "./recording-player";
-import { GuacRecordingPlayer } from "./guac-recording-player";
-import { VideoRecordingPlayer } from "./video-recording-player";
-import { PreparingRecording } from "./preparing-recording";
 import { videoPreparing } from "@/lib/recording/preparing";
+import { TRANSFER_VERBS, transferBadge } from "@/lib/audit/access-format";
+import { resolvedRecordingRetentionDays } from "@/lib/settings/platform";
+import { workspaceView } from "@/lib/mobile/views";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { humanBytes } from "@/lib/recording/format";
+import { RecordingView } from "./recording-view";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recording" };
 
-async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }) {
+async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ t?: string }> }) {
   await requireAdmin();
   const { id } = await params;
+  const { t } = await searchParams;
   const rec = await db.sessionRecording.findUnique({ where: { id } });
   if (!rec) {
-    return <main><div className="empty">Recording not found.</div></main>;
+    return (
+      <main>
+        <Link href="/admin/recordings" className="btn sm rc-back">← Recordings</Link>
+        <div className="au-empty" style={{ marginTop: 16 }}><b>Recording not found</b><span className="cell-sub">It may have been erased, or the link is for another workspace.</span></div>
+      </main>
+    );
   }
-  const user = await db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } });
-  const site = await db.site.findUnique({ where: { id: rec.siteId }, select: { name: true, connector: { select: { version: true } } } });
   const estimatedMs = rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0;
-  return (
-    <main>
-      <div className="page-head">
-        <div>
-          <h1>Recording</h1>
-          <p>{user?.name ?? "—"} · {site?.name ?? rec.host} · <LocalTime iso={rec.startedAt.toISOString()} /></p>
-        </div>
-        <Link href="/admin/recordings" className="btn sm">Back to recordings</Link>
-      </div>
-      {rec.truncated ? (
+  const lengthMs = rec.durationMs ?? estimatedMs;
+  const [ws, user, site, retention, transfers] = await Promise.all([
+    workspaceView().catch(() => ({ name: "", slug: null as string | null })),
+    db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } }),
+    db.site.findUnique({ where: { id: rec.siteId }, select: { name: true, connector: { select: { version: true } } } }),
+    resolvedRecordingRetentionDays(),
+    // Files moved during the session, from the audit log (same person, resource and span).
+    db.auditEvent.findMany({
+      where: {
+        userId: rec.userId, siteId: rec.siteId, method: { in: [...TRANSFER_VERBS] },
+        timestamp: { gte: rec.startedAt, lte: new Date(rec.startedAt.getTime() + lengthMs + 5000) },
+      },
+      orderBy: { timestamp: "asc" },
+      take: 200,
+      select: { timestamp: true, method: true, path: true, bytesOut: true },
+    }),
+  ]);
+  const startSec = Number(t);
+  const view = {
+    id: rec.id,
+    format: rec.format,
+    protocol: rec.protocol,
+    videoReady: rec.videoReady,
+    preparing: videoPreparing(rec, site?.connector?.version),
+    startedAt: rec.startedAt.toISOString(),
+    lengthMs,
+    measured: rec.durationMs !== null,
+    bytes: rec.bytes,
+    host: rec.host,
+    encrypted: rec.encrypted,
+    purgePending: rec.purgePendingAt !== null,
+  };
+  const files = transfers.map((e) => {
+    const b = transferBadge(e.method);
+    const size = Number(e.bytesOut) > 0 ? ` · ${humanBytes(Number(e.bytesOut))}` : "";
+    return { atMs: e.timestamp.getTime() - rec.startedAt.getTime(), text: `${b.direction === "download" ? "Downloaded" : "Uploaded"}${b.partial ? " (partly)" : ""} ${e.path}${size}` };
+  });
+
+  // Said before the replay, so it does not read as the session ending there.
+  const notice = rec.truncated ? (
         <div className="warn" role="status">
           This recording is incomplete. Capture stopped when it reached the size limit set on the
           data plane (<code>RECORDING_MAX_BYTES</code>) while the session continued, so the replay
           ends before the session did. What was captured up to that point plays normally.
         </div>
-      ) : null}
-      <div className="card">
-        {/* An RDP/VNC recording plays as video once its connector has made one
-            (videoReady); until then, and for SSH, the instruction stream plays. */}
-        {rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady)
-          ? <VideoRecordingPlayer id={rec.id} durationMs={rec.durationMs ?? estimatedMs} />
-          : videoPreparing(rec, site?.connector?.version)
-          ? <PreparingRecording id={rec.id} estimatedMs={rec.durationMs ?? estimatedMs} />
-          : rec.format === "GUAC"
-          ? <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.durationMs ?? estimatedMs} />
-          : <RecordingPlayer id={rec.id} />}
-      </div>
+      ) : null;
+
+  return (
+    <main>
+      <RecordingView
+        notice={notice}
+        rec={view}
+        user={{ name: user?.name ?? null, email: user?.email ?? null }}
+        siteName={site?.name ?? rec.host}
+        workspace={ws.slug ?? ws.name ?? ""}
+        retentionDays={retention}
+        transfers={files}
+        startMs={Number.isFinite(startSec) && startSec > 0 ? startSec * 1000 : undefined}
+      />
     </main>
   );
 }
@@ -56,4 +92,3 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
 export default async function RecordingPage(...args: Parameters<typeof RecordingPageImpl>) {
   return withRequestTenant(() => RecordingPageImpl(...args));
 }
-

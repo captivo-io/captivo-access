@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { KeystrokeTimeline } from "./keystroke-timeline";
-import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
+import { PlaybackBar, playerKeys, toggleFullscreen, type PlayerShell } from "./playback-bar";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
@@ -36,7 +35,7 @@ import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
 const TICK_MS = 250;
 const LEAD_MS = 5_000;
 
-export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract }: { recordingId: string; estimatedMs?: number; onInteract?: () => void }) {
+export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract, shell = {} }: { recordingId: string; estimatedMs?: number; onInteract?: () => void; shell?: PlayerShell }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLDivElement>(null);
   const recRef = useRef<any>(null);
@@ -58,7 +57,7 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract }
   const anchor = useRef({ pos: 0, at: 0 });
   const durationRef = useRef(0);
   // A seek to a point not yet loaded, taken when the download reaches it.
-  const pendingSeek = useRef<number | null>(null);
+  const pendingSeek = useRef<number | null>(shell.startMs ? shell.startMs : null);
   // Fits the display to its box again (window resized, full screen toggled).
   const refit = useRef<() => void>(() => {});
   useEffect(() => {
@@ -221,18 +220,28 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract }
     pendingSeek.current = null;
     r.seek(millis, () => { seeking.current = false; setAnchor(millis); tryResume(); });
   }
-  const jumpTo = seekTo;
+
+  const { onState, control } = shell;
+  useEffect(() => {
+    if (!control) return;
+    control.current = { seek: (ms, play) => { if (play) wantPlay.current = true; seekTo(ms); } };
+    return () => { control.current = null; };
+  });
 
   // While loading, the bar spans the expected length; once loaded, the real one.
   const total = loaded ? duration : Math.max(duration, estimatedMs);
   const loadedPct = total > 0 ? Math.min(100, (duration / total) * 100) : 0;
+  useEffect(() => { onState?.({ position, total, playing, ready, speed: 1 }); }, [onState, position, total, playing, ready]);
 
   if (error) return <p className="notice error">{error}</p>;
 
   return (
     <div className="guac-recording">
       <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d))}>
-        <div ref={displayRef} className="guac-recording-display rec-stage" />
+        <div className="rec-stage-wrap">
+          <div ref={displayRef} className="guac-recording-display rec-stage" />
+          {shell.overlay}
+        </div>
         <PlaybackBar
           ready={ready}
           playing={playing}
@@ -244,9 +253,11 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract }
           onToggle={toggle}
           onSeek={seekTo}
           onFullscreen={() => toggleFullscreen(playerRef.current)}
+          markers={shell.markers}
+          wide={shell.wide}
+          onWide={shell.onWide}
         />
       </div>
-      <KeystrokeTimeline recordingId={recordingId} onJump={jumpTo} disabled={!ready} />
     </div>
   );
 }

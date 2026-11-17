@@ -2,8 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { eventWithTime } from "rrweb";
 import { hasFullSnapshot } from "@/lib/recording/snapshot";
-import { KeystrokeTimeline } from "./keystroke-timeline";
-import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
+import { PlaybackBar, playerKeys, toggleFullscreen, type PlayerShell } from "./playback-bar";
 
 type Replayer = {
   wrapper: HTMLDivElement;
@@ -25,7 +24,20 @@ const TICK_MS = 250;
  * at the size the user's browser had and scaled to fit. Idle stretches are
  * skipped, as rrweb's own player did.
  */
-export function RecordingPlayer({ id }: { id: string }) {
+/** rrweb's page loads (Meta events) as navigations, timed from the recording's start. */
+export function navigations(events: unknown[]): { atMs: number; kind: "nav"; text: string }[] {
+  const first = (events[0] as { timestamp?: number } | undefined)?.timestamp ?? 0;
+  const out: { atMs: number; kind: "nav"; text: string }[] = [];
+  for (const e of events as { type?: number; timestamp?: number; data?: { href?: string } }[]) {
+    if (e?.type !== 4 || !e.data?.href || typeof e.timestamp !== "number") continue;
+    let text = e.data.href;
+    try { const u = new URL(e.data.href); text = u.pathname + u.search + u.hash; } catch { /* keep as recorded */ }
+    if (out.at(-1)?.text !== text) out.push({ atMs: Math.max(0, e.timestamp - first), kind: "nav", text });
+  }
+  return out;
+}
+
+export function RecordingPlayer({ id, shell = {} }: { id: string; shell?: PlayerShell }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<Replayer | null>(null);
@@ -37,6 +49,9 @@ export function RecordingPlayer({ id }: { id: string }) {
   const [position, setPosition] = useState(0);
   const [total, setTotal] = useState(0);
   const [speed, setSpeed] = useState(1);
+  // Read once, when the recording loads.
+  const startRef = useRef(shell.startMs);
+  const onFoundRef = useRef(shell.onFound);
 
   useEffect(() => {
     let disposed = false;
@@ -76,7 +91,10 @@ export function RecordingPlayer({ id }: { id: string }) {
         r.on("resize", fit);
         r.on("finish", () => setPlaying(false));
         setTotal(r.getMetaData().totalTime);
-        r.pause(0); // draw the first frame
+        onFoundRef.current?.(navigations(events));
+        const start = Math.min(startRef.current ?? 0, r.getMetaData().totalTime);
+        r.pause(start); // draw the first frame (or the asked-for one)
+        setPosition(start);
         fit();
         setReady(true);
       } catch {
@@ -129,14 +147,33 @@ export function RecordingPlayer({ id }: { id: string }) {
     replayerRef.current?.setConfig({ speed: s });
   }
 
+  const { onState, control } = shell;
+  useEffect(() => { onState?.({ position, total, playing, ready, speed }); }, [onState, position, total, playing, ready, speed]);
+  useEffect(() => {
+    if (!control) return;
+    control.current = {
+      seek: (ms, play) => {
+        const r = replayerRef.current;
+        if (!r) return;
+        const at = Math.max(0, Math.min(ms, total));
+        if (play || playing) { r.play(at); setPlaying(true); } else r.pause(at);
+        setPosition(at);
+      },
+    };
+    return () => { control.current = null; };
+  });
+
   if (error) return <p className="notice error">{error}</p>;
   if (empty) return <p className="notice">This recording is too short to play.</p>;
   if (incomplete)
     return <p className="notice">This recording is incomplete and can&apos;t be replayed (its opening snapshot was not captured).</p>;
   return (
     <>
-      <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d))}>
-        <div ref={stageRef} className="rec-stage web-recording" />
+      <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d), changeSpeed)}>
+        <div className="rec-stage-wrap">
+          <div ref={stageRef} className="rec-stage web-recording" />
+          {shell.overlay}
+        </div>
         <PlaybackBar
           ready={ready}
           playing={playing}
@@ -147,20 +184,11 @@ export function RecordingPlayer({ id }: { id: string }) {
           speed={speed}
           onSpeed={changeSpeed}
           onFullscreen={() => toggleFullscreen(playerRef.current)}
+          markers={shell.markers}
+          wide={shell.wide}
+          onWide={shell.onWide}
         />
       </div>
-      <KeystrokeTimeline
-        recordingId={id}
-        onJump={(ms) => {
-          const r = replayerRef.current;
-          if (!r) return;
-          const at = Math.max(0, Math.min(ms, total));
-          r.play(at);
-          setPosition(at);
-          setPlaying(true);
-        }}
-        disabled={!ready}
-      />
     </>
   );
 }

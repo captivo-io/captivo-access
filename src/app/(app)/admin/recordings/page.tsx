@@ -1,7 +1,9 @@
 import { requireAdmin } from "@/lib/current-user";
-import { RecordingsIcon } from "@/components/icons";
 import { db } from "@/lib/db";
 import { listRecordings } from "@/lib/recording/query";
+import { recordingKpis } from "@/lib/recording/kpis";
+import { resolvedRecordingRetentionDays } from "@/lib/settings/platform";
+import { workspaceView } from "@/lib/mobile/views";
 import { RecordingsTable, type RecordingRowJSON } from "./recordings-table";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -11,10 +13,13 @@ export const metadata = { title: "Recordings" };
 async function AdminRecordingsPageImpl() {
   await requireAdmin();
 
-  const [users, sites, { rows, total }] = await Promise.all([
+  const [ws, users, sites, { rows, total }, kpis, retention] = await Promise.all([
+    workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     db.site.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    listRecordings({ limit: 50, offset: 0 }),
+    listRecordings({ limit: 48, offset: 0 }),
+    recordingKpis(),
+    resolvedRecordingRetentionDays(),
   ]);
 
   const userMap = new Map(users.map((u) => [u.id, u]));
@@ -34,17 +39,26 @@ async function AdminRecordingsPageImpl() {
     format: r.format,
     protocol: r.protocol,
     truncated: r.truncated,
+    purgePending: r.purgePendingAt !== null,
+    videoReady: r.videoReady,
   }));
 
   return (
     <main>
       <div className="page-head">
         <div>
-          <div className="page-title-row"><span className="page-icon"><RecordingsIcon /></span><h1>Recordings</h1></div>
-          <p>Replay captured vendor sessions on recorded resources.</p>
+          <div className="eyebrow"><span className="rec-dot" aria-hidden="true" />Operate{ws.slug ? ` · ${ws.slug}` : ""}</div>
+          <h1>Recordings</h1>
+          <p>Replay vendor and admin sessions on recorded resources, and search the commands typed in them.</p>
+        </div>
+        <div className="row-actions">
+          <span className="rc-retention" title="Recordings older than this are removed by their connector">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            Retention: {retention > 0 ? `${retention} days` : "kept until erased"}
+          </span>
         </div>
       </div>
-      <RecordingsTable users={users} sites={sites} initialRows={initialRows} initialTotal={total} />
+      <RecordingsTable users={users} initialRows={initialRows} initialTotal={total} kpis={kpis} />
     </main>
   );
 }
@@ -52,4 +66,3 @@ async function AdminRecordingsPageImpl() {
 export default async function AdminRecordingsPage(...args: Parameters<typeof AdminRecordingsPageImpl>) {
   return withRequestTenant(() => AdminRecordingsPageImpl(...args));
 }
-

@@ -10,7 +10,7 @@ const q = <T extends Element>(s: string) => document.querySelector(s) as T;
 const video = () => q<HTMLVideoElement>("video");
 const button = () => q<HTMLButtonElement>(".rec-controls .rec-play");
 const clock = () => q<HTMLElement>(".rec-controls .rec-time").textContent;
-const speed = () => q<HTMLSelectElement>(".rec-controls .rec-speed");
+const speedBtn = (v: string) => q<HTMLButtonElement>(`.rec-controls .rec-speed [data-speed="${v}"]`);
 const seekBar = () => q<HTMLInputElement>(".rec-controls .rec-seek");
 
 // jsdom's media element has no engine: give it the state a browser would and
@@ -86,8 +86,7 @@ describe("video recording player", () => {
   it("changes speed", async () => {
     await mount();
     await act(async () => {
-      speed().value = "4";
-      speed().dispatchEvent(new Event("change", { bubbles: true }));
+      speedBtn("4").click();
     });
     expect(video().playbackRate).toBe(4);
   });
@@ -119,5 +118,21 @@ describe("video recording player", () => {
     await mount();
     await act(async () => { video().dispatchEvent(new Event("error")); });
     expect(document.body.textContent).toContain("Couldn't load this recording");
+  });
+
+  it("is playable when the metadata arrived before it was listening", async () => {
+    // A fast or cached answer: the element has its metadata by the time the
+    // player's effect runs, so no loadedmetadata event will come.
+    const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "readyState");
+    Object.defineProperty(HTMLMediaElement.prototype, "readyState", { configurable: true, get: () => 4 });
+    try {
+      const root = createRoot(document.getElementById("root")!);
+      await act(async () => root.render(<VideoRecordingPlayer id="r1" durationMs={60_000} />));
+      expect(button().disabled).toBe(false);
+      expect(button().textContent).toBe("Play");
+      expect(clock()).toBe("0:00 / 1:00");
+    } finally {
+      if (desc) Object.defineProperty(HTMLMediaElement.prototype, "readyState", desc);
+    }
   });
 });

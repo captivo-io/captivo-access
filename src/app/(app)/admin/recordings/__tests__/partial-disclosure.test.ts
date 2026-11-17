@@ -74,8 +74,9 @@ describe("cut-short recording disclosure", () => {
     expect(player).toMatch(/rec\.truncated\s*\?/);
     expect(player).toContain("RECORDING_MAX_BYTES");
     const notice = player.indexOf("This recording is incomplete");
-    const card = player.indexOf('<div className="card">');
+    const view = player.indexOf("<RecordingView");
     expect(notice).toBeGreaterThan(-1);
-    expect(notice, "the notice must come before the player, not after it").toBeLessThan(card);
+    expect(view).toBeGreaterThan(-1);
+    expect(notice, "the notice must come before the player, not after it").toBeLessThan(view);
   });
 });

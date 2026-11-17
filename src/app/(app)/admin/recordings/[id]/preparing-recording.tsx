@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GuacRecordingPlayer } from "./guac-recording-player";
 import { VideoRecordingPlayer } from "./video-recording-player";
+import type { PlayerShell } from "./playback-bar";
 
 const POLL_MS = 4000;
 const GIVE_UP_MS = 30 * 60_000;
@@ -14,7 +15,7 @@ const GIVE_UP_MS = 30 * 60_000;
  * reviewer has started watching: then it offers the switch rather than pull the
  * recording out from under them.
  */
-export function PreparingRecording({ id, estimatedMs }: { id: string; estimatedMs: number }) {
+export function PreparingRecording({ id, estimatedMs, shell }: { id: string; estimatedMs: number; shell?: PlayerShell }) {
   const [ready, setReady] = useState<{ durationMs: number } | null>(null);
   const [showVideo, setShowVideo] = useState(false);
   const [settled, setSettled] = useState(false); // worked on, kept as it is
@@ -51,7 +52,7 @@ export function PreparingRecording({ id, estimatedMs }: { id: string; estimatedM
     };
   }, [id, estimatedMs]);
 
-  if (showVideo && ready) return <VideoRecordingPlayer id={id} durationMs={ready.durationMs} />;
+  if (showVideo && ready) return <VideoRecordingPlayer id={id} durationMs={ready.durationMs} shell={shell} />;
   return (
     <>
       {settled ? null : ready ? (
@@ -64,7 +65,7 @@ export function PreparingRecording({ id, estimatedMs }: { id: string; estimatedM
           Preparing the video of this recording (it is made once the session has ended). It switches over by itself; meanwhile it plays from here.
         </div>
       )}
-      <GuacRecordingPlayer recordingId={id} estimatedMs={estimatedMs} onInteract={() => { touched.current = true; }} />
+      <GuacRecordingPlayer recordingId={id} estimatedMs={estimatedMs} onInteract={() => { touched.current = true; }} shell={shell} />
     </>
   );
 }

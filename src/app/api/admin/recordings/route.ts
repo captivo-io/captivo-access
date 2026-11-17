@@ -37,6 +37,8 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
     format: r.format,
     protocol: r.protocol,
     truncated: r.truncated,
+    purgePending: r.purgePendingAt !== null,
+    videoReady: r.videoReady,
   }));
 
   // partial is not cosmetic: it is the difference between "nothing matched" and "we

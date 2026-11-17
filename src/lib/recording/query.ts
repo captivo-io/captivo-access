@@ -16,6 +16,8 @@ const RECORDING_SELECT = {
   protocol: true,
   truncated: true,
   durationMs: true,
+  purgePendingAt: true,
+  videoReady: true,
 } as const;
 
 export interface RecordingRow {
@@ -33,6 +35,20 @@ export interface RecordingRow {
   truncated: boolean;
   /** Measured by the connector; null until it reports. */
   durationMs: number | null;
+  /** An erasure was asked for; the row goes when its connector confirms. */
+  purgePendingAt: Date | null;
+  videoReady: boolean;
+}
+
+// A free-text search also finds recordings by their resource's or person's name.
+async function nameMatches(q: string | undefined): Promise<{ siteIds: string[]; userIds: string[] } | undefined> {
+  const t = q?.trim();
+  if (!t || t.length < 2) return undefined;
+  const [sites, users] = await Promise.all([
+    db.site.findMany({ where: { name: { contains: t, mode: "insensitive" } }, select: { id: true }, take: 200 }),
+    db.user.findMany({ where: { OR: [{ name: { contains: t, mode: "insensitive" } }, { email: { contains: t, mode: "insensitive" } }] }, select: { id: true }, take: 200 }),
+  ]);
+  return { siteIds: sites.map((s) => s.id), userIds: users.map((u) => u.id) };
 }
 
 export async function listRecordings(
@@ -45,7 +61,7 @@ export async function listRecordings(
   partial?: boolean;
   unreachableConnectors?: string[];
 }> {
-  const baseWhere = buildRecordingWhere(filter);
+  const baseWhere = buildRecordingWhere(filter, await nameMatches(filter.q));
   const cmd = filter.cmd?.trim();
 
   if (cmd && cmd.length >= 2) {

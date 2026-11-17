@@ -32,6 +32,7 @@ const LABELS: Record<string, string> = {
   "connector.repair": "Connector repaired",
   "recording.delete": "Recording deleted",
   "recording.erasure_requested": "Recording erasure requested",
+  "recording.download": "Recording downloaded",
   "connector.pairing_delete": "Connector pairing deleted",
   "config.sso_remove": "SSO removed",
   "branding.update": "Branding updated",
@@ -72,6 +73,7 @@ export function adminActionLabel(action: string): string {
 const MERGED: Record<string, (n: number) => string> = {
   "recording.erasure_requested": (n) => `Requested erasure of ${n} recordings (applied when their connectors confirm)`,
   "recording.delete": (n) => `Deleted ${n} recordings`,
+  "recording.download": (n) => `Downloaded ${n} recordings`,
   "grant.revoke": (n) => `Revoked ${n} grants`,
   "grant.create": (n) => `Created ${n} grants`,
   "session.terminate": (n) => `Terminated ${n} sessions`,

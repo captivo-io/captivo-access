@@ -79,8 +79,8 @@ describe("web-app recording player", () => {
     expect(lib.state.r?.calls.at(-1)).toBe("pause 30000");
     expect(clock()).toBe("0:30 / 1:00");
 
-    const sp = q<HTMLSelectElement>(".rec-controls .rec-speed");
-    await act(async () => { sp.value = "8"; sp.dispatchEvent(new Event("change", { bubbles: true })); });
+    const sp = q<HTMLButtonElement>('.rec-controls .rec-speed [data-speed="8"]');
+    await act(async () => { sp.click(); });
     expect(lib.state.r?.speed).toBe(8);
   });
 
