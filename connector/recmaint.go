@@ -71,7 +71,7 @@ const (
 	maintSettle = 5 * time.Minute
 	// The instruction stream outlives its video by this much, so a replay that
 	// started from it just before the switch can finish.
-	maintGrace     = time.Hour
+	maintGrace     = 10 * time.Minute
 	maintRetryWait = time.Hour
 	maintMaxTries  = 3
 	// Video chunks are written at the size the data plane flushes at.

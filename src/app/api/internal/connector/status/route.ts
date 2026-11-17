@@ -7,6 +7,7 @@ import { currentTenantId } from "@/lib/tenant/context";
 import { requireDataplaneSecret, resolveTenantByConnector, withTenantFrom } from "@/lib/tenant/internal";
 import { isVaultPublicKey } from "@/lib/vault/seal";
 import { sealLegacyCredentials } from "@/lib/vault/store";
+import { recordConnectorEvent } from "@/lib/connector/history";
 
 function dataplaneAuthorized(req: NextRequest): boolean {
   const s = process.env.DATAPLANE_SECRET;
@@ -28,6 +29,7 @@ async function handler(req: NextRequest) {
   // reports must not overwrite an admin revocation (otherwise an OFFLINE report on
   // session teardown would clear REVOKED and let the connector re-authenticate).
   // updateMany with a status guard also no-ops safely if the connector was deleted.
+  const before = await db.connector.findUnique({ where: { id: connectorId }, select: { status: true, version: true } });
   await db.connector.updateMany({
     where: { id: connectorId, status: { not: "REVOKED" } },
     data: {
@@ -40,6 +42,17 @@ async function handler(req: NextRequest) {
       ...(isVaultPublicKey(body.vaultPublicKey) ? { vaultPublicKey: body.vaultPublicKey } : {}),
     },
   });
+  // The card's event history: the tunnel coming and going, and new versions.
+  if (before && before.status !== "REVOKED") {
+    if (status === "ONLINE" && before.status !== "ONLINE") {
+      await recordConnectorEvent(connectorId, "ok", before.status === "PENDING" ? "Paired and connected" : "Tunnel opened");
+    } else if (status === "OFFLINE" && before.status === "ONLINE") {
+      await recordConnectorEvent(connectorId, "bad", "Tunnel dropped");
+    }
+    if (typeof body.version === "string" && before.version && body.version !== before.version) {
+      await recordConnectorEvent(connectorId, "info", `Updated ${before.version} → ${body.version}`);
+    }
+  }
   // Seal what the cloud still holds in a form it can open, now that this
   // connector can open seals. Never blocks the connector coming online.
   if (status === "ONLINE" && isVaultPublicKey(body.vaultPublicKey)) {

@@ -15,57 +15,59 @@ datasource db {
 
 // A tenant (organization). Self-host uses the single seeded row id="default".
 model Tenant {
-  id        String   @id @default(cuid())
-  slug      String   @unique
-  name      String
-  status    String   @default("ACTIVE") // ACTIVE | SUSPENDED
-  createdAt DateTime @default(now())
+  id              String           @id @default(cuid())
+  slug            String           @unique
+  name            String
+  status          String           @default("ACTIVE") // ACTIVE | SUSPENDED
+  createdAt       DateTime         @default(now())
   // --- Platform console (Cloud) ---
-  plan         String    @default("free") // free | pro | enterprise
+  plan            String           @default("free") // free | pro | enterprise
   // Default "free" on purpose: an unclassified tenant should not be labelled as
   // something someone paid for. The plan is a LABEL here -- caps live in
   // `limits` -- so this restricts nothing on its own.
-  trialEndsAt  DateTime? // plan=trial: auto-suspended by the platform-ops cron after this
-  deletedAt    DateTime? // soft-deleted (hidden from resolvers); purged 30 days later
-  limits       Json? // { maxUsers?, maxSites?, maxConnectors?, maxRecordingRetentionDays? } — null/absent = unlimited
-  capabilities Json? // { recording?, isolated?, gateway?, vault? } booleans — absent = deployment default
-  notes        String? // internal operator notes (never shown to the tenant)
+  trialEndsAt     DateTime? // plan=trial: auto-suspended by the platform-ops cron after this
+  deletedAt       DateTime? // soft-deleted (hidden from resolvers); purged 30 days later
+  limits          Json? // { maxUsers?, maxSites?, maxConnectors?, maxRecordingRetentionDays? } — null/absent = unlimited
+  capabilities    Json? // { recording?, isolated?, gateway?, vault? } booleans — absent = deployment default
+  notes           String? // internal operator notes (never shown to the tenant)
   /// The Captivo ID organisation this workspace was provisioned for. Unique so
   /// one organisation can never hold two free-tier workspaces; null on every
   /// tenant an operator created by hand.
-  captivoOrgId String?   @unique
-  updatedAt    DateTime  @default(now()) @updatedAt
+  captivoOrgId    String?          @unique
+  updatedAt       DateTime         @default(now()) @updatedAt
   supportHandoffs SupportHandoff[]
+  connectorDays   ConnectorDay[]
+  connectorEvents ConnectorEvent[]
 
-  users             User[]
-  passkeys          Passkey[]
-  totpSecrets       TotpSecret[]
-  invites           Invite[]
-  sessions          Session[]
-  mobileDevices     MobileDevice[]
-  connectors        Connector[]
-  connectorPairings ConnectorPairing[]
-  sites             Site[]
-  vaultCredentials  VaultCredential[]
-  accessGrants      AccessGrant[]
-  auditEvents       AuditEvent[]
-  auditChainStates  AuditChainState[]
-  auditAnchors      AuditAnchor[]
-  adminAuditAnchors AdminAuditAnchor[]
-  smtpConfigs       SmtpConfig[]
-  brandingConfigs   BrandingConfig[]
-  notifications     Notification[]
-  oidcConfigs       OidcConfig[]
-  directoryConfigs  DirectoryConfig[]
-  groupMappings     GroupMapping[]
-  sessionPolicies   SessionPolicy[]
-  cronRuns          CronRun[]
-  platformSettings  PlatformSettings[]
+  users              User[]
+  passkeys           Passkey[]
+  totpSecrets        TotpSecret[]
+  invites            Invite[]
+  sessions           Session[]
+  mobileDevices      MobileDevice[]
+  connectors         Connector[]
+  connectorPairings  ConnectorPairing[]
+  sites              Site[]
+  vaultCredentials   VaultCredential[]
+  accessGrants       AccessGrant[]
+  auditEvents        AuditEvent[]
+  auditChainStates   AuditChainState[]
+  auditAnchors       AuditAnchor[]
+  adminAuditAnchors  AdminAuditAnchor[]
+  smtpConfigs        SmtpConfig[]
+  brandingConfigs    BrandingConfig[]
+  notifications      Notification[]
+  oidcConfigs        OidcConfig[]
+  directoryConfigs   DirectoryConfig[]
+  groupMappings      GroupMapping[]
+  sessionPolicies    SessionPolicy[]
+  cronRuns           CronRun[]
+  platformSettings   PlatformSettings[]
   updateCheckConfigs UpdateCheckConfig[]
-  sessionRecordings SessionRecording[]
-  recordingChunks   RecordingChunk[]
-  sessionKeyEvents  SessionKeyEvent[]
-  adminAuditEvents  AdminAuditEvent[]
+  sessionRecordings  SessionRecording[]
+  recordingChunks    RecordingChunk[]
+  sessionKeyEvents   SessionKeyEvent[]
+  adminAuditEvents   AdminAuditEvent[]
 }
 
 enum Role {
@@ -83,25 +85,25 @@ enum UserStatus {
 }
 
 model User {
-  id             String        @id @default(cuid())
-  tenantId       String        @default("default")
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id             String         @id @default(cuid())
+  tenantId       String         @default("default")
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   email          String
   name           String
   phone          String?
   company        String?
   timezone       String? // per-user display timezone override (IANA); null = inherit
   role           Role
-  status         UserStatus    @default(ACTIVE)
-  createdAt      DateTime      @default(now())
+  status         UserStatus     @default(ACTIVE)
+  createdAt      DateTime       @default(now())
   passkeys       Passkey[]
   totp           TotpSecret?
   sessions       Session[]
   mobileDevices  MobileDevice[]
-  invitesCreated Invite[]      @relation("InviteCreator")
-  grantsSubject  AccessGrant[] @relation("GrantSubject")
-  grantsApproved AccessGrant[] @relation("GrantApprover")
-  grantsCreated  AccessGrant[] @relation("GrantCreator")
+  invitesCreated Invite[]       @relation("InviteCreator")
+  grantsSubject  AccessGrant[]  @relation("GrantSubject")
+  grantsApproved AccessGrant[]  @relation("GrantApprover")
+  grantsCreated  AccessGrant[]  @relation("GrantCreator")
 
   directoryManaged        Boolean   @default(false)
   directoryLastVerifiedAt DateTime?
@@ -121,7 +123,7 @@ model Passkey {
   tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId       String
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credentialId String    // base64url
+  credentialId String // base64url
   publicKey    Bytes // COSE public key (not sensitive — public)
   counter      BigInt    @default(0)
   transports   String[] // usb/nfc/ble/internal/hybrid
@@ -154,7 +156,7 @@ model Invite {
   phone       String?
   company     String?
   role        Role
-  tokenHash   String    // argon2(random 32B); plaintext only in the link
+  tokenHash   String // argon2(random 32B); plaintext only in the link
   expiresAt   DateTime
   usedAt      DateTime?
   createdById String?
@@ -167,22 +169,22 @@ model Invite {
 }
 
 model Session {
-  id         String   @id @default(cuid())
-  tenantId   String   @default("default")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String   // sha256(opaque random); plaintext token lives in the cookie
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  lastSeenAt DateTime @default(now())
-  userAgent  String?
-  ip         String?
+  id              String         @id @default(cuid())
+  tenantId        String         @default("default")
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash       String // sha256(opaque random); plaintext token lives in the cookie
+  expiresAt       DateTime
+  createdAt       DateTime       @default(now())
+  lastSeenAt      DateTime       @default(now())
+  userAgent       String?
+  ip              String?
   /// What the sign-in proved, as the identity provider said it (RFC 8176:
   /// "pwd", "otp", "mfa"...) or as Access saw it ("passkey", plus "mfa" when
   /// the authenticator verified the user). Empty on support sessions and on
   /// rows from before this column existed -- both read as "not proven".
-  amr        String[] @default([])
+  amr             String[]       @default([])
   /// A Captivo Admin app sign-in, bearer only: never valid as the console
   /// cookie, and the cookie's token is never valid as a bearer. Lives 30 days
   /// regardless of the console idle policy, and ends with every web session of
@@ -232,24 +234,60 @@ enum SiteAccessMode {
 }
 
 model Connector {
-  id         String          @id @default(cuid())
-  tenantId   String          @default("default")
-  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name       String
-  tokenHash  String
-  status     ConnectorStatus @default(PENDING)
-  lastSeenAt DateTime?
-  version    String?
-  remoteAddr String?
-  egressPolicy String?
-  logLevel   String?         // debug | info | warn | error; null = inherit the policy default — pushed to the connector live
-  vaultPublicKey String?     // X25519 public key (base64) resource secrets are sealed to; the private half stays on the connector
-  createdAt  DateTime        @default(now())
-  sites      Site[]
-  pairings   ConnectorPairing[]
+  id               String             @id @default(cuid())
+  tenantId         String             @default("default")
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  tokenHash        String
+  status           ConnectorStatus    @default(PENDING)
+  lastSeenAt       DateTime?
+  version          String?
+  remoteAddr       String?
+  egressPolicy     String?
+  logLevel         String? // debug | info | warn | error; null = inherit the policy default — pushed to the connector live
+  vaultPublicKey   String? // X25519 public key (base64) resource secrets are sealed to; the private half stays on the connector
+  createdAt        DateTime           @default(now())
+  sites            Site[]
+  pairings         ConnectorPairing[]
   directoryConfigs DirectoryConfig[]
+  /// Active tunnels at each of the last 16 health passes (oldest first): the card's spark.
+  tunnelSpark      Int[]              @default([])
+  days             ConnectorDay[]
+  events           ConnectorEvent[]
 
   @@unique([tenantId, tokenHash])
+  @@index([tenantId])
+}
+
+/// One UTC day of a connector's availability, sampled at every health pass
+/// (every 5 min): the 30-day strip and the uptime figure come from these.
+model ConnectorDay {
+  id          String    @id @default(cuid())
+  tenantId    String    @default("default")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connectorId String
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  day         String // YYYY-MM-DD, UTC
+  samples     Int       @default(0)
+  online      Int       @default(0)
+
+  @@unique([connectorId, day])
+  @@index([tenantId])
+}
+
+/// What happened to a connector: tunnel up and down, version changes, targets
+/// lost and found. Kept 30 days.
+model ConnectorEvent {
+  id          String    @id @default(cuid())
+  tenantId    String    @default("default")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connectorId String
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  at          DateTime  @default(now())
+  level       String // ok | warn | bad | info
+  text        String
+
+  @@index([connectorId, at])
   @@index([tenantId])
 }
 
@@ -269,33 +307,33 @@ model ConnectorPairing {
 }
 
 model Site {
-  id                 String        @id @default(cuid())
-  tenantId           String        @default("default")
-  tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                 String           @id @default(cuid())
+  tenantId           String           @default("default")
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   connectorId        String
-  connector          Connector     @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  connector          Connector        @relation(fields: [connectorId], references: [id], onDelete: Cascade)
   name               String
-  hostname           String?       // null for GATEWAY (remote-desktop) sites; required for web apps
-  customDomain       Boolean       @default(false) // hostname is a tenant-owned FQDN (BYO), not a managed <label>.<slug> host
-  domainVerifiedAt   DateTime?     // set when the custom domain's DNS is verified to point at this server
+  hostname           String? // null for GATEWAY (remote-desktop) sites; required for web apps
+  customDomain       Boolean          @default(false) // hostname is a tenant-owned FQDN (BYO), not a managed <label>.<slug> host
+  domainVerifiedAt   DateTime? // set when the custom domain's DNS is verified to point at this server
   upstreamUrl        String?
-  insecureSkipVerify Boolean       @default(false)
+  insecureSkipVerify Boolean          @default(false)
   description        String?
   probedAt           DateTime?
   probeOk            Boolean?
   probeDetail        String?
   probeLatencyMs     Int?
-  recordSessions     Boolean       @default(false)
-  keystrokeLogging   Boolean       @default(false) // GATEWAY: capture typed input into a keystroke timeline
-  clipboardMode      String?       // null = inherit PlatformSettings.clipboardDefault; else allow | no_copy | no_paste | none (web via proxy; gateway via guacd disable-copy/disable-paste)
-  watermark          Boolean?      // isolated DLP watermark; null = inherit the global watermarkDefault
-  fileTransferMode   String?       @default("none") // allow | no_upload | no_download | none (ISOLATED, TRANSPARENT); null = inherit PlatformSettings.isolatedFileTransferDefault / webAppFileTransferDefault
-  egressMode         String?       // ISOLATED network rule: internet | strict | open; null = inherit PlatformSettings.isolatedEgressDefault (src/lib/isolation/egress.ts)
-  egressHosts        String[]      @default([]) // hosts the isolated browser may always reach, besides the resource
-  accessMode         SiteAccessMode @default(TRANSPARENT)
+  recordSessions     Boolean          @default(false)
+  keystrokeLogging   Boolean          @default(false) // GATEWAY: capture typed input into a keystroke timeline
+  clipboardMode      String? // null = inherit PlatformSettings.clipboardDefault; else allow | no_copy | no_paste | none (web via proxy; gateway via guacd disable-copy/disable-paste)
+  watermark          Boolean? // isolated DLP watermark; null = inherit the global watermarkDefault
+  fileTransferMode   String?          @default("none") // allow | no_upload | no_download | none (ISOLATED, TRANSPARENT); null = inherit PlatformSettings.isolatedFileTransferDefault / webAppFileTransferDefault
+  egressMode         String? // ISOLATED network rule: internet | strict | open; null = inherit PlatformSettings.isolatedEgressDefault (src/lib/isolation/egress.ts)
+  egressHosts        String[]         @default([]) // hosts the isolated browser may always reach, besides the resource
+  accessMode         SiteAccessMode   @default(TRANSPARENT)
   logo               Bytes?
   logoType           String?
-  createdAt          DateTime      @default(now())
+  createdAt          DateTime         @default(now())
   grants             AccessGrant[]
   groupMappings      GroupMapping[]
   vaultCredential    VaultCredential?
@@ -344,17 +382,17 @@ enum GrantStatus {
 }
 
 model AccessGrant {
-  id       String      @id @default(cuid())
-  tenantId String      @default("default")
-  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId   String
-  user     User        @relation("GrantSubject", fields: [userId], references: [id], onDelete: Cascade)
-  siteId   String
-  site     Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  startsAt DateTime?
-  endsAt   DateTime?
-  status   GrantStatus @default(ACTIVE)
-  note     String?
+  id         String      @id @default(cuid())
+  tenantId   String      @default("default")
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User        @relation("GrantSubject", fields: [userId], references: [id], onDelete: Cascade)
+  siteId     String
+  site       Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  startsAt   DateTime?
+  endsAt     DateTime?
+  status     GrantStatus @default(ACTIVE)
+  note       String?
   denyReason String?
 
   requiresApproval Boolean   @default(false)
@@ -416,7 +454,7 @@ model AuditEvent {
 model AuditChainState {
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  scope     String   // "access" | "admin"
+  scope     String // "access" | "admin"
   lastSeq   BigInt   @default(0)
   lastHash  String   @default("")
   updatedAt DateTime @updatedAt
@@ -465,20 +503,20 @@ model AdminAuditAnchor {
 
 // Per-tenant outbound SMTP relay configuration (one row per tenant).
 model SmtpConfig {
-  tenantId  String   @id @default("default")
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  host      String
-  port      Int
-  secure    Boolean  @default(false)
-  username  String
-  password  String
-  fromName  String
-  fromEmail String
-  enabled            Boolean  @default(false)
+  tenantId           String    @id @default("default")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  host               String
+  port               Int
+  secure             Boolean   @default(false)
+  username           String
+  password           String
+  fromName           String
+  fromEmail          String
+  enabled            Boolean   @default(false)
   lastVerifiedAt     DateTime?
   lastVerifiedOk     Boolean?
   lastVerifiedDetail String?
-  updatedAt DateTime @updatedAt
+  updatedAt          DateTime  @updatedAt
 }
 
 model BrandingConfig {
@@ -507,40 +545,40 @@ model Notification {
 
 // Per-tenant OIDC SSO configuration (one row per tenant).
 model OidcConfig {
-  tenantId     String   @id @default("default")
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  enabled      Boolean  @default(false)
-  issuer       String
-  clientId     String
-  clientSecret String                  // encrypted at rest (lib/crypto)
+  tenantId           String    @id @default("default")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled            Boolean   @default(false)
+  issuer             String
+  clientId           String
+  clientSecret       String // encrypted at rest (lib/crypto)
   buttonLabel        String?
   lastVerifiedAt     DateTime?
   lastVerifiedOk     Boolean?
   lastVerifiedDetail String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 // Per-tenant LDAP/AD directory configuration (one row per tenant).
 model DirectoryConfig {
-  tenantId           String    @id @default("default")
-  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  enabled            Boolean   @default(false)
+  tenantId           String     @id @default("default")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enabled            Boolean    @default(false)
   connectorId        String?
   connector          Connector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
-  host               String    @default("")
-  port               Int       @default(389)
-  security           String    @default("STARTTLS") // PLAIN | STARTTLS | LDAPS
-  insecureSkipVerify Boolean   @default(false)
-  caCertPem          String    @default("") // PEM CA(s) to verify LDAPS/StartTLS against; "" = system roots
-  baseDN             String    @default("")
-  bindDN             String    @default("")
-  bindPassword       String    @default("") // encrypted at rest (lib/crypto)
+  host               String     @default("")
+  port               Int        @default(389)
+  security           String     @default("STARTTLS") // PLAIN | STARTTLS | LDAPS
+  insecureSkipVerify Boolean    @default(false)
+  caCertPem          String     @default("") // PEM CA(s) to verify LDAPS/StartTLS against; "" = system roots
+  baseDN             String     @default("")
+  bindDN             String     @default("")
+  bindPassword       String     @default("") // encrypted at rest (lib/crypto)
   lastTestedAt       DateTime?
   lastTestOk         Boolean?
   lastTestDetail     String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   @@index([connectorId])
 }
@@ -549,10 +587,10 @@ model GroupMapping {
   id        String   @id @default(cuid())
   tenantId  String   @default("default")
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  groupDN   String   // full DN, e.g. "CN=Captivo-Admins,OU=Groups,DC=corp,DC=local"
-  kind      String   // "ROLE" | "SITE"
-  role      Role?    // set when kind = "ROLE": ADMIN | OPERATOR | AUDITOR
-  siteId    String?  // set when kind = "SITE"
+  groupDN   String // full DN, e.g. "CN=Captivo-Admins,OU=Groups,DC=corp,DC=local"
+  kind      String // "ROLE" | "SITE"
+  role      Role? // set when kind = "ROLE": ADMIN | OPERATOR | AUDITOR
+  siteId    String? // set when kind = "SITE"
   site      Site?    @relation(fields: [siteId], references: [id], onDelete: Cascade)
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -593,36 +631,36 @@ model CronRun {
 // default, so an existing deployment keeps working and the env var becomes
 // optional. One row per tenant.
 model PlatformSettings {
-  tenantId               String   @id @default("default")
-  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  auditRetentionDays     Int? // was AUDIT_RETENTION_DAYS (default 730)
-  inviteTtlHours         Int? // was INVITE_TTL_HOURS (default 48)
-  notificationWebhookUrl String? // was NOTIFICATION_WEBHOOK_URL
-  vendorIpAllowlist      String? // CIDRs/IPs; empty = no restriction. Gates vendor SITE access only.
-  maxGrantDays           Int? // cap on a grant's duration; 0/null = no cap (permanent grants allowed)
-  recordingConsentRequired Boolean? // was RECORDING_CONSENT_REQUIRED; null = env fallback → false
-  watermarkDefault         Boolean? // global isolated-session watermark default; null = env/default → false
-  clipboardDefault         String? // global clipboard default for inheriting resources; null = "allow"
-  displayTimezone          String? // global display timezone (IANA); null = viewer's browser
+  tenantId                    String    @id @default("default")
+  tenant                      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  auditRetentionDays          Int? // was AUDIT_RETENTION_DAYS (default 730)
+  inviteTtlHours              Int? // was INVITE_TTL_HOURS (default 48)
+  notificationWebhookUrl      String? // was NOTIFICATION_WEBHOOK_URL
+  vendorIpAllowlist           String? // CIDRs/IPs; empty = no restriction. Gates vendor SITE access only.
+  maxGrantDays                Int? // cap on a grant's duration; 0/null = no cap (permanent grants allowed)
+  recordingConsentRequired    Boolean? // was RECORDING_CONSENT_REQUIRED; null = env fallback → false
+  watermarkDefault            Boolean? // global isolated-session watermark default; null = env/default → false
+  clipboardDefault            String? // global clipboard default for inheriting resources; null = "allow"
+  displayTimezone             String? // global display timezone (IANA); null = viewer's browser
   /// When Captivo ID last sent the organisation's zone; null while it has not
   /// chosen one, and the policy field stays editable until then.
   displayTimezoneFromCenterAt DateTime?
-  recordingRetentionDays Int? // auto-delete recordings older than N days; 0/null = keep forever
-  defaultConnectorLogLevel String? // fleet default log level for connectors set to "use default"; null → info
-  externalAnchorEnabled Boolean? // opt-in; null/false = anchoring off
-  anchorTsaUrl          String? // RFC 3161 TSA endpoint; empty = unset (no bundled default)
-  anchorTsaAuth         String? // optional "user:pass" for a TSA behind HTTP Basic; empty = none
-  notifySiteHealth      Boolean? // email admins on site up/down; null = default on
-  notifyAccessRequests  Boolean? // email admins on new access requests; null = default on
-  notifyAccessDecisions Boolean? // email the vendor on approve/deny; null = default on
+  recordingRetentionDays      Int? // auto-delete recordings older than N days; 0/null = keep forever
+  defaultConnectorLogLevel    String? // fleet default log level for connectors set to "use default"; null → info
+  externalAnchorEnabled       Boolean? // opt-in; null/false = anchoring off
+  anchorTsaUrl                String? // RFC 3161 TSA endpoint; empty = unset (no bundled default)
+  anchorTsaAuth               String? // optional "user:pass" for a TSA behind HTTP Basic; empty = none
+  notifySiteHealth            Boolean? // email admins on site up/down; null = default on
+  notifyAccessRequests        Boolean? // email admins on new access requests; null = default on
+  notifyAccessDecisions       Boolean? // email the vendor on approve/deny; null = default on
   requireRequestJustification Boolean? // require a justification on access requests; null = default on (required)
-  keystrokeLoggingMode  String? // tenant-wide keystroke logging: "off" | "per_resource" | "required"; null → per_resource
-  recordingMode String? // null = env/default → "per_resource"; one of off|per_resource|required
-  guacParamDefaults     Json? // global default Guacamole connection params (validated allowlist)
-  isolatedEgressDefault String? // network access for isolated resources that inherit: internet | strict | open; null → internet
+  keystrokeLoggingMode        String? // tenant-wide keystroke logging: "off" | "per_resource" | "required"; null → per_resource
+  recordingMode               String? // null = env/default → "per_resource"; one of off|per_resource|required
+  guacParamDefaults           Json? // global default Guacamole connection params (validated allowlist)
+  isolatedEgressDefault       String? // network access for isolated resources that inherit: internet | strict | open; null → internet
   isolatedFileTransferDefault String? // file transfer for isolated resources that inherit: allow | no_upload | no_download | none; null → none
-  webAppFileTransferDefault String? // file transfer for web apps that inherit: allow | no_upload | no_download | none; null → allow
-  updatedAt              DateTime @updatedAt
+  webAppFileTransferDefault   String? // file transfer for web apps that inherit: allow | no_upload | no_download | none; null → allow
+  updatedAt                   DateTime  @updatedAt
 }
 
 model UpdateCheckConfig {
@@ -643,43 +681,43 @@ enum RecordingFormat {
 }
 
 model SessionRecording {
-  id           String           @id @default(cuid())
-  tenantId     String           @default("default")
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  recordingKey String
-  siteId       String
-  userId       String
-  host         String
-  startedAt    DateTime         @default(now())
-  lastEventAt  DateTime         @default(now())
-  eventCount   Int              @default(0)
-  bytes        Int              @default(0)
-  format       RecordingFormat  @default(RRWEB)
+  id             String           @id @default(cuid())
+  tenantId       String           @default("default")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recordingKey   String
+  siteId         String
+  userId         String
+  host           String
+  startedAt      DateTime         @default(now())
+  lastEventAt    DateTime         @default(now())
+  eventCount     Int              @default(0)
+  bytes          Int              @default(0)
+  format         RecordingFormat  @default(RRWEB)
   // Set when an administrator asks for this recording to be erased. The bytes live
   // on the customer's connector, so the control plane cannot delete them itself: it
   // records the request, asks the connector on its next policy push, and removes
   // this row only when the connector confirms. An offline connector therefore
   // DELAYS erasure -- which the UI and the DPA must say rather than hide.
   purgePendingAt DateTime?
-  protocol     String?
-  encrypted    Boolean          @default(false)
+  protocol       String?
+  encrypted      Boolean          @default(false)
   // Capture stopped at the data plane's RECORDING_MAX_BYTES while the session went
   // on. There is no cap unless an operator sets one (2.1.4), so this is rare; when it
   // happens the console must say the recording is shorter than the session rather
   // than let the player imply the session ended there.
-  truncated    Boolean          @default(false)
+  truncated      Boolean          @default(false)
   // A GUAC recording (RDP/VNC) its connector has turned into a seekable WebM,
   // which now plays in place of the instruction stream (connector/recmaint.go).
   // Set from the connector's report; until then the instruction stream plays.
-  videoReady   Boolean          @default(false)
+  videoReady     Boolean          @default(false)
   // The recording's length as its connector measured it (a video's duration).
   // Null until reported; lastEventAt - startedAt stands in meanwhile.
-  durationMs   Int?
+  durationMs     Int?
   // When its connector last reported on it, i.e. it has been worked on after
   // the session (converted, or kept as it is). Null: not yet; an RDP/VNC
   // recording then shows that its video is being prepared.
-  reportedAt   DateTime?
-  chunks       RecordingChunk[]
+  reportedAt     DateTime?
+  chunks         RecordingChunk[]
 
   @@unique([tenantId, recordingKey])
   @@index([siteId])
@@ -706,11 +744,11 @@ model SessionKeyEvent {
   id           String   @id @default(cuid())
   tenantId     String   @default("default")
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  recordingKey String   // ties to SessionRecording.recordingKey
+  recordingKey String // ties to SessionRecording.recordingKey
   seq          Int
-  atMs         Int      // offset from recording start, ms (player seek)
-  kind         String   // "command" | "text"
-  data         Bytes    // AES-256-GCM(text)
+  atMs         Int // offset from recording start, ms (player seek)
+  kind         String // "command" | "text"
+  data         Bytes // AES-256-GCM(text)
   masked       Boolean  @default(false)
   createdAt    DateTime @default(now())
 

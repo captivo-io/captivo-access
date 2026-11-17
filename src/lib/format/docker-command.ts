@@ -3,7 +3,8 @@
 // original one-liner is what callers copy. A string that is not a `docker run`
 // command is returned unchanged.
 export function formatDockerRun(oneLiner: string): string {
-  const tokens = oneLiner.trim().split(/\s+/);
+  // A double-quoted stretch ("$(hostname -I 2>/dev/null)") stays one token.
+  const tokens = oneLiner.trim().match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
   if (tokens[0] !== "docker" || tokens[1] !== "run") return oneLiner;
 
   let i = 2;

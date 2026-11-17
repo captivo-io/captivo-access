@@ -4,6 +4,7 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
+import { recordConnectorEvent } from "@/lib/connector/history";
 import { createPairing } from "@/lib/connector/enrollment";
 import { generateToken, hashToken } from "@/lib/auth/tokens";
 import { kickConnector } from "@/lib/connector/dataplane";
@@ -35,6 +36,7 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
     // until the new code is redeemed. Then drop the live session.
     const throwaway = await hashToken(generateToken());
     await db.connector.update({ where: { id }, data: { tokenHash: throwaway, status: "PENDING" } });
+    await recordConnectorEvent(id, "warn", "Re-pair started: the old token no longer works");
     await kickConnector(id);
   }
 

@@ -197,7 +197,11 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]any{"online": true, "telemetry": nil})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"online": true, "ageMs": time.Since(at).Milliseconds(), "telemetry": t})
+		out := map[string]any{"online": true, "ageMs": time.Since(at).Milliseconds(), "telemetry": t}
+		if d, ok := sess.RTT(2 * time.Second); ok {
+			out["edgeLatencyMs"] = float64(d.Microseconds()) / 1000
+		}
+		writeJSON(w, http.StatusOK, out)
 	})
 	in.HandleFunc("/connector-policy", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {
