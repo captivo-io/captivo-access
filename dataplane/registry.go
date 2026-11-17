@@ -103,6 +103,26 @@ func (s *Session) Telemetry() (*tunnel.Telemetry, time.Time) {
 	return s.telem, s.telemAt
 }
 
+// RTT is one round trip over the connector's tunnel (a yamux ping): the
+// card's edge latency. ok is false when no answer came within timeout.
+func (s *Session) RTT(timeout time.Duration) (time.Duration, bool) {
+	if s.mux == nil {
+		return 0, false
+	}
+	type res struct {
+		d   time.Duration
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() { d, err := s.mux.Ping(); ch <- res{d, err} }()
+	select {
+	case r := <-ch:
+		return r.d, r.err == nil
+	case <-time.After(timeout):
+		return 0, false
+	}
+}
+
 // Registry is a thread-safe map of connectorId -> live Session.
 type Registry struct {
 	mu sync.RWMutex

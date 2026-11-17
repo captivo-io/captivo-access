@@ -20,6 +20,12 @@ export interface ConnectorCard {
   /** Age of the latest telemetry while the tunnel is up, ms. */
   signalAgeMs: number | null;
   remoteAddr: string | null;
+  /** The host the connector runs on; null until a connector that reports it (2.25.0+) connects. */
+  hostname: string | null;
+  os: string | null;
+  localIp: string | null;
+  /** One tunnel round trip, measured by the data-plane when the page loads. */
+  edgeLatencyMs: number | null;
   uptimeSec: number | null;
   activeTunnels: number | null;
   totalConnections: number | null;
@@ -70,7 +76,7 @@ export function ConnectorsView({
     if (filter === "online" && c.status !== "ONLINE") return false;
     if (filter === "offline" && c.status === "ONLINE") return false;
     if (filter === "outdated" && !(c.outdated && c.status !== "REVOKED")) return false;
-    return textMatch([c.name, c.id, c.version, c.remoteAddr], q);
+    return textMatch([c.name, c.id, c.version, c.remoteAddr, c.hostname, c.localIp, c.os], q);
   });
 
   return (
@@ -91,7 +97,7 @@ export function ConnectorsView({
       <div className="rs-tools">
         <label className="ma-search rs-search">
           <NavIcon name="search" size={16} />
-          <input type="search" placeholder="Search name, version, IP or id…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search connectors" />
+          <input type="search" placeholder="Search name, host, version, IP or id…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search connectors" />
           {q && <button type="button" className="rs-clear" aria-label="Clear search" onClick={() => setQ("")}>×</button>}
         </label>
         <div className="seg" role="group" aria-label="Status">
@@ -186,6 +192,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
           )}
           <div className="cn-meta mono">
             <span title={c.id}>{c.id.slice(0, 10)}</span>
+            {c.hostname && <span>{c.hostname}</span>}
             {c.version && <span>v{c.version}</span>}
             <span>paired {date(c.createdAt)}</span>
           </div>
@@ -214,9 +221,9 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
 
           <div className="cn-metrics">
             <div>
-              <i>Connected for</i>
-              <b className="mono">{on && c.uptimeSec != null ? duration(c.uptimeSec) : "—"}</b>
-              <span>{!on ? "not connected" : c.uptimeSec != null ? "since the connector last started" : "live figures unavailable"}</span>
+              <i>Edge latency</i>
+              <b className="mono">{on && c.edgeLatencyMs != null ? latency(c.edgeLatencyMs) : "—"}</b>
+              <span>{!on ? "not connected" : c.edgeLatencyMs != null ? "round trip to Captivo" : "no answer to the ping"}</span>
             </div>
             <div>
               <i>Uptime · 30d</i>
@@ -242,8 +249,12 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
               <div className="cn-dcard">
                 <h3>System</h3>
                 <dl>
-                  <dt>Version</dt><dd className="mono">{c.version ?? "—"}</dd>
+                  <dt>Hostname</dt><dd className="mono">{c.hostname ?? <Later on={on} />}</dd>
+                  <dt>Operating system</dt><dd>{c.os ?? <Later on={on} />}</dd>
+                  <dt>Local IP</dt><dd className="mono">{c.localIp ?? <Later on={on} />}</dd>
                   <dt>Public IP</dt><dd className="mono" title={c.remoteAddr ?? undefined}>{c.remoteAddr ? maskIp(c.remoteAddr) : "—"}</dd>
+                  <dt>Version</dt><dd className="mono">{c.version ?? "—"}</dd>
+                  <dt>Connected for</dt><dd className="mono">{on && c.uptimeSec != null ? duration(c.uptimeSec) : "—"}</dd>
                   <dt>Connections</dt><dd className="mono">{c.totalConnections != null ? c.totalConnections.toLocaleString() : "—"}</dd>
                   <dt>Blocked by egress</dt><dd className="mono">{c.deniedCount != null ? c.deniedCount.toLocaleString() : "—"}</dd>
                   <dt>Traffic</dt><dd className="mono">{c.bytesIn != null && c.bytesOut != null ? `↓ ${bytes(c.bytesIn)} · ↑ ${bytes(c.bytesOut)}` : "—"}</dd>
@@ -278,6 +289,15 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
       )}
     </article>
   );
+}
+
+/** A host fact the connector does not report: it needs the 2.25.0 run command (Update now). */
+function Later({ on }: { on: boolean }) {
+  return <span className="t-muted" title="Reported by connectors updated with the 2.25.0 command or later">{on ? "after the next update" : "—"}</span>;
+}
+
+export function latency(ms: number): string {
+  return ms < 10 ? `${ms.toFixed(1)} ms` : `${Math.round(ms)} ms`;
 }
 
 function Spark({ values }: { values: number[] }) {

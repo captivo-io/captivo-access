@@ -14,6 +14,10 @@ export interface ConnectorTelemetry {
   recentLogs?: string[];
   guacdLogs?: string[];
   kasmLogs?: string[];
+  /** The host, as the install command passes it in (connector 2.25.0 and later). */
+  hostname?: string;
+  os?: string;
+  localIp?: string;
 }
 
 // Reads a connector's live telemetry from the data-plane (in-memory, ephemeral).
@@ -21,7 +25,7 @@ export interface ConnectorTelemetry {
 // renders its DB fields.
 export async function getConnectorTelemetry(
   connectorId: string,
-): Promise<{ online: boolean; ageMs?: number; telemetry?: ConnectorTelemetry | null; dataplaneDown?: boolean }> {
+): Promise<{ online: boolean; ageMs?: number; edgeLatencyMs?: number; telemetry?: ConnectorTelemetry | null; dataplaneDown?: boolean }> {
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const secret = process.env.DATAPLANE_SECRET || "";
   const res = await fetchWithTimeout(`${base}/connector-telemetry`, { timeoutMs: TELEMETRY_TIMEOUT_MS,

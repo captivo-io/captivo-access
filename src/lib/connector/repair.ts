@@ -78,6 +78,8 @@ function runCommand(managerUrl: string, tunnelUrl: string, code?: string, clearV
   const connector =
     `docker pull ${CONNECTOR}; docker rm -f access-connector >/dev/null 2>&1; ` +
     `docker run -d --name access-connector --restart unless-stopped --network ${NET} ` +
+    // The host's name, address and OS for the Connectors card: a container sees only itself.
+    `--hostname "$(hostname)" -e HOST_IP="$(hostname -I 2>/dev/null)" -e HOST_OS="$(sed -n s/^PRETTY_NAME=//p /etc/os-release 2>/dev/null)" ` +
     `-e MANAGER_URL=${managerUrl} -e DATAPLANE_URL=${tunnelUrl} ` +
     (code ? `-e PAIR_CODE=${code} ` : "") +
     `-v ${CONNECTOR_DATA_VOLUME}:/data -v captivo_guacd_logs:/guaclog:ro -v captivo_guacd_drive:/drive:rw -v captivo_kasm_logs:/kasmlog:ro -v captivo_kasm_secret:/kasmsecret:ro ${CONNECTOR}; ` +

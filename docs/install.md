@@ -361,12 +361,19 @@ internal app. It only dials outward — no inbound port.
    ```bash
    docker run -d \
      --name access-connector --restart unless-stopped \
+     --hostname "$(hostname)" \
+     -e HOST_IP="$(hostname -I 2>/dev/null)" \
+     -e HOST_OS="$(sed -n s/^PRETTY_NAME=//p /etc/os-release 2>/dev/null)" \
      -e MANAGER_URL=https://manager.access.acme.com \
      -e DATAPLANE_URL=wss://connect.access.acme.com \
      -e PAIR_CODE=<one-time code from the console> \
      -v access_connector_data:/data \
      ghcr.io/captivo-io/captivo-access-connector:latest
    ```
+
+   The `--hostname`, `HOST_IP` and `HOST_OS` lines are optional: they let the
+   Connectors page show the host's name, address and operating system, which a
+   container cannot see for itself.
 
    > **Always copy the full command from the console** rather than hand-writing it
    > — it comes pre-filled with your URLs and pairing code and also starts the

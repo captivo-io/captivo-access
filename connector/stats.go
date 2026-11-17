@@ -35,6 +35,9 @@ func snapshot() tunnel.Telemetry {
 		RecentLogs:        logRingBuf.tail(80),
 		GuacdLogs:         guacdLogRing.tail(80),
 		KasmLogs:          kasmLogRing.tail(80),
+		Hostname:          host.hostname,
+		OS:                host.os,
+		LocalIP:           host.localIP,
 	}
 }
 
