@@ -112,6 +112,10 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
     const kb = keyboardRef.current, h = keyHandlersRef.current;
     if (kb && h) { kb.onkeydown = h.kd; kb.onkeyup = h.ku; }
   };
+  // The only ways to open/close the clipboard panel: the ref is what the
+  // document paste listener and the Esc key check, so opening by state alone
+  // (as the Controls panel did) sent a paste into the panel to the session.
+  const openClipboard = () => { clipboardOpenRef.current = true; setClipboardOpen(true); };
   const closeClipboard = () => { clipboardOpenRef.current = false; setClipboardOpen(false); };
   const toggleFs = () => {
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -144,8 +148,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
         if (clipboardOpenRef.current) {
           closeClipboard();
         } else {
-          clipboardOpenRef.current = true;
-          setClipboardOpen(true);
+          openClipboard();
         }
       } else if (clipboardOpenRef.current && e.key === "Escape") {
         e.preventDefault();
@@ -440,14 +443,14 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
             connectedAt={connectedAt}
             quick={[
               { key: "fs", icon: "fullscreen", label: isFs ? "Exit full screen" : "Full screen", active: isFs, onClick: toggleFs },
-              { key: "clip", icon: "clipboard", label: "Clipboard", onClick: () => setClipboardOpen(true) },
+              { key: "clip", icon: "clipboard", label: "Clipboard", onClick: openClipboard },
               ...(protocol === "RDP"
                 ? [{ key: "snd", icon: (soundOn ? "sound" : "mute") as "sound" | "mute", label: soundOn ? "Sound on" : "Muted", active: soundOn, onClick: toggleSound }]
                 : [{ key: "kbd", icon: "keyboard" as const, label: "Keyboard", onClick: openKeyboard }]),
             ]}
             sections={[
               { title: "Session", items: [
-                { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: `${caps.allowCopyOut ? "Copy out allowed" : "Copy out blocked"} · ${caps.allowPasteIn ? "paste in allowed" : "paste in blocked"}${autoSyncBlocked && caps.allowPasteIn ? " · Ctrl+V pastes" : ""}`, tone: caps.allowCopyOut && caps.allowPasteIn ? "ok" : "warn", onClick: () => setClipboardOpen(true), chevron: true },
+                { key: "clipboard", icon: "clipboard", label: "Clipboard", sub: `${caps.allowCopyOut ? "Copy out allowed" : "Copy out blocked"} · ${caps.allowPasteIn ? "paste in allowed" : "paste in blocked"}${autoSyncBlocked && caps.allowPasteIn ? " · Ctrl+V pastes" : ""}`, tone: caps.allowCopyOut && caps.allowPasteIn ? "ok" : "warn", onClick: openClipboard, chevron: true },
                 { key: "files", icon: canUpload ? "upload" : "block", label: "File transfer", sub: canUpload ? "Enabled — drop files anywhere on the screen to upload; downloads open here" : "Disabled for this resource by policy", tone: canUpload ? "ok" : "muted" },
                 { key: "rec", icon: "record", label: "Session recording", sub: recorded ? "This session is recorded for security & compliance" : "Not recorded", tone: recorded ? "danger" : "muted" },
                 ...(protocol === "RDP" ? [
