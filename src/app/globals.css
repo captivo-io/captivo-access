@@ -528,6 +528,13 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 /* Native (guacd) recording replay */
 .guac-recording-display { overflow: auto; max-width: 100%; background: #000; border-radius: 8px; }
 .guac-recording-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+/* Seek bar: played (accent), loaded so far (mid), not yet loaded (faint). */
+.guac-seek { flex: 1; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; cursor: pointer;
+  background: linear-gradient(to right, var(--accent, #14b8a6) 0 var(--played, 0%), color-mix(in srgb, var(--muted, #5a6b82) 55%, transparent) var(--played, 0%) var(--loaded, 0%), color-mix(in srgb, var(--muted, #5a6b82) 18%, transparent) var(--loaded, 0%) 100%); }
+.guac-seek:disabled { cursor: default; opacity: .6; }
+.guac-seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #14b8a6); border: 2px solid var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.guac-seek::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #14b8a6); border: 2px solid var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.guac-seek::-moz-range-track { background: transparent; }
 
 /* Recording-consent interstitial (native gateway session) */
 .consent-gate { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
