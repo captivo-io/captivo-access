@@ -163,11 +163,13 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
   };
 
   // The KasmVNC/noVNC hidden keyboard input inside the same-origin iframe. Focusing
-  // it raises the phone soft keyboard; noVNC then captures typing.
+  // it raises the phone soft keyboard; noVNC then captures typing. KasmVNC names
+  // it noVNC_keyboardinput (upstream noVNC: noVNC_keyboard). Never fall back to
+  // "any textarea": the first one is KasmVNC's clipboard box, which swallowed
+  // every on-screen keyboard key until 2.20.1.
   const kbInput = (): HTMLElement | null => {
     const doc = frameRef.current?.contentDocument;
-    return (doc?.getElementById("noVNC_keyboard") as HTMLElement | null)
-      ?? (doc?.querySelector("textarea, input[type=text]") as HTMLElement | null);
+    return (doc?.getElementById("noVNC_keyboardinput") ?? doc?.getElementById("noVNC_keyboard")) as HTMLElement | null;
   };
 
   // Send a raw X11 keysym to the isolated session for the shared OnScreenKeyboard.
@@ -317,7 +319,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
             leave={{ label: "Leave session", sub: "Close the isolated browser and return to My access", onClick: () => { window.location.href = "/access"; } }}
           />
           <OnScreenKeyboard sendKey={sendKeysym} />
-          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Copy & paste works seamlessly", "Controls: top-left tab"]} />
+          <FirstTips siteId={siteId} tips={[...(canUpload ? ["Drag files onto the screen to upload"] : []), "Copy & paste works seamlessly", "Controls: the tab on the left edge (drag to move it)"]} />
         </>
       )}
       <RecordingNotice active={recorded && ready} />
