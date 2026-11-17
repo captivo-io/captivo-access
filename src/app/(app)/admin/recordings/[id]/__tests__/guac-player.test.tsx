@@ -157,9 +157,34 @@ describe("guac recording player: clock and bar", () => {
     expect(seekBar().value).toBe("200000");
     await act(async () => done());
     expect(seekBar().value).toBe("200000");
-    // Past what is loaded: the end of the loaded part.
+    // Past what is loaded: the bar stays at the target, which is taken once the
+    // download reaches it (not clamped to the loaded end).
     await act(async () => drag(650_000));
-    expect(rec.pos).toBe(300_000);
+    expect(rec.pos).toBe(200_000);
+    expect(seekBar().value).toBe("650000");
+    await act(async () => rec.onprogress(500_000));
+    expect(rec.pos).toBe(200_000);
+    await act(async () => rec.onprogress(660_000));
+    expect(rec.pos).toBe(650_000);
+    await act(async () => done());
+    expect(seekBar().value).toBe("650000");
+    root.unmount();
+  });
+
+  it("buffering waits for a few seconds of lead instead of playing each frame as it lands", async () => {
+    const root = createRoot(document.getElementById("root")!);
+    await act(async () => root.render(<GuacRecordingPlayer recordingId="r6" estimatedMs={60_000} />));
+    await tick();
+    const rec = lib.state.rec;
+    await act(async () => rec.onprogress(2_000));
+    await act(async () => button().click());
+    expect(button().textContent).toBe("Buffering…");
+    expect(rec.plays).toBe(0);
+    await act(async () => rec.onprogress(4_000));
+    expect(rec.plays).toBe(0);
+    await act(async () => rec.onprogress(6_000));
+    expect(rec.plays).toBe(1);
+    expect(button().textContent).toBe("Pause");
     root.unmount();
   });
 });
