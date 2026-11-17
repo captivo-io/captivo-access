@@ -19,8 +19,17 @@ import { KeystrokeTimeline, fmtMs as fmt } from "./keystroke-timeline";
  * recording's expected length (estimatedMs, from its metadata) while it loads,
  * not on the loaded length, which grew faster than playback and made the thumb
  * slide back.
+ *
+ * Buffering keeps a lead: when playback reaches the end of what is loaded it
+ * waits until LEAD_MS more is in (or all of it) before going on. Resuming on
+ * every new frame made the library draw each one the moment it arrived, so a
+ * heavy stretch (the full-screen start of an RDP session) played at download
+ * speed: the picture lagged, then raced. A seek past what is loaded is kept as
+ * a target and taken once the download gets there; clamping it to the loaded
+ * end looked like the bar refusing the move.
  */
 const TICK_MS = 250;
+const LEAD_MS = 5_000;
 
 export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordingId: string; estimatedMs?: number }) {
   const displayRef = useRef<HTMLDivElement>(null);
@@ -42,6 +51,8 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
   // Where the clock was last set from the recording, and when: it runs on from there.
   const anchor = useRef({ pos: 0, at: 0 });
   const durationRef = useRef(0);
+  // A seek to a point not yet loaded, taken when the download reaches it.
+  const pendingSeek = useRef<number | null>(null);
   const setAnchor = (pos: number) => { anchor.current = { pos, at: performance.now() }; setPosition(pos); };
 
   useEffect(() => {
@@ -52,6 +63,28 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
     }, TICK_MS);
     return () => clearInterval(t);
   }, [playing]);
+
+  // Go on (or start) when there is enough to play: a pending seek first, then
+  // playback once LEAD_MS past the current point is in, or the whole file.
+  const tryResume = () => {
+    const r = recRef.current;
+    if (!r || seeking.current) return;
+    const target = pendingSeek.current;
+    if (target !== null) {
+      if (!loadedRef.current && durationRef.current < target) return;
+      pendingSeek.current = null;
+      const ms = Math.min(target, durationRef.current);
+      seeking.current = true;
+      r.seek(ms, () => { seeking.current = false; setAnchor(ms); tryResume(); });
+      return;
+    }
+    if (!wantPlay.current || r.isPlaying()) return;
+    if (loadedRef.current || durationRef.current >= r.getPosition() + LEAD_MS) r.play();
+    else setBuffering(true);
+  };
+  // The library's callbacks are set up once; they reach the current tryResume.
+  const tryResumeRef = useRef(tryResume);
+  useEffect(() => { tryResumeRef.current = tryResume; });
 
   useEffect(() => {
     let disposed = false;
@@ -87,14 +120,14 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
           durationRef.current = recording.getDuration();
           setDuration(durationRef.current);
           fit();
-          if (wantPlay.current && !seeking.current && !recording.isPlaying()) recording.play();
+          tryResumeRef.current();
         };
         recording.onprogress = (dur: number) => {
           durationRef.current = dur;
           setDuration(dur);
           if (dur > 0) setReady(true);
-          // Caught up with the download while playing: go on with what arrived.
-          if (wantPlay.current && !seeking.current && !recording.isPlaying()) recording.play();
+          // Waiting for the download (to play on, or for a seek target).
+          if (wantPlay.current || pendingSeek.current !== null) tryResumeRef.current();
         };
         // A frame drawn while playing. During a seek the library replays from the
         // nearest keyframe up to the target: those steps are not shown.
@@ -141,17 +174,28 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
       r.pause();
     } else {
       wantPlay.current = true;
-      r.play();
+      tryResume();
     }
   }
   function seekTo(ms: number) {
     const r = recRef.current;
     if (!r) return;
-    // Only what is loaded can be reached; past it, the end of the loaded part.
-    const millis = Math.min(Math.max(0, ms), durationRef.current);
+    const millis = Math.max(0, loadedRef.current ? Math.min(ms, durationRef.current) : ms);
+    // Hold playback through the seek; tryResume decides when it goes on, so a
+    // target near the loaded end waits for its lead instead of racing.
     seeking.current = true;
+    if (r.isPlaying()) r.pause();
     setPosition(millis);
-    r.seek(millis, () => { seeking.current = false; setAnchor(millis); });
+    anchor.current = { pos: millis, at: performance.now() };
+    if (!loadedRef.current && millis > durationRef.current) {
+      // Not loaded yet: keep the target, take it when the download gets there.
+      seeking.current = false;
+      pendingSeek.current = millis;
+      if (wantPlay.current) setBuffering(true);
+      return;
+    }
+    pendingSeek.current = null;
+    r.seek(millis, () => { seeking.current = false; setAnchor(millis); tryResume(); });
   }
   function onScrub(e: React.ChangeEvent<HTMLInputElement>) {
     seekTo(Number(e.target.value));
