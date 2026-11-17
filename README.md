@@ -180,7 +180,11 @@ Shipped and working today:
   network**, encrypted with a key the connector generates and never sends
   anywhere — so recordings are stored only on your side, even on the hosted
   service; replaying one streams it through the service over the encrypted
-  tunnel, never stored there. Command search runs on the connector too.
+  tunnel, never stored there. Command search runs on the connector too. After the
+  session the connector turns RDP/VNC recordings into seekable video (a 12-minute
+  session: 169 MB to 1.4 MB) and compresses the rest; every kind of recording plays
+  with the same controls (seek, full screen, keyboard; 1–8× speed for video and
+  web-app recordings).
   See [where recordings are stored](./docs/install.md#where-session-recordings-are-stored).
 - **Native remote-desktop gateway (RDP/SSH/VNC)** — console protocols are served
   in-browser with no separate pack: every connector runs sessions out of the box,

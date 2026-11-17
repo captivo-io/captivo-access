@@ -26,8 +26,11 @@ def test_ffmpeg_args_defaults():
     assert vf == "scale='min(1280,iw)':-2"
     assert "-b:v" in args
     assert args[args.index("-b:v") + 1] == "512k"
-    # unchanged essentials
-    assert "libvpx" in args
+    # VP9 at constant quality with the bitrate as a ceiling, sparse keyframes
+    assert "libvpx-vp9" in args
+    assert args[args.index("-crf") + 1] == "36"
+    assert args[args.index("-g") + 1] == "300"
+    assert args[args.index("-tune-content") + 1] == "screen"
     assert "-framerate" in args and args[args.index("-framerate") + 1] == "10"
     assert "realtime" in args
     # the filter must come before the tee muxer so both sinks are capped
@@ -38,14 +41,17 @@ def test_ffmpeg_args_env_overrides():
     import importlib, os
     os.environ["RECORDING_MAX_WIDTH"] = "1600"
     os.environ["RECORDING_VIDEO_BITRATE"] = "768k"
+    os.environ["RECORDING_VIDEO_CRF"] = "30"
     importlib.reload(control)
     try:
         args = control._ffmpeg_args(3, "/rec/s.webm", 2560, 1600)
         assert args[args.index("-vf") + 1] == "scale='min(1600,iw)':-2"
         assert args[args.index("-b:v") + 1] == "768k"
+        assert args[args.index("-crf") + 1] == "30"
     finally:
         del os.environ["RECORDING_MAX_WIDTH"]
         del os.environ["RECORDING_VIDEO_BITRATE"]
+        del os.environ["RECORDING_VIDEO_CRF"]
         importlib.reload(control)
 
 
@@ -53,13 +59,16 @@ def test_ffmpeg_args_env_fallbacks():
     import importlib, os
     os.environ["RECORDING_MAX_WIDTH"] = "bad"
     os.environ["RECORDING_VIDEO_BITRATE"] = "   "
+    os.environ["RECORDING_VIDEO_CRF"] = "-4"
     importlib.reload(control)
     try:
         assert control.RECORDING_MAX_WIDTH == 1280
         assert control.RECORDING_VIDEO_BITRATE == "512k"
+        assert control.RECORDING_VIDEO_CRF == 36
     finally:
         del os.environ["RECORDING_MAX_WIDTH"]
         del os.environ["RECORDING_VIDEO_BITRATE"]
+        os.environ.pop("RECORDING_VIDEO_CRF", None)
         importlib.reload(control)
 
 

@@ -60,8 +60,13 @@ def _positive_int_env(name, default):
         return default
 
 # Recording encode knobs (tunable without rebuilding the connector image).
+# VP9 at constant quality (CRF), with the bitrate as a ceiling for stretches of
+# heavy motion: a still page costs almost nothing, where VP8 at a fixed 512k
+# spent the same on every second. Measured on a 10-minute isolated session:
+# 19.9 MB as VP8, 2.0 MB as VP9, and less CPU to encode.
 RECORDING_MAX_WIDTH = _positive_int_env("RECORDING_MAX_WIDTH", 1280)
 RECORDING_VIDEO_BITRATE = (os.environ.get("RECORDING_VIDEO_BITRATE", "").strip() or "512k")
+RECORDING_VIDEO_CRF = _positive_int_env("RECORDING_VIDEO_CRF", 36)
 
 _lock = threading.Lock()
 _sessions = {}  # id -> {"display": N, "port": p, "procs": [...], "profile": path, "started": ts}
@@ -326,7 +331,7 @@ def close_session(sid):
 
 
 def _ffmpeg_args(display, recfile, w=1280, h=800):
-    # Grab the per-session Xvnc display as WebM (VP8). The tee muxer writes two sinks:
+    # Grab the per-session Xvnc display as WebM (VP9). The tee muxer writes two sinks:
     # the live pipe (stdout, streamed to the data-plane — crash-safe interim recording)
     # and a seekable file (finalized on clean stop for correct duration + seeking).
     # onfail=ignore keeps the file writing even if the pipe reader goes away. x11grab
@@ -337,10 +342,16 @@ def _ffmpeg_args(display, recfile, w=1280, h=800):
     # modest -b:v keeps the file small; both are env-tunable. This only shrinks the
     # STORED replay — the vendor's view and the admin's /kasm-view live view are
     # separate full-resolution streams. Applied before -f tee so both sinks are capped.
+    #
+    # A keyframe at most every 30 s (-g 300 at 10 fps): keyframes are most of a
+    # screen recording's size, and a player seeks by decoding forward from the
+    # one before the target, which at these frame sizes is instant.
     return ["ffmpeg", "-loglevel", "error", "-f", "x11grab",
             "-video_size", "%dx%d" % (w, h), "-framerate", "10", "-i", ":%d" % display,
             "-an", "-vf", "scale='min(%d,iw)':-2" % RECORDING_MAX_WIDTH,
-            "-c:v", "libvpx", "-b:v", RECORDING_VIDEO_BITRATE, "-deadline", "realtime",
+            "-c:v", "libvpx-vp9", "-crf", str(RECORDING_VIDEO_CRF), "-b:v", RECORDING_VIDEO_BITRATE,
+            "-g", "300", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1",
+            "-tune-content", "screen",
             "-f", "tee", "-map", "0:v",
             "[f=webm:onfail=ignore]pipe:1|[f=webm]" + recfile]
 

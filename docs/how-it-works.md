@@ -200,6 +200,8 @@ flowchart TD
   disk**, AES-256-GCM-encrypted with a key only that connector holds; replay and
   command search reach into it on demand, so the control plane never receives the
   content (see [where recordings are stored](install.md#where-session-recordings-are-stored)).
+  Once the session has ended the connector turns an RDP/VNC recording into a seekable
+  video, a fraction of the size; SSH stays a compressed screen stream.
 - **Live view.** An admin or auditor can watch an in-progress session at
   `/admin/live`: the viewer **joins the same guacd connection by its ID**, so
   guacd sends the current screen immediately (not just future changes), and an
