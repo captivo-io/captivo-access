@@ -458,6 +458,9 @@ model AuditChainState {
   lastSeq   BigInt   @default(0)
   lastHash  String   @default("")
   updatedAt DateTime @updatedAt
+  // The last full verification from the console (Audit page), shared by all admins.
+  verifiedAt DateTime?
+  verifiedOk Boolean?
 
   @@id([tenantId, scope])
 }

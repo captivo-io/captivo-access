@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from "react";
 
-/** The side panel for one audit row: Esc, the scrim or × closes it. */
-export function AuditDrawer({ title, badge, onClose, children }: { title: string; badge?: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+/** The side panel for one audit record: Esc, the backdrop or × closes it. */
+export function AuditDrawer({ title, onClose, children, footer }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -17,10 +17,11 @@ export function AuditDrawer({ title, badge, onClose, children }: { title: string
       <div className="au-scrim" onClick={onClose} />
       <aside ref={ref} className="au-drawer" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <header className="au-drawer-head">
-          <div className="au-drawer-t">{badge}<b>{title}</b></div>
+          <span className="kcell-k">{title}</span>
           <button type="button" className="rs-clear" aria-label="Close" onClick={onClose}>×</button>
         </header>
         <div className="au-drawer-body">{children}</div>
+        {footer && <footer className="au-drawer-foot">{footer}</footer>}
       </aside>
     </>
   );

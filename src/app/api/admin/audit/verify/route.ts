@@ -4,7 +4,7 @@ import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { verifyChain, type StoredEvent } from "@/lib/audit/verify";
-import { chainKey } from "@/lib/audit/chain-key";
+import { chainKey, recordVerification } from "@/lib/audit/chain-key";
 import { withTenantRoute } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -48,5 +48,7 @@ export const GET = withTenantRoute(async () => {
     if (batch.length < PAGE) break;
   }
 
-  return NextResponse.json(verifyChain(events, head ? { lastSeq: head.lastSeq, lastHash: head.lastHash } : undefined));
+  const result = verifyChain(events, head ? { lastSeq: head.lastSeq, lastHash: head.lastHash } : undefined);
+  await recordVerification("access", result.ok);
+  return NextResponse.json(result);
 });
