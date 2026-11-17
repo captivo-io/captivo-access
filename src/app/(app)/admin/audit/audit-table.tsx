@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { useTimezone } from "@/app/(app)/_shell/timezone-context";
 import { TimezoneHint } from "@/app/(app)/_shell/effective-timezone";
+import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { parseDatetimeLocal, formatDatetimeLocal } from "@/lib/time/datetime-local";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
-import { transferBadge } from "@/lib/audit/access-format";
+import { accessReasonLabel, transferBadge } from "@/lib/audit/access-format";
+import type { AuditSummary } from "@/lib/audit/summary";
+import { AuditDrawer, DetailList } from "./audit-drawer";
 
 export type AuditRowJSON = {
   id: string;
@@ -26,6 +30,7 @@ export type AuditRowJSON = {
   decision: "ALLOW" | "DENY";
   reason: string | null;
   clientIp: string | null;
+  userAgent?: string | null;
 };
 
 type Filters = {
@@ -39,6 +44,7 @@ type Filters = {
 };
 
 const LIMIT = 50;
+const EMPTY: Filters = { q: "", userId: "", siteId: "", decision: "", kind: "", from: "", to: "" };
 
 // datetime-local wall time → ISO, interpreted in the display timezone (or the
 // browser's when none is configured) — the same zone the table shows.
@@ -83,16 +89,45 @@ function filtersFromParams(sp: URLSearchParams, tz: string | null): Filters {
   };
 }
 
+export function formatBytes(raw: string): string {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  const v = n / 1024 ** i;
+  return `${i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+function Request({ r }: { r: AuditRowJSON }) {
+  const b = transferBadge(r.method);
+  return (
+    <span className="au-req">
+      {b.isTransfer
+        ? <span className={`ft-badge ${b.direction}${b.partial ? " partial" : ""}`}>{b.direction === "download" ? "↓" : "↑"} {b.label}</span>
+        : <span className="au-verb">{r.method}</span>}
+      <span className="mono au-path" title={r.path}>{r.path}</span>
+    </span>
+  );
+}
+
+function Decision({ r }: { r: AuditRowJSON }) {
+  return r.decision === "ALLOW"
+    ? <span className="rs-pill up">Allowed</span>
+    : <span className="rs-pill down" title={accessReasonLabel(r.reason) ?? undefined}>Denied</span>;
+}
+
 export function AuditTable({
   users,
   sites,
   initialRows,
   initialTotal,
+  summary,
 }: {
   users: { id: string; name: string; email: string }[];
   sites: { id: string; name: string }[];
   initialRows: AuditRowJSON[];
   initialTotal: number;
+  summary: AuditSummary;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -104,11 +139,17 @@ export function AuditTable({
   const [total, setTotal] = useState(initialTotal);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState<AuditRowJSON | null>(null);
+  const [moreOpen, setMoreOpen] = useState(() => Boolean(searchParams.get("from") || searchParams.get("to")));
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => setSlot(document.getElementById("au-head-actions")), []);
 
   async function load(nextFilters: Filters, nextOffset: number) {
     setBusy(true);
     setError(null);
+    setFilters(nextFilters);
     try {
       const params = buildParams(nextFilters, tz, LIMIT, nextOffset);
       const res = await fetch(`/api/admin/audit?${params.toString()}`);
@@ -119,7 +160,6 @@ export function AuditTable({
       }
       setRows(body.rows);
       setTotal(typeof body.total === "number" ? body.total : 0);
-      setFilters(nextFilters);
       setOffset(nextOffset);
       const url = params.toString();
       router.replace(url ? `${pathname}?${url}` : pathname, { scroll: false });
@@ -133,216 +173,159 @@ export function AuditTable({
   useEffect(() => {
     const seeded = filtersFromParams(new URLSearchParams(searchParams.toString()), tz);
     const hasAny = Object.values(seeded).some((v) => v !== "");
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (hasAny) load(seeded, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function updateFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
-    const nextFilters = { ...filters, [key]: value };
-    load(nextFilters, 0);
+  function set<K extends keyof Filters>(key: K, value: Filters[K]) {
+    load({ ...filters, [key]: value }, 0);
+  }
+
+  function search(q: string) {
+    setFilters((prev) => ({ ...prev, q }));
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => load({ ...filters, q }, 0), 300);
   }
 
   const csvHref = `/api/admin/audit/export?${buildParams(filters, tz, LIMIT, 0).toString()}`;
-  const hasPrev = offset > 0;
-  const hasNext = offset + LIMIT < total;
+  const filtered = JSON.stringify(filters) !== JSON.stringify(EMPTY);
+  const first = total === 0 ? 0 : offset + 1;
+  const last = Math.min(offset + rows.length, total);
 
   return (
-    <section>
-      <div className="card">
-        <div className="filter-bar">
-        <div className="field field-search">
-          <label className="field-label" htmlFor="audit-filter-q">Search</label>
-          <input
-            id="audit-filter-q"
-            type="search"
-            className="input"
-            placeholder="path, host, user, company…"
-            value={filters.q}
-            onChange={(e) => {
-              const q = e.target.value;
-              setFilters((prev) => ({ ...prev, q }));
-              if (debounceRef.current) clearTimeout(debounceRef.current);
-              debounceRef.current = setTimeout(() => load({ ...filters, q }, 0), 300);
-            }}
-          />
+    <div>
+      {slot && createPortal(<a href={csvHref} className="btn sm"><NavIcon name="download" size={15} /> Export CSV</a>, slot)}
+
+      <div className="kstrip au-summary">
+        <div className="kcell">
+          <span className="kcell-k"><span className="rs-kdot p" />Requests · 24 h</span>
+          <span className="kcell-row"><span className="kcell-v">{summary.requests.toLocaleString()}</span></span>
         </div>
-        <div className="field">
-          <label className="field-label" htmlFor="audit-filter-user">
-            User
-          </label>
-          <select
-            id="audit-filter-user"
-            className="select"
-            value={filters.userId}
-            onChange={(e) => updateFilter("userId", e.target.value)}
-          >
-            <option value="">All users</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.email})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="audit-filter-site">
-            Resource
-          </label>
-          <select
-            id="audit-filter-site"
-            className="select"
-            value={filters.siteId}
-            onChange={(e) => updateFilter("siteId", e.target.value)}
-          >
-            <option value="">All resources</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="audit-filter-decision">
-            Decision
-          </label>
-          <select
-            id="audit-filter-decision"
-            className="select"
-            value={filters.decision}
-            onChange={(e) => updateFilter("decision", e.target.value as Filters["decision"])}
-          >
-            <option value="">All</option>
-            <option value="ALLOW">Allow</option>
-            <option value="DENY">Deny</option>
-          </select>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="audit-filter-kind">Type</label>
-          <label className="checkbox-inline">
-            <input
-              id="audit-filter-kind"
-              type="checkbox"
-              checked={filters.kind === "file"}
-              onChange={(e) => updateFilter("kind", e.target.checked ? "file" : "")}
-            />
-            File transfers only
-          </label>
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="audit-filter-from">
-            From<TimezoneHint />
-          </label>
-          <input
-            id="audit-filter-from"
-            type="datetime-local"
-            className="input"
-            value={filters.from}
-            onChange={(e) => updateFilter("from", e.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="audit-filter-to">
-            To<TimezoneHint />
-          </label>
-          <input
-            id="audit-filter-to"
-            type="datetime-local"
-            className="input"
-            value={filters.to}
-            onChange={(e) => updateFilter("to", e.target.value)}
-          />
-        </div>
+        <button type="button" className={`kcell rs-cell bad${filters.decision === "DENY" ? " on" : ""}`} onClick={() => set("decision", filters.decision === "DENY" ? "" : "DENY")} aria-pressed={filters.decision === "DENY"}>
+          <span className="kcell-k"><span className="rs-kdot bad" />Denied · 24 h</span>
+          <span className="kcell-row">
+            <span className="kcell-v">{summary.denied.toLocaleString()}</span>
+            <span className="kcell-s">{summary.requests ? `${((summary.denied / summary.requests) * 100).toFixed(summary.denied && summary.denied * 100 < summary.requests ? 1 : 0)}% of requests` : "nothing yet"}</span>
+          </span>
+        </button>
+        <button type="button" className={`kcell rs-cell${filters.kind === "file" ? " on" : ""}`} onClick={() => set("kind", filters.kind === "file" ? "" : "file")} aria-pressed={filters.kind === "file"}>
+          <span className="kcell-k"><span className="rs-kdot warn" />File transfers · 24 h</span>
+          <span className="kcell-row"><span className="kcell-v">{summary.transfers.toLocaleString()}</span><span className="kcell-s">uploads and downloads</span></span>
+        </button>
+        <div className="kcell">
+          <span className="kcell-k"><span className="rs-kdot ok" />People · 24 h</span>
+          <span className="kcell-row"><span className="kcell-v">{summary.people.toLocaleString()}</span><span className="kcell-s">signed-in users</span></span>
         </div>
       </div>
 
-      <div className="card-head">
-        <span className="cell-sub">
-          {total} event{total === 1 ? "" : "s"}
-        </span>
-        <a href={csvHref} className="btn">
-          Download CSV
-        </a>
+      <div className="rs-tools">
+        <label className="ma-search rs-search">
+          <NavIcon name="search" size={16} />
+          <input type="search" placeholder="Search path, host, user, company, IP…" value={filters.q} onChange={(e) => search(e.target.value)} aria-label="Search" />
+          {filters.q && <button type="button" className="rs-clear" aria-label="Clear search" onClick={() => load({ ...filters, q: "" }, 0)}>×</button>}
+        </label>
+        <div className="seg" role="group" aria-label="Decision">
+          {([["", "All"], ["ALLOW", "Allowed"], ["DENY", "Denied"]] as const).map(([k, l]) => (
+            <button key={k} type="button" className={filters.decision === k ? "seg-opt on" : "seg-opt"} aria-pressed={filters.decision === k} onClick={() => set("decision", k)}>{l}</button>
+          ))}
+        </div>
+        <select className="select au-select" value={filters.userId} onChange={(e) => set("userId", e.target.value)} aria-label="Person">
+          <option value="">Everyone</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+        </select>
+        <select className="select au-select" value={filters.siteId} onChange={(e) => set("siteId", e.target.value)} aria-label="Resource">
+          <option value="">All resources</option>
+          {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <button type="button" className={moreOpen || filters.from || filters.to ? "btn sm au-more on" : "btn sm au-more"} onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}>
+          <NavIcon name="clock" size={15} /> Time range{filters.from || filters.to ? " ·" : ""}
+        </button>
       </div>
 
-      {error && (
-        <p className="notice error" role="alert">
-          {error}
-        </p>
+      {moreOpen && (
+        <div className="au-range">
+          <label>
+            <span className="kcell-k">From<TimezoneHint /></span>
+            <input type="datetime-local" className="input" value={filters.from} onChange={(e) => set("from", e.target.value)} />
+          </label>
+          <label>
+            <span className="kcell-k">To<TimezoneHint /></span>
+            <input type="datetime-local" className="input" value={filters.to} onChange={(e) => set("to", e.target.value)} />
+          </label>
+          {(filters.from || filters.to) && <button type="button" className="btn sm" onClick={() => load({ ...filters, from: "", to: "" }, 0)}>Clear range</button>}
+        </div>
       )}
 
+      {error && <p className="notice error" role="alert">{error}</p>}
+
       {rows.length === 0 ? (
-        <div className="empty">{busy ? "Loading…" : "No audit events match these filters."}</div>
+        <div className="rs-none">
+          {busy ? "Loading…" : filtered ? "No requests match these filters." : "No requests yet. Every request through a connector lands here."}
+          {filtered && !busy && <button type="button" className="btn sm" onClick={() => load(EMPTY, 0)}>Clear filters</button>}
+        </div>
       ) : (
-        <div className="table-wrap">
+        <div className={busy ? "table-wrap au-table busy" : "table-wrap au-table"}>
           <table className="table">
             <thead>
-              <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Company</th>
-                <th>Resource / Host</th>
-                <th>Request</th>
-                <th>Status</th>
-                <th>Decision</th>
-                <th>IP</th>
-              </tr>
+              <tr><th>Time</th><th>Person</th><th>Resource</th><th>Request</th><th>Result</th><th className="au-hide-sm">IP</th></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="cell-sub"><LocalTime iso={r.timestamp} /></td>
+                <tr key={r.id} tabIndex={0} className={open?.id === r.id ? "on" : undefined} onClick={() => setOpen(r)} onKeyDown={(e) => { if (e.key === "Enter") setOpen(r); }}>
+                  <td className="au-time"><LocalTime iso={r.timestamp} mode="short" /></td>
                   <td>
-                    <div>{r.userName ?? "—"}</div>
-                    {r.userEmail && <div className="cell-sub">{r.userEmail}</div>}
+                    <div className="au-who">{r.userName ?? r.userEmail ?? <span className="muted">Anonymous</span>}</div>
+                    {r.company && <div className="cell-sub">{r.company}</div>}
                   </td>
-                  <td className="cell-sub">{r.company ?? "—"}</td>
-                  <td>{r.siteName ?? r.host}</td>
-                  <td className="cell-sub">
-                    {(() => {
-                      const b = transferBadge(r.method);
-                      if (b.isTransfer) {
-                        return (
-                          <span className="cell-inline">
-                            <span className={`ft-badge ${b.direction}${b.partial ? " partial" : ""}`}>
-                              {b.direction === "download" ? "↓" : "↑"} {b.label}
-                            </span>
-                            <span className="cell-truncate" title={r.path}>{r.path}</span>
-                            <CopyButton value={`${b.label}: ${r.path}`} label="Copy" />
-                          </span>
-                        );
-                      }
-                      return (
-                        <span className="cell-inline">
-                          <span className="cell-truncate" title={`${r.method} ${r.path}`}>{r.method} {r.path}</span>
-                          <CopyButton value={`${r.method} ${r.path}`} label="Copy" />
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td className="cell-sub">{r.status}</td>
+                  <td><div className="au-who">{r.siteName ?? r.host}</div>{r.siteName && <div className="cell-sub mono">{r.host}</div>}</td>
+                  <td className="au-req-cell"><Request r={r} /></td>
                   <td>
-                    <span className={`pill ${r.decision === "ALLOW" ? "ok" : "danger"}`}>
-                      {r.decision === "ALLOW" ? "Allow" : `Deny${r.reason ? ` — ${r.reason}` : ""}`}
-                    </span>
+                    <span className="au-result"><Decision r={r} /><span className="mono cell-sub">{r.status}</span></span>
+                    {r.decision === "DENY" && r.reason && <div className="cell-sub au-reason">{accessReasonLabel(r.reason)}</div>}
                   </td>
-                  <td className="cell-sub">{r.clientIp ?? "—"}</td>
+                  <td className="cell-sub mono au-hide-sm">{r.clientIp ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <div className="au-foot">
+            <span className="cell-sub">{first.toLocaleString()}–{last.toLocaleString()} of {total.toLocaleString()}</span>
+            <span className="row-actions">
+              <button type="button" className="btn sm" onClick={() => load(filters, Math.max(0, offset - LIMIT))} disabled={offset === 0 || busy}>← Newer</button>
+              <button type="button" className="btn sm" onClick={() => load(filters, offset + LIMIT)} disabled={offset + LIMIT >= total || busy}>Older →</button>
+            </span>
+          </div>
         </div>
       )}
 
-      <div className="card-head">
-        <button type="button" className="btn sm" onClick={() => load(filters, Math.max(0, offset - LIMIT))} disabled={!hasPrev || busy}>
-          Previous
-        </button>
-        <button type="button" className="btn sm" onClick={() => load(filters, offset + LIMIT)} disabled={!hasNext || busy}>
-          Next
-        </button>
-      </div>
-    </section>
+      {open && (
+        <AuditDrawer
+          title={open.decision === "ALLOW" ? "Allowed request" : "Denied request"}
+          badge={<Decision r={open} />}
+          onClose={() => setOpen(null)}
+        >
+          {open.decision === "DENY" && open.reason && <div className="au-why"><b>Why:</b> {accessReasonLabel(open.reason)}</div>}
+          <DetailList items={[
+            ["Time", <LocalTime key="t" iso={open.timestamp} mode="full" />],
+            ["Person", open.userName ? <>{open.userName}{open.userEmail && <div className="cell-sub">{open.userEmail}</div>}</> : (open.userEmail ?? "Anonymous")],
+            ["Company", open.company ?? "—"],
+            ["Resource", open.siteName ?? "—"],
+            ["Host", <span key="h" className="mono">{open.host}</span>],
+            ["Request", <span key="r" className="au-copyline"><Request r={open} /><CopyButton value={`${open.method} ${open.path}`} label="Copy" /></span>],
+            ["Status", <span key="s" className="mono">{open.status}</span>],
+            ...(open.decision === "ALLOW" && open.reason ? [["Note", accessReasonLabel(open.reason)] as [string, React.ReactNode]] : []),
+            ["Sent", formatBytes(open.bytesOut)],
+            ["IP address", <span key="ip" className="mono">{open.clientIp ?? "—"}</span>],
+            ["Browser", <span key="ua" className="au-ua">{open.userAgent || "—"}</span>],
+            ["Event ID", <span key="id" className="mono cell-sub">{open.id}</span>],
+          ]} />
+          <div className="au-drawer-actions">
+            {open.userId && <button type="button" className="btn sm" onClick={() => { set("userId", open.userId!); setOpen(null); }}>Only this person</button>}
+            {open.siteId && <button type="button" className="btn sm" onClick={() => { set("siteId", open.siteId!); setOpen(null); }}>Only this resource</button>}
+            {open.clientIp && <button type="button" className="btn sm" onClick={() => { load({ ...filters, q: open.clientIp! }, 0); setOpen(null); }}>Search this IP</button>}
+          </div>
+        </AuditDrawer>
+      )}
+    </div>
   );
 }

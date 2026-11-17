@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
+import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 
 type Result = {
   ok: boolean;
@@ -73,30 +74,27 @@ export function IntegrityPanel({ anchor }: { anchor: AnchorProp }) {
   }
 
   return (
-    <div className="card" style={{ marginBottom: "16px" }}>
-      <div className="card-head">
-        <h2>Integrity</h2>
-        <button className="btn sm" onClick={check} disabled={loading}>
-          {loading ? "Checking…" : "Check integrity"}
-        </button>
+    <div className="au-chain">
+      <div className="au-chain-row">
+        <span className="au-chain-ic"><NavIcon name="shield" size={18} /></span>
+        <div className="au-chain-t">
+          <b>Tamper-evident log</b>
+          <span className="cell-sub">Each event is chained to the one before it by hash. A check proves nothing was edited or removed.</span>
+        </div>
+        {error && <span className="rs-pill down">{error}</span>}
+        {result && result.ok && (
+          <span className="rs-pill up" title={result.retentionBoundary ? "Earlier events were purged by retention" : undefined}>
+            ✓ Intact · {result.count.toLocaleString()} events
+            {result.firstSeq && result.lastSeq ? <span className="mono">#{result.firstSeq}–{result.lastSeq}</span> : null}
+          </span>
+        )}
+        {result && !result.ok && <span className="rs-pill down">✗ Broken at #{result.brokenAtSeq} ({result.reason})</span>}
+        <button className="btn sm" onClick={check} disabled={loading}>{loading ? "Checking…" : "Check integrity"}</button>
       </div>
-      {error && <p className="notice error">{error}</p>}
-      {result && result.ok && (
-        <p className="pill ok">
-          ✓ Audit log verified intact — {result.count} events
-          {result.firstSeq && result.lastSeq ? ` (seq ${result.firstSeq}–${result.lastSeq})` : ""}
-          {result.retentionBoundary ? " · earlier events purged by retention" : ""}
-        </p>
-      )}
-      {result && !result.ok && (
-        <p className="pill danger">
-          ⚠ Integrity check failed at seq {result.brokenAtSeq} ({result.reason})
-        </p>
-      )}
 
       {anchor.enabled && (
-        <div style={{ marginTop: "1rem", borderTop: "1px solid var(--line)", paddingTop: ".9rem" }}>
-          <div className="card-head" style={{ marginBottom: 0, paddingBottom: 0, border: "none" }}>
+        <div className="au-chain-sub">
+          <div className="au-chain-row">
             <div>
               <b>External anchor</b>{" "}
               <span className="sub">

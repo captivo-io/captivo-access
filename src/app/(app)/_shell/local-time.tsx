@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTimezone } from "./timezone-context";
 
-export type LocalTimeMode = "datetime" | "time" | "date" | "short" | "shortdate";
+export type LocalTimeMode = "datetime" | "time" | "date" | "short" | "shortdate" | "full";
 
 const MODES: Record<LocalTimeMode, Intl.DateTimeFormatOptions> = {
   datetime: { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" },
@@ -12,6 +12,8 @@ const MODES: Record<LocalTimeMode, Intl.DateTimeFormatOptions> = {
   // Compact, portal-style: "Sep 10, 09:00" / "Sep 10, 2026".
   short: { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false },
   shortdate: { month: "short", day: "numeric", year: "numeric" },
+  // A single record, to the second: "Nov 17, 2026, 18:13:07".
+  full: { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false },
 };
 
 // Renders an ISO timestamp in the configured display timezone (from context), or the

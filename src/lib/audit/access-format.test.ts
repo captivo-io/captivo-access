@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transferBadge, TRANSFER_VERBS } from "./access-format";
+import { transferBadge, TRANSFER_VERBS, accessReasonLabel } from "./access-format";
 
 describe("transferBadge", () => {
   it("maps DOWNLOAD", () => {
@@ -19,5 +19,20 @@ describe("transferBadge", () => {
   });
   it("TRANSFER_VERBS holds exactly the four verbs", () => {
     expect([...TRANSFER_VERBS]).toEqual(["DOWNLOAD", "UPLOAD", "DOWNLOAD-PARTIAL", "UPLOAD-PARTIAL"]);
+  });
+});
+
+describe("accessReasonLabel", () => {
+  it("words the access check's codes", () => {
+    expect(accessReasonLabel("no_grant")).toBe("No grant for this resource");
+    expect(accessReasonLabel("ip_not_allowed")).toBe("Network not on the IP allowlist");
+  });
+  it("keeps the session length after session_close", () => {
+    expect(accessReasonLabel("session_close 12m 4s")).toBe("Session closed · 12m 4s");
+  });
+  it("shows an unknown code as stored, and nothing for none", () => {
+    expect(accessReasonLabel("something_new")).toBe("something_new");
+    expect(accessReasonLabel(null)).toBeNull();
+    expect(accessReasonLabel("")).toBeNull();
   });
 });

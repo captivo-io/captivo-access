@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
+import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 
 type Verdict = { ok: boolean; count: number; brokenAtSeq: string | null; reason: string | null } | null;
 
@@ -50,17 +51,24 @@ export function AdminIntegrityPanel({ anchor }: { anchor?: AnchorProp }) {
   }
 
   return (
-    <div className="aa-integrity">
-      <button type="button" className="btn sm" onClick={verify} disabled={busy}>{busy ? "Verifying…" : "Verify chain"}</button>
-      {verdict && (
-        verdict.ok
-          ? <span className="aa-ok">✓ Chain intact ({verdict.count} record{verdict.count === 1 ? "" : "s"})</span>
-          : <span className="aa-bad">✗ Tampering detected{verdict.brokenAtSeq ? ` at #${verdict.brokenAtSeq}` : ""}{verdict.reason ? ` (${verdict.reason})` : ""}</span>
-      )}
+    <div className="au-chain">
+      <div className="au-chain-row">
+        <span className="au-chain-ic"><NavIcon name="shield" size={18} /></span>
+        <div className="au-chain-t">
+          <b>Tamper-evident log</b>
+          <span className="cell-sub">Admin actions are hash-chained separately from access requests.</span>
+        </div>
+        {verdict && (
+          verdict.ok
+            ? <span className="rs-pill up">✓ Intact · {verdict.count.toLocaleString()} record{verdict.count === 1 ? "" : "s"}</span>
+            : <span className="rs-pill down">✗ Tampering detected{verdict.brokenAtSeq ? ` at #${verdict.brokenAtSeq}` : ""}{verdict.reason ? ` (${verdict.reason})` : ""}</span>
+        )}
+        <button type="button" className="btn sm" onClick={verify} disabled={busy}>{busy ? "Verifying…" : "Verify chain"}</button>
+      </div>
 
       {anchor?.enabled && (
-        <div style={{ marginTop: "1rem", borderTop: "1px solid var(--line)", paddingTop: ".9rem", width: "100%" }}>
-          <div className="card-head" style={{ marginBottom: 0, paddingBottom: 0, border: "none" }}>
+        <div className="au-chain-sub">
+          <div className="au-chain-row">
             <div>
               <b>External anchor</b>{" "}
               <span className="sub">

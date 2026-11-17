@@ -26,3 +26,29 @@ export function transferBadge(method: string): TransferBadge {
       return { isTransfer: false };
   }
 }
+
+// AuditEvent.reason in words for the console. The deny codes are the access
+// check's (src/lib/access/evaluate.ts, the IP allowlist); session_close may
+// carry the session's length after a space. Unknown codes are shown as stored.
+const REASONS: Record<string, string> = {
+  allow: "Grant active",
+  session_open: "Session opened",
+  session_close: "Session closed",
+  no_grant: "No grant for this resource",
+  user_disabled: "Account disabled",
+  revoked: "Grant revoked",
+  denied: "Grant request was denied",
+  not_yet: "Grant has not started yet",
+  expired: "Grant expired",
+  off_schedule: "Outside the grant's hours",
+  pending_approval: "Grant waiting for approval",
+  ip_not_allowed: "Network not on the IP allowlist",
+};
+
+export function accessReasonLabel(reason: string | null): string | null {
+  if (!reason) return null;
+  const [code, ...rest] = reason.trim().split(/\s+/);
+  const label = REASONS[code];
+  if (!label) return reason;
+  return rest.length ? `${label} · ${rest.join(" ")}` : label;
+}

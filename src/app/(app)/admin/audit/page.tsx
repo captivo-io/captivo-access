@@ -1,5 +1,4 @@
 import { requireCapability } from "@/lib/current-user";
-import { AuditIcon } from "@/components/icons";
 import { db } from "@/lib/db";
 import { listAuditEvents } from "@/lib/audit/query";
 import { resolvedExternalAnchorEnabled } from "@/lib/settings/platform";
@@ -10,18 +9,36 @@ import { listAdminAuditEvents } from "@/lib/audit/admin-query";
 import { AdminAuditTable, type AdminAuditRowJSON } from "./admin-audit-table";
 import { AdminIntegrityPanel } from "./admin-integrity-panel";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { auditSummary } from "@/lib/audit/summary";
 
 function AuditTabs({ admin }: { admin: boolean }) {
   return (
-    <div className="audit-tabs">
-      <Link href="/admin/audit" className={admin ? "audit-tab" : "audit-tab active"}>Access</Link>
-      <Link href="/admin/audit?tab=admin" className={admin ? "audit-tab active" : "audit-tab"}>Admin actions</Link>
+    <div className="seg au-tabs" role="tablist" aria-label="Log">
+      <Link href="/admin/audit" role="tab" aria-selected={!admin} className={admin ? "seg-opt" : "seg-opt on"}>Access requests</Link>
+      <Link href="/admin/audit?tab=admin" role="tab" aria-selected={admin} className={admin ? "seg-opt on" : "seg-opt"}>Admin actions</Link>
+    </div>
+  );
+}
+
+function AuditHead({ admin, children }: { admin: boolean; children?: React.ReactNode }) {
+  return (
+    <div className="page-head">
+      <div>
+        <div className="eyebrow">Operate · {admin ? "admin actions" : "access requests"}</div>
+        <h1>Audit</h1>
+        <p>
+          {admin
+            ? "Security-critical changes made in this console: who changed what, and when."
+            : "Every request through a connector, with the access decision that was applied. Select a row for the full record."}
+        </p>
+      </div>
+      <div className="row-actions">{children}</div>
     </div>
   );
 }
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Audit log" };
+export const metadata = { title: "Audit" };
 
 const INITIAL_LIMIT = 50;
 
@@ -52,12 +69,7 @@ async function AdminAuditPageImpl({ searchParams }: { searchParams: Promise<{ ta
     };
     return (
       <main>
-        <div className="page-head">
-          <div>
-            <div className="page-title-row"><span className="page-icon"><AuditIcon /></span><h1>Audit log</h1></div>
-            <p>Security-critical changes made by admins.</p>
-          </div>
-        </div>
+        <AuditHead admin />
         <AuditTabs admin />
         <AdminIntegrityPanel anchor={adminAnchor} />
         <AdminAuditTable rows={adminRows} />
@@ -65,13 +77,14 @@ async function AdminAuditPageImpl({ searchParams }: { searchParams: Promise<{ ta
     );
   }
 
-  const [users, sites, { rows, total }] = await Promise.all([
+  const [users, sites, { rows, total }, summary] = await Promise.all([
     db.user.findMany({
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
     }),
     db.site.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     listAuditEvents({ limit: INITIAL_LIMIT, offset: 0 }),
+    auditSummary(),
   ]);
 
   const [anchorEnabled, anchorCount, lastAnchor] = await Promise.all([
@@ -107,22 +120,15 @@ async function AdminAuditPageImpl({ searchParams }: { searchParams: Promise<{ ta
     decision: r.decision,
     reason: r.reason,
     clientIp: r.clientIp,
+    userAgent: r.userAgent,
   }));
 
   return (
     <main>
-      <div className="page-head">
-        <div>
-          <div className="page-title-row"><span className="page-icon"><AuditIcon /></span><h1>Audit log</h1></div>
-          <p>Every proxied request through a connector, with the access decision that was applied.</p>
-        </div>
-      </div>
-
+      <AuditHead admin={false}><span id="au-head-actions" className="rs-head-actions" /></AuditHead>
       <AuditTabs admin={false} />
-
       <IntegrityPanel anchor={anchor} />
-
-      <AuditTable users={users} sites={sites} initialRows={initialRows} initialTotal={total} />
+      <AuditTable users={users} sites={sites} initialRows={initialRows} initialTotal={total} summary={summary} />
     </main>
   );
 }
