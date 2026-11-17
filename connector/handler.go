@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/yamux"
@@ -115,6 +116,14 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 // (The opening ControlHello was already read as the dispatch frame.)
 func handleControl(st io.ReadWriteCloser, store *recStore) {
 	defer st.Close()
+	// A frame is two writes (length, payload) and two goroutines write here:
+	// policy acks from the reader, telemetry and reports from the writer.
+	var writeMu sync.Mutex
+	write := func(b []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return tunnel.WriteFrame(st, b)
+	}
 	done := make(chan struct{})
 	// reader: apply pushed policy frames
 	go func() {
@@ -124,6 +133,17 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 			if err != nil {
 				return
 			}
+			var kind struct {
+				Kind string `json:"kind"`
+			}
+			_ = json.Unmarshal(b, &kind)
+			if kind.Kind == "recreportack" {
+				var ack tunnel.RecReportAck
+				if json.Unmarshal(b, &ack) == nil && recMaintenance != nil {
+					recMaintenance.acked(ack.Items)
+				}
+				continue
+			}
 			var p tunnel.Policy
 			if json.Unmarshal(b, &p) == nil {
 				ack := applyPolicy(p, store)
@@ -132,7 +152,7 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 				// plane has to filter.
 				if ack.RetentionRemoved > 0 || len(ack.PurgedKeys) > 0 {
 					if ab, err := json.Marshal(ack); err == nil {
-						_ = tunnel.WriteFrame(st, ab)
+						_ = write(ab)
 					}
 				}
 			}
@@ -144,8 +164,19 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 	for {
 		b, err := json.Marshal(snapshot())
 		if err == nil {
-			if err := tunnel.WriteFrame(st, b); err != nil {
+			if err := write(b); err != nil {
 				return
+			}
+		}
+		// What the recording worker changed and the control plane has not yet
+		// confirmed; resent every tick until it is.
+		if recMaintenance != nil {
+			if items := recMaintenance.reports(50); len(items) > 0 {
+				if rb, err := json.Marshal(tunnel.RecReport{Kind: "recreport", Items: items}); err == nil {
+					if err := write(rb); err != nil {
+						return
+					}
+				}
 			}
 		}
 		select {

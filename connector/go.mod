@@ -8,4 +8,6 @@ require (
 	github.com/kurtserdar/captivo-access/tunnel v0.0.0-00010101000000-000000000000
 )
 
+require github.com/klauspost/compress v1.17.11
+
 replace github.com/kurtserdar/captivo-access/tunnel => ../tunnel

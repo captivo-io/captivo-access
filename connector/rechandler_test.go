@@ -186,3 +186,38 @@ func TestHandleRecFetchRefusesAnUnsatisfiableRange(t *testing.T) {
 		t.Fatal("want an error for a range past the end")
 	}
 }
+
+func TestHandleRecFetchSplitsLargeChunksAndSkipsEmptyOnes(t *testing.T) {
+	store := newRecStore(t.TempDir(), testKey())
+	big := make([]byte, 5<<20) // a repacked chunk is 4 MiB; frames stop at 1 MiB
+	for i := range big {
+		big[i] = byte(i * 7)
+	}
+	chunks := [][]byte{[]byte("head;"), {}, big, []byte("tail;")}
+	for i, c := range chunks {
+		if _, err := store.Append("t1", "rec-1", "guac", i, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req, _ := json.Marshal(tunnel.RecFetchRequest{Kind: "recfetch", TenantID: "t1", RecordingKey: "rec-1", Format: "guac"})
+	c := newRWC()
+	handleRecFetch(c, store, req)
+	if _, err := tunnel.ReadFrame(c.out); err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	for {
+		b, err := tunnel.ReadFrame(c.out)
+		if err != nil || len(b) == 0 { // the data plane stops at an empty frame
+			break
+		}
+		if len(b) > recRangeFrame {
+			t.Fatalf("frame of %d bytes", len(b))
+		}
+		got = append(got, b...)
+	}
+	want := append(append([]byte("head;"), big...), "tail;"...)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("got %d bytes, want %d", len(got), len(want))
+	}
+}

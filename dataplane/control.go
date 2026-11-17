@@ -40,9 +40,27 @@ func runControl(sess *Session, connectorID string, ctrl *ControlClient, initialP
 		if err != nil {
 			return
 		}
-		// A frame on this stream is either telemetry or a PolicyAck. The ack carries
-		// retentionRemoved/purgedKeys; relay those to the control plane so the index
-		// rows are dropped. Anything else is telemetry.
+		// A frame on this stream is a recording report, a PolicyAck or telemetry.
+		// A report says what the connector's recording worker changed (a video
+		// made, what the disk now holds); it is relayed and, once the control
+		// plane has it, acknowledged so the connector stops resending it.
+		var kind struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal(b, &kind)
+		if kind.Kind == "recreport" {
+			var rep tunnel.RecReport
+			if json.Unmarshal(b, &rep) == nil && len(rep.Items) > 0 && ctrl != nil {
+				go func(items []tunnel.RecReportItem) {
+					if ctrl.ReportRecordings(connectorID, items) == nil {
+						_ = sess.SendControl(tunnel.RecReportAck{Kind: "recreportack", Items: items})
+					}
+				}(rep.Items)
+			}
+			continue
+		}
+		// The ack carries retentionRemoved/purgedKeys; relay those to the control
+		// plane so the index rows are dropped. Anything else is telemetry.
 		var ack tunnel.PolicyAck
 		if json.Unmarshal(b, &ack) == nil && (ack.RetentionRemoved > 0 || len(ack.PurgedKeys) > 0) {
 			if ctrl != nil {

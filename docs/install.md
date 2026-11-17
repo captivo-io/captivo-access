@@ -194,6 +194,31 @@ Four consequences, and none of them are optional reading:
 The connector warns in its log at start-up if the recording directory is not on a
 mounted volume, because that means a `docker rm` would destroy every recording.
 
+### What the connector does with a recording after the session
+
+A few minutes after a session ends, the connector works on its recording, one at a
+time and at low CPU priority:
+
+- **RDP and VNC sessions become video.** The screen stream is turned into a VP9 WebM,
+  which starts at once and seeks anywhere in the console, and takes a fraction of the
+  disk (measured on real sessions: 169 MB to 1.4 MB for 12 minutes, 28 MB to 1.4 MB
+  for a dense minute). The original stream is removed an hour after the console has
+  recorded that the video is there; the keystroke timeline is kept. A video that is
+  not as long as the recording, or not smaller, is discarded and the stream kept.
+  Converting takes one CPU core for roughly a sixth of the session's length
+  (measured: 105 s for a 12-minute session) and about 300 MB of memory while it runs.
+- **SSH and telnet sessions stay as they are**, compressed: they are small, and a video
+  of a terminal would be larger.
+- **Everything else is compressed** (web-app recordings, keystrokes, recordings made
+  before this existed).
+- **An isolated-browser video cut off before its session closed** (a restart in the
+  middle of a session) is rewritten with its length and seek index, so it can be
+  seeked like any other.
+
+The working copy of a recording lives briefly in the connector container's `/tmp`
+and is deleted as soon as the result is stored. The recording's age is not changed,
+so the retention window still counts from the session.
+
 ### Backing up a connector
 
 The console has the same commands under **Connectors → Backup & restore**. Run them

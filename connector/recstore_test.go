@@ -310,3 +310,90 @@ func TestBytesCountsEveryStream(t *testing.T) {
 		t.Fatalf("keystroke stream not counted: guac=%d both=%d", guacOnly, both)
 	}
 }
+
+func TestStoreCompressesEveryStreamButVideo(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	text := bytes.Repeat([]byte("4.sync,13.1794906676715;"), 400)
+	for _, f := range []string{"guac", "rrweb", "keys", "video"} {
+		if n, err := s.Append("t1", "r", f, 0, text); err != nil || n != len(text) {
+			t.Fatalf("%s: append n=%d err=%v", f, n, err)
+		}
+		d, _ := s.dir("t1", "r", f)
+		set, _ := chunkFiles(d)
+		if len(set.all) != 1 || set.all[0].compressed != (f != "video") {
+			t.Fatalf("%s: chunks %+v", f, set.all)
+		}
+		if f != "video" && set.all[0].sealed >= int64(len(text)) {
+			t.Fatalf("%s: %d bytes on disk for %d of text", f, set.all[0].sealed, len(text))
+		}
+		got, _ := s.Read("t1", "r", f, 0)
+		if len(got) != 1 || !bytes.Equal(got[0].Data, text) {
+			t.Fatalf("%s: did not read back", f)
+		}
+		if total, _ := s.TotalPlaintextBytes("t1", "r", f); total != int64(len(text)) {
+			t.Fatalf("%s: total %d, want %d", f, total, len(text))
+		}
+	}
+}
+
+func TestStoreReadsRawChunksFromBeforeCompression(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	if _, err := s.Append("t1", "r", "guac", 1, bytes.Repeat([]byte("b"), 500)); err != nil {
+		t.Fatal(err)
+	}
+	// Seq 0 as an older connector wrote it: sealed, not compressed.
+	d, _ := s.dir("t1", "r", "guac")
+	sealed, _ := s.seal([]byte("raw-zero;"))
+	if err := os.WriteFile(filepath.Join(d, "0.bin"), sealed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var all []byte
+	if err := s.EachChunk("t1", "r", "guac", 0, func(b []byte) error { all = append(all, b...); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if want := "raw-zero;" + strings.Repeat("b", 500); string(all) != want {
+		t.Fatalf("got %q", all)
+	}
+	if total, _ := s.TotalPlaintextBytes("t1", "r", "guac"); total != int64(len("raw-zero;")+500) {
+		t.Fatalf("total %d", total)
+	}
+}
+
+func TestStoreRewritingASeqLeavesOneAnswer(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	d, _ := s.dir("t1", "r", "guac")
+	if _, err := s.Append("t1", "r", "guac", 0, []byte("x")); err != nil { // too short to shrink: raw
+		t.Fatal(err)
+	}
+	long := bytes.Repeat([]byte("y"), 1000)
+	if _, err := s.Append("t1", "r", "guac", 0, long); err != nil { // compressed
+		t.Fatal(err)
+	}
+	set, _ := chunkFiles(d)
+	if len(set.all) != 1 || !set.all[0].compressed {
+		t.Fatalf("files %+v", set.all)
+	}
+	// Both spellings present (a rewrite cut short): the compressed one answers.
+	sealed, _ := s.seal([]byte("stale"))
+	os.WriteFile(filepath.Join(d, "0.bin"), sealed, 0o600)
+	got, _ := s.Read("t1", "r", "guac", 0)
+	if len(got) != 1 || !bytes.Equal(got[0].Data, long) {
+		t.Fatalf("read %d chunks", len(got))
+	}
+	if b, _ := s.Bytes("t1", "r"); b <= set.all[0].sealed {
+		t.Fatal("Bytes must count every file on disk, the stale one too")
+	}
+}
+
+func TestStoreIgnoresWorkInProgress(t *testing.T) {
+	s := newRecStore(t.TempDir(), testKey())
+	if _, err := s.Append("t1", "r", "guac", 0, []byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	rd, _ := s.recDir("t1", "r")
+	os.MkdirAll(filepath.Join(rd, ".video.new"), 0o700)
+	os.WriteFile(filepath.Join(rd, ".video.new", "0.bin"), make([]byte, 100), 0o600)
+	if f := s.Formats("t1", "r"); len(f) != 1 || f[0] != "guac" {
+		t.Fatalf("formats %v", f)
+	}
+}

@@ -17,9 +17,40 @@ COPY connector ./connector
 RUN cd connector && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags "-X main.Version=${VERSION}" -o /out/connector .
 
+# ---- guacenc ----
+# Recordings of graphical sessions (RDP, VNC) are turned into VP9 WebM video on
+# the connector once the session has ended (recmaint.go): a guac recording is a
+# drawing instruction stream that a player must replay from the start to reach
+# any point, at 1-10 MB a minute; the video seeks anywhere and is a fraction of
+# the size. guacenc is Apache's encoder for exactly this, built from the same
+# 1.6.0 source as guacd with guacd/guacenc-for-recordings.patch (codec, output,
+# framerate, keyframe interval and encoder options on the command line; a crash
+# on RDP recordings fixed). Built for the target platform, not cross-compiled.
+FROM alpine:3.20 AS guacenc
+ARG GUAC_VERSION=1.6.0
+RUN apk add --no-cache build-base curl patch cairo-dev libjpeg-turbo-dev libpng-dev libwebp-dev \
+      util-linux-dev openssl-dev ffmpeg-dev ffmpeg
+WORKDIR /build
+RUN curl -fsSL "https://archive.apache.org/dist/guacamole/${GUAC_VERSION}/source/guacamole-server-${GUAC_VERSION}.tar.gz" | tar xz
+COPY guacd/guacenc-for-recordings.patch guacd/guacenc_test.sh ./
+RUN cd guacamole-server-${GUAC_VERSION} \
+ && patch -p1 < ../guacenc-for-recordings.patch \
+ && ./configure --prefix=/opt/guacamole --disable-guacd --disable-guaclog --without-rdp --without-vnc \
+      --without-ssh --without-telnet --without-websockets --without-pulse --without-vorbis >/dev/null \
+ && make -C src/libguac -j"$(nproc)" >/dev/null && make -C src/libguac install >/dev/null \
+ && make -C src/guacenc -j"$(nproc)" >/dev/null && make -C src/guacenc install >/dev/null \
+ && rm -rf /opt/guacamole/include /opt/guacamole/share /opt/guacamole/lib/*.a /opt/guacamole/lib/*.la
+# The patch must do what it says before the image exists (guacenc_test.sh lists
+# what is checked).
+RUN ./guacenc_test.sh
+
 # ---- run ----
 FROM alpine:3.20
-RUN mkdir -p /data && adduser -D -H -u 10001 connector && chown connector /data
+# ffmpeg: guacenc's codecs, and ffprobe/ffmpeg to check a finished video and to
+# repair an isolated-browser one whose session was cut off before it was closed.
+RUN apk add --no-cache ffmpeg cairo libjpeg-turbo libpng libwebp libuuid \
+ && mkdir -p /data && adduser -D -H -u 10001 connector && chown connector /data
+COPY --from=guacenc /opt/guacamole /opt/guacamole
 COPY --from=build /out/connector /usr/local/bin/connector
 USER connector
 VOLUME ["/data"]

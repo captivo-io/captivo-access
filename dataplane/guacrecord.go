@@ -19,7 +19,7 @@ const (
 	recFlushInterval = 2 * time.Second
 )
 
-// recordingMaxBytes is the OPTIONAL per-recording cumulative (pre-gzip) byte cap,
+// recordingMaxBytes is the OPTIONAL per-recording cumulative (uncompressed) byte cap,
 // read from RECORDING_MAX_BYTES. Zero means no cap: a recording runs as long as its
 // session. There is no built-in default on purpose. The 500 MiB one that shipped
 // from 2026-08 to 2.1.3 guarded the control plane's own disk back when recordings

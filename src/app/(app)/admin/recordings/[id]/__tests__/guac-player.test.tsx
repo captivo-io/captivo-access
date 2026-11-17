@@ -31,7 +31,7 @@ vi.mock("guacamole-common-js", () => lib.mod);
 import { GuacRecordingPlayer } from "../guac-recording-player";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-const button = () => document.querySelector(".guac-recording-controls button") as HTMLButtonElement;
+const button = () => document.querySelector(".rec-controls .rec-play") as HTMLButtonElement;
 const tick = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
 describe("guac recording player: plays while the recording downloads", () => {
@@ -92,13 +92,13 @@ describe("guac recording player: plays while the recording downloads", () => {
   });
 });
 
-const seekBar = () => document.querySelector(".guac-recording-controls input") as HTMLInputElement;
+const seekBar = () => document.querySelector(".rec-controls .rec-seek") as HTMLInputElement;
 // Set a range input's value the way a drag does, so React's onChange sees it.
 const drag = (v: number) => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(seekBar(), String(v));
   seekBar().dispatchEvent(new Event("input", { bubbles: true }));
 };
-const clock = () => (document.querySelector(".guac-recording-controls .cell-sub") as HTMLElement).textContent;
+const clock = () => (document.querySelector(".rec-controls .rec-time") as HTMLElement).textContent;
 
 describe("guac recording player: clock and bar", () => {
   beforeEach(() => {
