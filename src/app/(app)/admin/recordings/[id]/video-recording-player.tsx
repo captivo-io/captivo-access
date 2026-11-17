@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { KeystrokeTimeline } from "./keystroke-timeline";
-import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
+import { PlaybackBar, playerKeys, toggleFullscreen, type PlayerShell } from "./playback-bar";
 
 /**
  * Plays a recording stored as WebM: an isolated-browser session, and an RDP/VNC
@@ -13,7 +12,7 @@ import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
  * the file states none (an isolated-browser video cut off before its session
  * closed, until the connector repairs it).
  */
-export function VideoRecordingPlayer({ id, durationMs = 0 }: { id: string; durationMs?: number }) {
+export function VideoRecordingPlayer({ id, durationMs = 0, shell = {} }: { id: string; durationMs?: number; shell?: PlayerShell }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [ready, setReady] = useState(false);
@@ -40,7 +39,11 @@ export function VideoRecordingPlayer({ id, durationMs = 0 }: { id: string; durat
       setBuffered(end * 1000);
     };
     const on: Array<[string, () => void]> = [
-      ["loadedmetadata", () => { length(); setReady(true); }],
+      ["loadedmetadata", () => {
+        length();
+        setReady(true);
+        if (shell.startMs) { v.currentTime = shell.startMs / 1000; setPosition(shell.startMs); }
+      }],
       ["durationchange", length],
       ["timeupdate", () => { setPosition(v.currentTime * 1000); bufferedEnd(); }],
       ["progress", bufferedEnd],
@@ -53,8 +56,22 @@ export function VideoRecordingPlayer({ id, durationMs = 0 }: { id: string; durat
       ["error", () => setError("Couldn't load this recording. Its connector may be offline; try again in a moment.")],
     ];
     for (const [e, f] of on) v.addEventListener(e, f);
+    // The element is in the server's HTML and may have its metadata before
+    // these listeners exist (a fast or cached answer): take it now, or the
+    // player would wait for an event that already fired.
+    if (v.readyState >= HTMLMediaElement.HAVE_METADATA) on[0][1]();
     return () => { for (const [e, f] of on) v.removeEventListener(e, f); };
+    // The start point is read once, when the video first loads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [durationMs]);
+
+  const { onState, control } = shell;
+  useEffect(() => { onState?.({ position, total: duration, playing, ready, speed }); }, [onState, position, duration, playing, ready, speed]);
+  useEffect(() => {
+    if (!control) return;
+    control.current = { seek: (ms, play) => { seekTo(ms); if (play) void videoRef.current?.play().catch(() => {}); } };
+    return () => { control.current = null; };
+  });
 
   function toggle() {
     const v = videoRef.current;
@@ -78,8 +95,9 @@ export function VideoRecordingPlayer({ id, durationMs = 0 }: { id: string; durat
 
   return (
     <>
-      <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d))}>
+      <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d), changeSpeed)}>
         <div className="rec-stage">
+          {shell.overlay}
           <video
             ref={videoRef}
             src={`/api/admin/recordings/${id}/video`}
@@ -100,16 +118,11 @@ export function VideoRecordingPlayer({ id, durationMs = 0 }: { id: string; durat
           speed={speed}
           onSpeed={changeSpeed}
           onFullscreen={() => toggleFullscreen(playerRef.current)}
+          markers={shell.markers}
+          wide={shell.wide}
+          onWide={shell.onWide}
         />
       </div>
-      <KeystrokeTimeline
-        recordingId={id}
-        onJump={(ms) => {
-          seekTo(ms);
-          void videoRef.current?.play().catch(() => {});
-        }}
-        disabled={!ready}
-      />
     </>
   );
 }
