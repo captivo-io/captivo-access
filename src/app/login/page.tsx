@@ -50,7 +50,7 @@ async function LoginPageImpl({
 
   return (
     <AuthShell>
-      <LoginForm returnTo={returnTo} ssoEnabled={ssoEnabled} ssoLabel={ssoLabel} ssoError={errorMsg} />
+      <LoginForm returnTo={returnTo} ssoEnabled={ssoEnabled} ssoLabel={ssoLabel} ssoIsCaptivo={sso?.isPlatform === true} ssoError={errorMsg} />
     </AuthShell>
   );
 }

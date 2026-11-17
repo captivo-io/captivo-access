@@ -8,7 +8,7 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type Hover = { dow: number; hour: number; v: number; x: number; y: number };
 
-export function Heatmap({ heatmap }: { heatmap: Insights["heatmap"] }) {
+export function Heatmap({ heatmap, rangeDays = 30 }: { heatmap: Insights["heatmap"]; rangeDays?: number }) {
   const [hov, setHov] = useState<Hover | null>(null);
   const tz = useEffectiveTimezone();
   // Counted in UTC; shown in the viewer's zone when it is a whole-hour offset.
@@ -18,7 +18,7 @@ export function Heatmap({ heatmap }: { heatmap: Insights["heatmap"] }) {
   const max = Math.max(1, heatmap.max);
   return (
     <>
-      <div className="card-head"><div className="ch-title"><h2>Traffic by hour</h2><span className="sub">day × hour ({zone}), last 30 days</span></div></div>
+      <div className="card-head"><div className="ch-title"><h2>Traffic by hour</h2><span className="sub">day × hour ({zone}), last {rangeDays} days</span></div></div>
       <div className="heatmap-wrap" onMouseLeave={() => setHov(null)}>
         <div className="heatmap">
           {grid.map((rowVals, dow) => (
@@ -28,7 +28,7 @@ export function Heatmap({ heatmap }: { heatmap: Insights["heatmap"] }) {
                 <span
                   key={h}
                   className={`heatmap-cell${hov && hov.dow === dow && hov.hour === h ? " hot" : ""}`}
-                  style={{ opacity: v === 0 ? 0.06 : 0.18 + 0.82 * (v / max) }}
+                  style={{ background: v === 0 ? "rgba(var(--ink-rgb),.05)" : `rgba(var(--p-rgb),${(0.15 + 0.75 * (v / max)).toFixed(2)})` }}
                   onMouseEnter={(e) => {
                     const wrap = e.currentTarget.closest(".heatmap-wrap") as HTMLElement;
                     const r = wrap.getBoundingClientRect();

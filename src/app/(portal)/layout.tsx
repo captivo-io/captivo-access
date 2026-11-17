@@ -1,47 +1,41 @@
-import Link from "next/link";
 import { requireUser } from "@/lib/current-user";
-import { isConsoleUser } from "@/lib/auth/roles";
+import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
+import { can } from "@/lib/auth/roles";
+import { getSearchRecords } from "@/lib/search";
+import { buildNavModel } from "@/lib/nav/model";
+import { getShellData } from "@/lib/nav/shell-data";
+import { getProductMenu } from "@/lib/products/switcher-data";
 import { resolvedDisplayTimezone } from "@/lib/settings/timezone";
 import { TimezoneProvider } from "@/app/(app)/_shell/timezone-context";
-import { PlatformAnnouncement } from "@/components/platform-announcement";
-import { LogoutButton } from "../(app)/logout-button";
-import { PortalNav } from "./_nav/portal-nav";
-import { PortalMobileNav } from "./_nav/portal-mobile-nav";
-import { BrandLockup } from "@/components/brand";
-import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Shell } from "@/app/(app)/_shell/shell";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
 
-// Light, self-contained shell for connect-only (vendor) users. No admin sidebar.
-// Theme-independent: explicit light palette, Public Sans.
+// A person's own access (My access, requests, history, preferences): the same
+// shell as the console, with the User menu. Someone who also runs the console
+// gets the Admin / User switch at the foot of the sidebar.
 async function PortalLayoutImpl({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   const tz = await resolvedDisplayTimezone(user.id);
-  const initials = (user.name ?? user.email ?? "?").trim().slice(0, 2).toUpperCase();
+  const { counts, workspace } = await getShellData(user);
+  const model = buildNavModel(user.role, counts);
+  const records = can(user.role, "read_console") ? await getSearchRecords() : [];
+  const products = await getProductMenu();
   return (
     <TimezoneProvider tz={tz}>
-    <div className="vp-root">
-      <div className="vp-brandline" />
-      <header className="vp-nav">
-        <div className="vp-brand">
-          <BrandLockup size={30} />
-        </div>
-        <nav className="vp-navlinks">
-          <PortalNav />
-          {isConsoleUser(user.role) && <Link href="/" className="vp-navlink vp-navlink-admin">Console →</Link>}
-        </nav>
-        <span className="vp-sep" aria-hidden="true">|</span>
-        <div className="vp-navright">
-          <ThemeSwitcher />
-          <div className="vp-avatar">{initials}</div>
-          <LogoutButton />
-        </div>
-        <PortalMobileNav isAdmin={isConsoleUser(user.role)} initials={initials} />
-      </header>
-      <PlatformAnnouncement />
-      <div className="vp-body">{children}</div>
-    </div>
+      <Shell
+        model={model}
+        view="user"
+        records={records}
+        role={user.role}
+        products={products}
+        workspace={workspace}
+        user={{ name: user.name, email: user.email }}
+        accountUrl={captivoAccountUrl()}
+      >
+        {children}
+      </Shell>
     </TimezoneProvider>
   );
 }
@@ -49,4 +43,3 @@ async function PortalLayoutImpl({ children }: { children: React.ReactNode }) {
 export default async function PortalLayout(...args: Parameters<typeof PortalLayoutImpl>) {
   return withRequestTenant(() => PortalLayoutImpl(...args));
 }
-

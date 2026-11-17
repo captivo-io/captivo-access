@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { InviteForm } from "./invite-form";
 
-export function AddInviteButton({ smtpEnabled, vendorOnly }: { smtpEnabled: boolean; vendorOnly: boolean }) {
+export function AddInviteButton({ smtpEnabled, vendorOnly, initialOpen = false }: { smtpEnabled: boolean; vendorOnly: boolean; initialOpen?: boolean }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   // Refresh on close so the newly-created invite shows in the list.
   function close() {
     setOpen(false);

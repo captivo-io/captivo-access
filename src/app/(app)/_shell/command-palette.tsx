@@ -102,7 +102,7 @@ export function CommandPalette({ records, role }: { records: SearchRecord[]; rol
     <>
       <button className="cmd-trigger" onClick={() => setOpen(true)} aria-label="Search">
         <svg className="cmd-trigger-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-        <span className="cmd-trigger-text">Search…</span>
+        <span className="cmd-trigger-text">Search or run a command…</span>
         <kbd>{isMac ? "⌘" : "Ctrl"} K</kbd>
       </button>
       {open && <PaletteOverlay items={items} onClose={() => setOpen(false)} />}

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, it, expect } from "vitest";
 
 const read = (...p: string[]) => readFileSync(path.join(__dirname, ...p), "utf-8");
-const NAV = read("topnav.tsx");
+const NAV = read("sidebar.tsx");
 const LAYOUT = read("..", "layout.tsx");
 
 describe("the switcher is wired into the console", () => {
@@ -35,16 +35,16 @@ describe("the switcher is wired into the console", () => {
     expect(body).toContain("getProductMenu()");
   });
 
-  it("the nav renders nothing when there is no menu", () => {
+  it("the nav lists only the menu's other products, so an empty menu adds none", () => {
     // Self-hosted, no organisation, a silent centre and a single-product
     // organisation all arrive as an empty list.
-    expect(NAV).toMatch(/products\.length\s*>\s*0/);
+    expect(NAV).toMatch(/products\.filter\(\(p\) => p\.state !== "current"\)\.map/);
   });
 
   it("the nav reuses the existing menu machinery rather than a second one", () => {
     // A second dropdown would bring its own outside-click handling and could
     // sit open at the same time as the account menu.
-    expect(NAV).toMatch(/open === "products"/);
+    expect(NAV).toMatch(/menu === "products"/);
   });
 
   it("a product that needs setup is labelled, not just styled", () => {

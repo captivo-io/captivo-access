@@ -18,7 +18,8 @@ function inviteStatus(inv: { usedAt: Date | null; expiresAt: Date }): string {
   return "Pending";
 }
 
-async function AdminInvitesPageImpl() {
+async function AdminInvitesPageImpl({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
+  const openNew = (await searchParams).new === "1";
   await requireAdmin();
 
   const smtp = await getSmtpConfig();
@@ -48,7 +49,7 @@ async function AdminInvitesPageImpl() {
           <div className="page-title-row"><span className="page-icon"><InviteIcon /></span><h1>Invitations</h1></div>
           <p>{centerUrl ? "Invite a vendor. The invite link is shown only once." : "Invite a new vendor or admin. The invite link is shown only once."}</p>
         </div>
-        <AddInviteButton smtpEnabled={smtpEnabled} vendorOnly={!!centerUrl} />
+        <AddInviteButton smtpEnabled={smtpEnabled} vendorOnly={!!centerUrl} initialOpen={openNew} />
       </div>
 
       {centerUrl && (

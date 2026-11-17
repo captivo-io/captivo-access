@@ -7,11 +7,14 @@ import type { Role } from "@/generated/prisma/enums";
 export function AddGrantButton({
   users,
   sites,
+  initialOpen = false,
 }: {
   users: { id: string; name: string; email: string; role: Role }[];
   sites: { id: string; name: string }[];
+  /** Open on arrival (the console's "+ Grant access" links here with ?new=1). */
+  initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   return (
     <>
       <button type="button" className="btn primary" onClick={() => setOpen(true)}>

@@ -1,61 +1,64 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { buildNavModel } from "./model";
+import { buildNavModel, navLabel } from "./model";
+
+const hrefs = (m: ReturnType<typeof buildNavModel>) => m.admin.flatMap((s) => s.items.map((i) => i.href));
 
 describe("buildNavModel", () => {
-  it("ADMIN: full primary + both groups + badges", () => {
-    const m = buildNavModel("ADMIN", { pending: 3, unread: 5 });
-    expect(m.primary.map((i) => i.label)).toEqual(["Console", "Access", "Sessions", "Recordings", "Audit", "Insights"]);
-    expect(m.primary.find((i) => i.label === "Access")?.badge).toBe(3);
-    expect(m.groups.map((g) => g.label)).toEqual(["Infrastructure", "People"]);
-    // Infrastructure: 3 labeled columns
-    expect(m.groups[0].columns.map((c) => c.heading)).toEqual(["Connectivity", "Identity & access", "Platform"]);
-    expect(m.groups[0].columns.flatMap((c) => c.items).map((i) => i.href)).toEqual([
-      "/admin/connectors", "/admin/sites", "/admin/domain",
-      "/admin/directory", "/admin/sso", "/admin/policy",
+  it("ADMIN: every section, with badges where there is something to count", () => {
+    const m = buildNavModel("ADMIN", { pending: 3, unread: 5, live: 1, outdatedConnectors: 2, unreachableResources: 0 });
+    expect(m.admin.map((s) => s.label)).toEqual(["Overview", "Operate", "Infrastructure", "Identity & access", "Platform"]);
+    expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Sessions", "Recordings", "Audit"]);
+    const item = (label: string) => m.admin.flatMap((s) => s.items).find((i) => i.label === label);
+    expect(item("Grants")).toMatchObject({ badge: 3, badgeTone: "warn" });
+    expect(item("Sessions")).toMatchObject({ badge: 1, badgeTone: "ok" });
+    expect(item("Connectors")).toMatchObject({ badge: 2, badgeTone: "warn" });
+    expect(item("Resources")?.badge, "a zero is not shown").toBeUndefined();
+    expect(hrefs(m)).toEqual(expect.arrayContaining([
+      "/", "/admin/insights", "/admin/grants", "/admin/live", "/admin/recordings", "/admin/audit",
+      "/admin/connectors", "/admin/sites", "/admin/policy",
+      "/admin/users", "/admin/invites", "/admin/directory", "/admin/sso", "/admin/sessions",
       "/admin/email", "/admin/updates",
-    ]);
-    // every Infrastructure item carries an icon + description
-    expect(m.groups[0].columns.flatMap((c) => c.items).every((i) => i.icon && i.desc)).toBe(true);
-    // People: 1 column of 3
-    expect(m.groups[1].columns).toHaveLength(1);
-    expect(m.groups[1].columns[0].heading).toBe("Team & sessions");
-    expect(m.groups[1].columns[0].items.map((i) => i.href)).toEqual(["/admin/users", "/admin/invites", "/admin/sessions"]);
+    ]));
+    expect(m.canSwitchView).toBe(true);
     expect(m.showSearch).toBe(true);
-    expect(m.showNotifications).toBe(true);
     expect(m.notificationsBadge).toBe(5);
   });
-  it("OPERATOR: read-console + grants badge, no config groups, no Recordings", () => {
+  it("OPERATOR: overview and operations, grants badge, no configuration", () => {
     const m = buildNavModel("OPERATOR", { pending: 2, unread: 0 });
-    expect(m.primary.map((i) => i.label)).toEqual(["Console", "Access", "Sessions", "Audit", "Insights"]);
-    expect(m.primary.find((i) => i.label === "Access")?.badge).toBe(2);
-    expect(m.groups).toEqual([]);
-    expect(m.showSearch).toBe(true);
+    expect(m.admin.map((s) => s.label)).toEqual(["Overview", "Operate"]);
+    expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Sessions", "Audit"]);
+    expect(m.admin[1].items[0].badge).toBe(2);
   });
-  it("AUDITOR: read-console, no grants badge, no config groups", () => {
+  it("AUDITOR: no grants badge", () => {
     const m = buildNavModel("AUDITOR", { pending: 9, unread: 1 });
-    expect(m.primary.map((i) => i.label)).toEqual(["Console", "Access", "Sessions", "Audit", "Insights"]);
-    expect(m.primary.find((i) => i.label === "Access")?.badge).toBeUndefined();
-    expect(m.groups).toEqual([]);
+    expect(m.admin[1].items[0].badge).toBeUndefined();
     expect(m.notificationsBadge).toBe(1);
   });
-  it("VENDOR: empty (never in console)", () => {
-    const m = buildNavModel("VENDOR", { pending: 0, unread: 0 });
-    expect(m.primary).toEqual([]);
-    expect(m.groups).toEqual([]);
+  it("VENDOR: only their own access, no switch", () => {
+    const m = buildNavModel("VENDOR", { pending: 0, unread: 0, myPending: 1 });
+    expect(m.admin).toEqual([]);
+    expect(m.canSwitchView).toBe(false);
     expect(m.showSearch).toBe(false);
-    expect(m.showNotifications).toBe(false);
+    expect(m.user[0].items.map((i) => i.href)).toEqual(["/access", "/requests", "/history", "/preferences"]);
+    expect(m.user[0].items[1].badge).toBe(1);
+  });
+  it("names the current page for the breadcrumb, by its longest matching item", () => {
+    const m = buildNavModel("ADMIN", { pending: 0, unread: 0 });
+    expect(navLabel(m, "/")).toBe("Console");
+    expect(navLabel(m, "/admin/recordings/abc")).toBe("Recordings");
+    expect(navLabel(m, "/access")).toBe("My access");
+    expect(navLabel(m, "/nowhere")).toBeNull();
   });
 });
 
 describe("buildNavModel — Cloud", () => {
   afterEach(() => vi.unstubAllEnvs());
-  const hrefs = (role: "ADMIN") => buildNavModel(role, { pending: 0, unread: 0 }).groups.flatMap((g) => g.columns.flatMap((c) => c.items.map((i) => i.href)));
   it("hides the self-host Custom domain page when MULTI_TENANT is on", () => {
     vi.stubEnv("MULTI_TENANT", "1");
-    expect(hrefs("ADMIN")).not.toContain("/admin/domain");
+    expect(hrefs(buildNavModel("ADMIN", { pending: 0, unread: 0 }))).not.toContain("/admin/domain");
   });
   it("shows it on self-host", () => {
     vi.stubEnv("MULTI_TENANT", "0");
-    expect(hrefs("ADMIN")).toContain("/admin/domain");
+    expect(hrefs(buildNavModel("ADMIN", { pending: 0, unread: 0 }))).toContain("/admin/domain");
   });
 });

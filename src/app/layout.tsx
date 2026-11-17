@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { grotesk, plexMono, plexSans, publicSans } from "./fonts";
+import { geist, geistMono, grotesk } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,20 +10,20 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0b0e14" },
-    { media: "(prefers-color-scheme: light)", color: "#f7f8fc" },
+    { media: "(prefers-color-scheme: dark)", color: "#080b14" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f4f7" },
   ],
 };
 
+// The theme before first paint: the family's captivo-theme cookie, else this
+// host's old ca-theme setting, else dark (see components/theme-switcher.tsx).
+const THEME_SCRIPT = `(function(){var t='dark';try{var m=document.cookie.match(/(?:^|; )captivo-theme=(light|dark)/);if(m){t=m[1];}else{var p=localStorage.getItem('ca-theme');if(p==='light'||p==='dark')t=p;}}catch(e){}document.documentElement.dataset.theme=t;})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${publicSans.variable} ${grotesk.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} ${grotesk.variable}`} suppressHydrationWarning>
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var p=localStorage.getItem('ca-theme');var t=(p==='light'||p==='dark')?p:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='light';}})();`,
-          }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body>{children}</body>
     </html>

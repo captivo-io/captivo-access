@@ -11,12 +11,15 @@ export function Modal({
   open,
   onClose,
   title,
+  subtitle,
   size = "md",
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** A line under the title. */
+  subtitle?: string;
   size?: "sm" | "md" | "lg";
   children: React.ReactNode;
 }) {
@@ -81,7 +84,10 @@ export function Modal({
         aria-labelledby={titleId}
       >
         <div className="modal-head">
-          <h2 id={titleId}>{title}</h2>
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            {subtitle && <p className="modal-sub">{subtitle}</p>}
+          </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
             ✕
           </button>

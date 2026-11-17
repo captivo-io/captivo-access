@@ -96,7 +96,7 @@ describe("fonts are bundled, not fetched", () => {
     expect(ofl).toContain("SIL OPEN FONT LICENSE Version 1.1");
     const readme = readFileSync("src/app/fonts/README.md", "utf8");
     // Redistribution obligation: each family's copyright holder must be named.
-    for (const holder of ["IBM Corp", "Impallari Type", "Florian Karsten"]) {
+    for (const holder of ["The Geist Project Authors", "Florian Karsten"]) {
       expect(readme, `README does not credit ${holder}`).toContain(holder);
     }
     // Every shipped file must appear in the README table, or it travels uncredited.

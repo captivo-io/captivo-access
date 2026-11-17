@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const GO = readFileSync(path.join(__dirname, "page.tsx"), "utf-8");
-const TOPNAV = readFileSync(path.join(__dirname, "..", "_shell", "topnav.tsx"), "utf-8");
+const TOPNAV = readFileSync(path.join(__dirname, "..", "_shell", "sidebar.tsx"), "utf-8");
 
 /**
  * Captivo remembers which product a person last entered, so a sign-in with no
