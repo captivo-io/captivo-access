@@ -227,10 +227,23 @@ func (p *BrowserProxy) consentPage(w http.ResponseWriter, r *http.Request) {
 // production use.
 type proxyControl interface {
 	ResolveSession(token string) (userID, email string, err error)
-	SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, keystrokes bool, err error)
+	SiteByHost(host string) (siteRoute, error)
 	CheckAccess(userID, siteID, clientIP string) (allow bool, reason string, err error)
 	RecorderJS() ([]byte, error)
 	SendRecording(userID, siteID, host string, body []byte) error
+}
+
+// siteRoute is what the control plane says about the site published at a host.
+type siteRoute struct {
+	SiteID, ConnectorID, TenantID, Upstream string
+	ClipboardMode                           string
+	FileTransferMode                        string // allow | no_upload | no_download | none
+	InsecureSkipVerify                      bool
+	RecordSessions                          bool
+	Gateway                                 bool
+	ConsentRequired                         bool
+	Watermark                               bool
+	Keystrokes                              bool
 }
 
 // BrowserProxy is the browser-facing identity-aware reverse proxy: it
@@ -260,7 +273,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Site by host.
-	siteID, connectorID, tenantID, upstream, clipboardMode, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, keystrokes, err := p.ctrl.SiteByHost(host)
+	site, err := p.ctrl.SiteByHost(host)
 	if err != nil {
 		if errors.Is(err, ErrNoSite) {
 			errorPage(w, http.StatusNotFound, "No application here", "There's no application published at this address.", "Check the link, or contact your administrator.")
@@ -269,6 +282,10 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	siteID, connectorID, tenantID, upstream := site.SiteID, site.ConnectorID, site.TenantID, site.Upstream
+	clipboardMode, insecureSkipVerify, recordSessions, gateway := site.ClipboardMode, site.InsecureSkipVerify, site.RecordSessions, site.Gateway
+	consentRequired, watermark, keystrokes := site.ConsentRequired, site.Watermark, site.Keystrokes
+	allowUpload, allowDownload := fileTransferAllows(site.FileTransferMode)
 
 	// 3. Access decision.
 	allow, reason, err := p.ctrl.CheckAccess(userID, siteID, trustedClientIP(r))
@@ -317,6 +334,25 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Uploads: a multipart body with a file in it never reaches the app when
+	// uploads are off (held back until a file part shows or the form ends);
+	// otherwise its files are noted on the way through for the audit log.
+	var reqBody io.Reader = r.Body
+	var uploads func() []webFile
+	if boundary, ok := multipartBoundary(r); ok {
+		if !allowUpload {
+			fwd, f := screenUpload(r.Body, boundary)
+			if f != nil {
+				p.audit.Enqueue(webTransferEvent(true, false, *f, userID, siteID, host, r))
+				errorPage(w, http.StatusForbidden, "Upload not allowed", "File uploads are turned off for this application.", "Contact your administrator if you need to send files.")
+				return
+			}
+			reqBody = fwd
+		} else {
+			reqBody, uploads = observeUploads(r.Body, boundary)
+		}
+	}
+
 	// 4. Stream through the connector.
 	sess := p.reg.Get(connectorID)
 	if sess == nil || sess.mux == nil {
@@ -332,10 +368,17 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	reqHeaders := sanitizeReqHeaders(r, host)
 	setGatewayIdentity(reqHeaders, gateway, email)
-	if recordSessions {
+	watermarkText := ""
+	if watermark && !gateway {
+		watermarkText = email
+	}
+	inj := injections{record: recordSessions, keystrokes: keystrokes, clipboardMode: clipboardMode, watermarkText: watermarkText, upload: allowUpload, download: allowDownload}
+	if inj.any() {
 		// Force uncompressed HTML from the upstream so the response-path
-		// injection below (Step 3) can buffer, modify, and recompute
-		// Content-Length without also having to decompress it.
+		// injection below can buffer, modify, and recompute Content-Length
+		// without also having to decompress it. (Only recording asked for
+		// this before, so a compressing app lost the clipboard guard and the
+		// watermark.)
 		reqHeaders["Accept-Encoding"] = []string{"identity"}
 	}
 	dr := tunnel.DialRequest{
@@ -364,7 +407,7 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// above guarantees this goroutine unblocks (WriteBody returns an error
 	// that's safe to ignore) once the handler returns.
 	go func() {
-		_ = tunnel.WriteBody(st, r.Body)
+		_ = tunnel.WriteBody(st, reqBody)
 	}()
 
 	respBytes, err := tunnel.ReadFrame(st)
@@ -382,14 +425,30 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Downloads: an attachment is not sent when downloads are off.
+	var download *webFile
+	if resp.Status/100 == 2 && r.Method != http.MethodHead {
+		download, _ = attachmentFile(resp.Header, r.URL.Path)
+	}
+	if download != nil && !allowDownload {
+		p.audit.Enqueue(webTransferEvent(false, false, *download, userID, siteID, host, r))
+		errorPage(w, http.StatusForbidden, "Download not allowed", "File downloads are turned off for this application.", "Contact your administrator if you need this file.")
+		return
+	}
+
 	copyRespHeaders(w.Header(), resp.Header)
 	body := tunnel.NewBodyReader(st)
-	watermarkText := ""
-	if watermark && !gateway {
-		watermarkText = email
-	}
-	written := p.writeProxyResponse(w, resp, body, recordSessions, keystrokes, clipboardMode, watermarkText)
+	written := p.writeProxyResponse(w, resp, body, inj)
 	accessLog(userID, siteID, host, r.Method, r.URL.Path, resp.Status, written)
+	if uploads != nil {
+		for _, f := range uploads() {
+			p.audit.Enqueue(webTransferEvent(true, true, f, userID, siteID, host, r))
+		}
+	}
+	if download != nil {
+		download.size = written
+		p.audit.Enqueue(webTransferEvent(false, true, *download, userID, siteID, host, r))
+	}
 	// Emit a single session_open when a new web span starts (so the activity feed
 	// shows one "connected" like gateway/isolated), then the per-request ALLOW —
 	// which stays in the audit log for compliance but is collapsed out of the feed.
@@ -400,26 +459,26 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeProxyResponse writes the upstream response (status, already-copied
-// headers, and body) to w, returning the number of body bytes written. For
-// recorded Sites whose response Content-Type starts with text/html, it
-// buffers the body (capped at maxInjectableBodyBytes), injects the recorder
-// script tag, strips the response's CSP headers (which would otherwise
-// block the injected script and the recorder's own outbound requests), and
-// recomputes Content-Length. Every other response — non-recorded Sites,
-// non-HTML content types, and oversized HTML bodies — is streamed exactly
-// as it arrives, unmodified.
-func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.DialResponse, body io.Reader, recordSessions, keystrokes bool, clipboardMode, watermarkText string) int64 {
-	// Two independent reasons to buffer + rewrite an HTML body: session
-	// recording (inject the rrweb recorder) and clipboard restriction
-	// (inject the clipboard guard). Either one needs the same treatment —
-	// buffer, inject before </body>, strip CSP so the injected inline
-	// script runs. When neither applies, stream the body through untouched.
-	inject := recordSessions || clipboardRestricted(clipboardMode) || watermarkText != ""
+// headers, and body) to w, returning the number of body bytes written. When
+// the site needs something added to its pages (inj) and the response
+// Content-Type starts with text/html, it buffers the body (capped at
+// maxInjectableBodyBytes), injects the scripts, strips the response's CSP
+// headers (which would otherwise block the injected scripts and the
+// recorder's own outbound requests), and recomputes Content-Length. Every
+// other response — nothing to inject, non-HTML content types, and oversized
+// HTML bodies — is streamed exactly as it arrives, unmodified.
+func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.DialResponse, body io.Reader, inj injections) int64 {
+	// Several independent reasons to buffer + rewrite an HTML body: session
+	// recording (inject the rrweb recorder), clipboard restriction, the
+	// watermark and file transfer restriction. Any of them needs the same
+	// treatment — buffer, inject before </body>, strip CSP so the injected
+	// inline script runs. When none applies, stream the body through untouched.
+	//
 	// isCompressed: an upstream that ignored the Accept-Encoding: identity
-	// sent toward it (Step 2) and returned compressed HTML anyway must not
-	// have its bytes mangled by injectRecorder, which only understands raw
-	// HTML — stream it through unchanged instead, same as the non-HTML path.
-	if !inject || !isHTMLContentType(resp.Header) || isCompressed(resp.Header) {
+	// sent toward it and returned compressed HTML anyway must not have its
+	// bytes mangled by injectRecorder, which only understands raw HTML —
+	// stream it through unchanged instead, same as the non-HTML path.
+	if !inj.any() || !isHTMLContentType(resp.Header) || isCompressed(resp.Header) {
 		w.WriteHeader(resp.Status)
 		written, _ := io.Copy(w, body)
 		return written
@@ -440,16 +499,19 @@ func (p *BrowserProxy) writeProxyResponse(w http.ResponseWriter, resp tunnel.Dia
 	}
 
 	injected := buf
-	if recordSessions && keystrokes {
+	if inj.record && inj.keystrokes {
 		injected = injectBeforeBody(injected, []byte(recorderScriptTagKeys))
-	} else if recordSessions {
+	} else if inj.record {
 		injected = injectRecorder(injected)
 	}
-	if clipboardRestricted(clipboardMode) {
-		injected = injectBeforeBody(injected, []byte(clipboardScript(clipboardMode)))
+	if clipboardRestricted(inj.clipboardMode) {
+		injected = injectBeforeBody(injected, []byte(clipboardScript(inj.clipboardMode)))
 	}
-	if watermarkText != "" {
-		injected = injectBeforeBody(injected, []byte(watermarkScript(watermarkText)))
+	if inj.watermarkText != "" {
+		injected = injectBeforeBody(injected, []byte(watermarkScript(inj.watermarkText)))
+	}
+	if !inj.upload || !inj.download {
+		injected = injectBeforeBody(injected, []byte(fileTransferScript(inj.upload, inj.download)))
 	}
 	w.Header().Del("Content-Security-Policy")
 	w.Header().Del("Content-Security-Policy-Report-Only")
@@ -502,6 +564,18 @@ func isCompressed(header map[string][]string) bool {
 // by serveRecording, never proxied upstream) with `defer` so it never blocks
 // page rendering.
 const recorderScriptTag = `<script src="/__captivo/rec.js" defer></script>`
+
+// injections is what an HTML page of a site gets added to it.
+type injections struct {
+	record, keystrokes bool
+	clipboardMode      string
+	watermarkText      string
+	upload, download   bool // file transfer allowed; either false injects fileTransferScript
+}
+
+func (i injections) any() bool {
+	return i.record || clipboardRestricted(i.clipboardMode) || i.watermarkText != "" || !i.upload || !i.download
+}
 
 // recorderScriptTagKeys is the same bundle told to log typed input as well
 // (record-init.ts reads data-keys from its own script tag). Credential fields

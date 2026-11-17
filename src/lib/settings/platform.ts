@@ -32,6 +32,7 @@ export interface PlatformSettings {
   recordingMode: string | null;
   isolatedEgressDefault: string | null;
   isolatedFileTransferDefault: string | null;
+  webAppFileTransferDefault: string | null;
 }
 
 const EMPTY: PlatformSettings = {
@@ -57,6 +58,7 @@ const EMPTY: PlatformSettings = {
   recordingMode: null,
   isolatedEgressDefault: null,
   isolatedFileTransferDefault: null,
+  webAppFileTransferDefault: null,
 };
 
 // Keyed by tenant id: a single un-keyed slot would let one tenant's settings
@@ -98,6 +100,7 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
     recordingMode: c?.recordingMode ?? null,
     isolatedEgressDefault: c?.isolatedEgressDefault ?? null,
     isolatedFileTransferDefault: c?.isolatedFileTransferDefault ?? null,
+    webAppFileTransferDefault: c?.webAppFileTransferDefault ?? null,
   };
   cache.set(tid, { s, at: Date.now() });
   return s;
@@ -216,6 +219,14 @@ export const FILE_TRANSFER_MODES = ["allow", "no_upload", "no_download", "none"]
 export async function resolvedIsolatedFileTransferDefault(): Promise<string> {
   const s = await getPlatformSettings();
   return s.isolatedFileTransferDefault && FILE_TRANSFER_MODES.includes(s.isolatedFileTransferDefault) ? s.isolatedFileTransferDefault : "none";
+}
+
+// Web app file transfer for resources that inherit (Site.fileTransferMode
+// null). Unknown/null → "allow": web apps had no file control before, so
+// turning it on is an admin's decision, never an upgrade's.
+export async function resolvedWebAppFileTransferDefault(): Promise<string> {
+  const s = await getPlatformSettings();
+  return s.webAppFileTransferDefault && FILE_TRANSFER_MODES.includes(s.webAppFileTransferDefault) ? s.webAppFileTransferDefault : "allow";
 }
 
 // Coerce a stored clipboard default to a concrete mode; unknown/null → "allow".

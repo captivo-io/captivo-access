@@ -212,7 +212,11 @@ Shipped and working today:
   watermark is laid over web apps and remote desktops in the vendor's browser.
   Per-direction **file transfer** (upload into the browser / download out) is off
   by default and gated per Resource; transfers are ephemeral and audited (uploads are capped by
-  `ISOLATED_FT_MAX_BYTES`, default 100 MiB). A Resource's
+  `ISOLATED_FT_MAX_BYTES`, default 100 MiB). Web apps get per-direction file
+  transfer too (Policy default: allowed): the proxy refuses attachments and
+  multipart file uploads when a direction is off and audits every file either
+  way. It controls file-shaped traffic, not what the page shows or builds
+  itself, so strict control is the isolated browser's job. A Resource's
   access method is `TRANSPARENT` (web app) / `GATEWAY` (remote desktop) / `ISOLATED`
   (isolated browser).
 - **In-session control panel + on-screen keyboard** — remote-desktop and

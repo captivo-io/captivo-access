@@ -20,20 +20,21 @@ import (
 // fakeControl is a stub proxyControl for tests: each field controls one of
 // the three control-plane calls' return values.
 type fakeControl struct {
-	watermark bool // SiteByHost: inject the DLP watermark overlay
-	keystrokes bool // SiteByHost: log typed input on this site
+	watermark        bool   // SiteByHost: inject the DLP watermark overlay
+	keystrokes       bool   // SiteByHost: log typed input on this site
+	fileTransferMode string // SiteByHost: web app file transfer; "" = allow
 
 	userID     string
 	email      string
 	resolveErr error
 
 	siteID, connID, tenantID, upstream string
-	clipboardMode            string
-	insecureSkipVerify       bool
-	recordSessions           bool
-	gateway                  bool
-	consentRequired          bool
-	siteErr                  error
+	clipboardMode                      string
+	insecureSkipVerify                 bool
+	recordSessions                     bool
+	gateway                            bool
+	consentRequired                    bool
+	siteErr                            error
 
 	allow     bool
 	reason    string
@@ -51,8 +52,17 @@ func (f *fakeControl) ResolveSession(string) (string, string, error) {
 	return f.userID, f.email, f.resolveErr
 }
 
-func (f *fakeControl) SiteByHost(string) (string, string, string, string, string, bool, bool, bool, bool, bool, bool, error) {
-	return f.siteID, f.connID, f.tenantID, f.upstream, f.clipboardMode, f.insecureSkipVerify, f.recordSessions, f.gateway, f.consentRequired, f.watermark, f.keystrokes, f.siteErr
+func (f *fakeControl) SiteByHost(string) (siteRoute, error) {
+	ft := f.fileTransferMode
+	if ft == "" {
+		ft = "allow"
+	}
+	return siteRoute{
+		SiteID: f.siteID, ConnectorID: f.connID, TenantID: f.tenantID, Upstream: f.upstream,
+		ClipboardMode: f.clipboardMode, FileTransferMode: ft, InsecureSkipVerify: f.insecureSkipVerify,
+		RecordSessions: f.recordSessions, Gateway: f.gateway, ConsentRequired: f.consentRequired,
+		Watermark: f.watermark, Keystrokes: f.keystrokes,
+	}, f.siteErr
 }
 
 func (f *fakeControl) CheckAccess(string, string, string) (bool, string, error) {
@@ -1083,7 +1093,7 @@ func TestTrustedClientIP(t *testing.T) {
 	// Client-spoofed XFF entry stays LEFT; the trusted proxy appends the real
 	// client on the RIGHT, which is what we must use.
 	r2 := httptest.NewRequest(http.MethodGet, "http://app/", nil)
-	r2.RemoteAddr = "10.0.0.2:5555" // nginx
+	r2.RemoteAddr = "10.0.0.2:5555"                           // nginx
 	r2.Header.Set("X-Forwarded-For", "1.2.3.4, 198.51.100.9") // "1.2.3.4" is the spoof
 	if got := trustedClientIP(r2); got != "198.51.100.9" {
 		t.Fatalf("spoofed-XFF: got %q, want 198.51.100.9 (rightmost)", got)

@@ -108,6 +108,7 @@ describe.skipIf(!OWNER_URL)("recordingMode is enforced at by-host and round-trip
       keystrokeLoggingMode: null,
       isolatedEgressDefault: null,
       isolatedFileTransferDefault: null,
+      webAppFileTransferDefault: null,
       recordingMode,
     };
   }
@@ -222,5 +223,24 @@ describe.skipIf(!OWNER_URL)("recordingMode is enforced at by-host and round-trip
     // Tenant B was never touched — its policy stays the reproduced default.
     const modeB = await withTenant(tenantB.id, () => resolvedRecordingMode());
     expect(modeB).toBe("per_resource");
+  });
+
+  it("web app file transfer: an inheriting site follows the Policy default, which starts at allow", async () => {
+    async function fileTransferFor(host: string): Promise<string> {
+      const res = await byHostPOST(byHostReq(host));
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { fileTransferMode: string }).fileTransferMode;
+    }
+    await owner.$executeRawUnsafe(`UPDATE "Site" SET "fileTransferMode" = NULL WHERE id = $1`, siteMain);
+    await owner.$executeRawUnsafe(`UPDATE "Site" SET "fileTransferMode" = 'no_upload' WHERE id = $1`, siteToggleOn);
+    await setRecordingMode(tenantA.id, "per_resource"); // also clears the web app default
+    expect(await fileTransferFor(hostMain)).toBe("allow");
+
+    mockHost = `${tenantA.slug}.example.test`;
+    const res = await policyPOST(policyReq({ webAppFileTransferDefault: "no_download" }));
+    expect(res.status).toBe(200);
+    expect(await fileTransferFor(hostMain)).toBe("no_download");
+    // A site's own choice wins over the Policy default.
+    expect(await fileTransferFor(hostToggleOn)).toBe("no_upload");
   });
 });

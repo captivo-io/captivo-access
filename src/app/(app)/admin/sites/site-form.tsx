@@ -98,6 +98,7 @@ export function SiteForm({
   watermarkDefault = false,
   egressDefault = "internet",
   fileTransferDefault = "none",
+  webFileTransferDefault = "allow",
   nativeGateway = false,
   isolationEnabled = false,
   hostSuffix = null,
@@ -115,6 +116,7 @@ export function SiteForm({
   watermarkDefault?: boolean; // resolved Policy watermark default
   egressDefault?: string; // resolved Policy network access for isolated resources
   fileTransferDefault?: string; // resolved Policy file transfer for isolated resources
+  webFileTransferDefault?: string; // resolved Policy file transfer for web apps
   nativeGateway?: boolean;
   isolationEnabled?: boolean;
   hostSuffix?: string | null;
@@ -711,6 +713,19 @@ export function SiteForm({
             <option value="none">Block both</option>
           </select>
           <span className="hint">Restricts clipboard in the vendor&apos;s browser via an injected script — a deterrent, not a hard control (bypassable if JavaScript is disabled).</span>
+        </div>
+      )}
+      {accessMode === "TRANSPARENT" && (
+        <div className="field">
+          <label className="field-label" htmlFor="site-filetransfer-web">File transfer</label>
+          <select id="site-filetransfer-web" className="select" value={fileTransferMode} onChange={(e) => setFileTransferMode(e.target.value)}>
+            <option value="inherit">Inherit policy ({FT_LABEL[webFileTransferDefault] ?? webFileTransferDefault})</option>
+            <option value="allow">Upload &amp; download</option>
+            <option value="no_download">Upload only</option>
+            <option value="no_upload">Download only</option>
+            <option value="none">Off (no file transfer)</option>
+          </select>
+          <span className="hint">Blocks files the app sends as downloads and files uploaded through its forms, at the proxy; every file is audited. What the app shows on screen, and files the page builds itself, are not held back: for strict control use an isolated browser.</span>
         </div>
       )}
       <div className="field">

@@ -45,6 +45,7 @@ function settingsWith(recordingMode: string | null) {
     keystrokeLoggingMode: null,
     isolatedEgressDefault: null,
     isolatedFileTransferDefault: null,
+    webAppFileTransferDefault: null,
     recordingMode,
   };
 }

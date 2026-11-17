@@ -20,6 +20,8 @@ export type SiteValidation =
       clipboardMode: string | null;
       recordSessions: boolean;
       keystrokeLogging: boolean;
+      watermark: boolean | null; // null = inherit the Policy default
+      fileTransferMode: string | null; // null = inherit the Policy web app default
     }
   | {
       ok: true;
@@ -34,6 +36,7 @@ export type SiteValidation =
       secret: SecretInput | null; // sealed in the browser, or plaintext (API clients)
       recordSessions: boolean;
       keystrokeLogging: boolean;
+      watermark: boolean | null; // null = inherit the Policy default
       guacParams: GuacParams;
     }
   | {
@@ -53,6 +56,11 @@ export type SiteValidation =
       egressHosts: string[] | undefined;
     }
   | { ok: false; error: string };
+
+// true/false is a per-resource choice; anything else ("inherit", absent) is null.
+function watermarkFrom(body: Record<string, unknown>): boolean | null {
+  return body.watermark === true ? true : body.watermark === false ? false : null;
+}
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -89,7 +97,7 @@ export function validateSiteInput(
       recordSessions: opts.recordingEnabled && body.recordSessions === true,
       keystrokeLogging: opts.recordingEnabled && body.recordSessions === true && body.keystrokeLogging === true,
       clipboardMode: CLIP.includes(clip) ? clip : null,
-      watermark: body.watermark === true ? true : body.watermark === false ? false : null,
+      watermark: watermarkFrom(body),
       fileTransferMode: FT.includes(ft) ? ft : null,
       egressMode: isEgressMode(body.egressMode) ? body.egressMode : body.egressMode === "inherit" ? null : undefined,
       egressHosts,
@@ -120,6 +128,7 @@ export function validateSiteInput(
       secret,
       recordSessions: opts.recordingEnabled && body.recordSessions === true,
       keystrokeLogging: opts.recordingEnabled && body.recordSessions === true && body.keystrokeLogging === true,
+      watermark: watermarkFrom(body),
       guacParams: parseGuacParams(body.guacParams),
     };
   }
@@ -154,6 +163,7 @@ export function validateSiteInput(
   }
   const clip = str(body.clipboardMode);
   const clipboardMode = CLIP.includes(clip) ? clip : null;
+  const ft = str(body.fileTransferMode);
   const recordSessions = opts.recordingEnabled && body.recordSessions === true;
   return {
     ok: true,
@@ -168,5 +178,7 @@ export function validateSiteInput(
     clipboardMode,
     recordSessions,
     keystrokeLogging: recordSessions && body.keystrokeLogging === true,
+    watermark: watermarkFrom(body),
+    fileTransferMode: FT.includes(ft) ? ft : null,
   };
 }

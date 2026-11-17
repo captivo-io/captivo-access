@@ -55,6 +55,17 @@ describe("validateSiteInput", () => {
     const r = validateSiteInput({ accessMode: "TRANSPARENT", connectorId: "c", name: "n", hostname: "APP.x.io", upstreamUrl: "http://10.0.0.5:80", recordSessions: true }, base);
     expect(r).toMatchObject({ ok: true, mode: "TRANSPARENT", hostname: "app.x.io", recordSessions: true });
   });
+  it("web app keeps its file transfer and watermark choices; inherit is null", () => {
+    const web = { accessMode: "TRANSPARENT", connectorId: "c", name: "n", hostname: "a.x.io", upstreamUrl: "http://10.0.0.5" };
+    expect(validateSiteInput({ ...web, fileTransferMode: "no_download", watermark: true }, base)).toMatchObject({ ok: true, fileTransferMode: "no_download", watermark: true });
+    expect(validateSiteInput({ ...web, fileTransferMode: "inherit", watermark: "inherit" }, base)).toMatchObject({ ok: true, fileTransferMode: null, watermark: null });
+    expect(validateSiteInput({ ...web, fileTransferMode: "bogus", watermark: false }, base)).toMatchObject({ ok: true, fileTransferMode: null, watermark: false });
+  });
+  it("remote desktop keeps its watermark choice", () => {
+    const rd = { accessMode: "GATEWAY", connectorId: "c", name: "n", protocol: "SSH", targetHost: "10.0.0.5", targetPort: 22, username: "u", secret: "pw" };
+    expect(validateSiteInput({ ...rd, watermark: true }, base)).toMatchObject({ ok: true, watermark: true });
+    expect(validateSiteInput({ ...rd, watermark: "inherit" }, base)).toMatchObject({ ok: true, watermark: null });
+  });
   it("web app rejects a non-http upstream", () => {
     const r = validateSiteInput({ accessMode: "TRANSPARENT", connectorId: "c", name: "n", hostname: "a.x", upstreamUrl: "ftp://x" }, base);
     expect(r).toMatchObject({ ok: false, error: "invalid_upstream_url" });

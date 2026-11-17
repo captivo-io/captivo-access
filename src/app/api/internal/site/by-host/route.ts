@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { db } from "@/lib/db";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { resolvedRecordingConsentRequired, resolvedClipboardDefault, resolvedWatermarkDefault, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
+import { resolvedRecordingConsentRequired, resolvedClipboardDefault, resolvedWatermarkDefault, resolvedKeystrokeLoggingMode, resolvedWebAppFileTransferDefault } from "@/lib/settings/platform";
 import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { requireDataplaneSecret, resolveTenantByHostname, withTenantFrom } from "@/lib/tenant/internal";
@@ -31,7 +31,7 @@ async function handler(req: NextRequest) {
   // this lookup runs already scoped in cloud (RLS) via the ambient `db`.
   const site = await db.site.findFirst({
     where: { hostname },
-    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true, keystrokeLogging: true },
+    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true, keystrokeLogging: true, fileTransferMode: true },
   });
   if (!site) return NextResponse.json({ error: "no_site" }, { status: 404 });
 
@@ -49,6 +49,9 @@ async function handler(req: NextRequest) {
     // Clipboard control is web-injection based (transparent only); gateway sites
     // manage clipboard in Guacamole, so never inject for them.
     clipboardMode: site.accessMode === "GATEWAY" ? "allow" : (site.clipboardMode ?? (await resolvedClipboardDefault())),
+    // Web app file transfer, enforced by the data-plane on attachments and
+    // multipart uploads. Other kinds control files elsewhere: "allow" here.
+    fileTransferMode: site.accessMode === "TRANSPARENT" ? (site.fileTransferMode ?? (await resolvedWebAppFileTransferDefault())) : "allow",
     accessMode: site.accessMode,
     // DLP watermark for transparent web apps: the data-plane overlays the vendor's
     // email + a live clock on every page (isolated sessions get the same from

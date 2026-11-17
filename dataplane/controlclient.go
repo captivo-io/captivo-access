@@ -151,7 +151,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 // accessMode is GATEWAY (see setGatewayIdentity in browserproxy.go). keystrokes
 // reports whether typed input is logged too (the tenant keystroke mode applied
 // to this site; only ever true while recordSessions is).
-func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, tenantID, upstreamUrl, clipboardMode string, insecureSkipVerify, recordSessions, gateway, consentRequired, watermark, keystrokes bool, err error) {
+func (c *ControlClient) SiteByHost(host string) (siteRoute, error) {
 	var out struct {
 		SiteID             string `json:"siteId"`
 		ConnectorID        string `json:"connectorId"`
@@ -160,6 +160,7 @@ func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, tenantID, 
 		InsecureSkipVerify bool   `json:"insecureSkipVerify"`
 		RecordSessions     bool   `json:"recordSessions"`
 		ClipboardMode      string `json:"clipboardMode"`
+		FileTransferMode   string `json:"fileTransferMode"`
 		AccessMode         string `json:"accessMode"`
 		ConsentRequired    bool   `json:"recordingConsentRequired"`
 		Watermark          bool   `json:"watermark"`
@@ -167,11 +168,29 @@ func (c *ControlClient) SiteByHost(host string) (siteID, connectorID, tenantID, 
 	}
 	if err := c.post("/api/internal/site/by-host", map[string]string{"host": host}, &out); err != nil {
 		if he, ok := err.(*httpError); ok && he.code == http.StatusNotFound {
-			return "", "", "", "", "", false, false, false, false, false, false, ErrNoSite
+			return siteRoute{}, ErrNoSite
 		}
-		return "", "", "", "", "", false, false, false, false, false, false, err
+		return siteRoute{}, err
 	}
-	return out.SiteID, out.ConnectorID, out.TenantID, out.UpstreamUrl, out.ClipboardMode, out.InsecureSkipVerify, out.RecordSessions, out.AccessMode == "GATEWAY", out.ConsentRequired, out.Watermark, out.RecordSessions && out.KeystrokeLogging, nil
+	// A manager that predates web app file control sends no mode: nothing
+	// was controlled then, so nothing is now.
+	if out.FileTransferMode == "" {
+		out.FileTransferMode = "allow"
+	}
+	return siteRoute{
+		SiteID:             out.SiteID,
+		ConnectorID:        out.ConnectorID,
+		TenantID:           out.TenantID,
+		Upstream:           out.UpstreamUrl,
+		ClipboardMode:      out.ClipboardMode,
+		FileTransferMode:   out.FileTransferMode,
+		InsecureSkipVerify: out.InsecureSkipVerify,
+		RecordSessions:     out.RecordSessions,
+		Gateway:            out.AccessMode == "GATEWAY",
+		ConsentRequired:    out.ConsentRequired,
+		Watermark:          out.Watermark,
+		Keystrokes:         out.RecordSessions && out.KeystrokeLogging,
+	}, nil
 }
 
 // RecorderJS returns the rrweb recorder bundle served by the control plane
