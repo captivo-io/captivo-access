@@ -395,6 +395,8 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 							kc.Close()
 						}
 					}
+					// Video finalized and keystrokes written: the recording is complete.
+					notifyRecDone(sess, d.TenantID, rw.key)
 				}
 				log.Printf("kasm-tunnel site=%s: recording enabled key=%s", siteID, rw.key)
 			} else {

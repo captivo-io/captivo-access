@@ -33,3 +33,15 @@ type RecReportAck struct {
 	Kind  string          `json:"kind"` // "recreportack"
 	Items []RecReportItem `json:"items"`
 }
+
+// RecDone tells a connector that a recording is complete: its session has
+// ended and every stream has been written. The data plane knows this exactly;
+// without it the connector waits for the recording to go quiet before working
+// on it. Sent on its own stream, which the connector closes without answering.
+// Only to connectors from 2.22.0, which know the kind (an older one would read
+// it as an HTTP request and log a rejected dial).
+type RecDone struct {
+	Kind         string `json:"kind"` // "recdone"
+	TenantID     string `json:"tenantId"`
+	RecordingKey string `json:"recordingKey"`
+}

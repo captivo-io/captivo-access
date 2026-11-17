@@ -565,3 +565,40 @@ func TestMaintDropsARepackWhenTheStreamChanges(t *testing.T) {
 		t.Fatal("the stream was touched")
 	}
 }
+
+func TestMaintStartsAtOnceOnARecordingTheDataPlaneSaysIsComplete(t *testing.T) {
+	f := newMaintFixture(t)
+	f.write("r1", "guac", "rdp", guacSession(30_000))
+	f.write("r2", "guac", "rdp", guacSession(30_000))
+	f.clock = time.Now() // both just written: the quiet period has not passed
+
+	f.m.markDone("t1", "r1")
+	select {
+	case <-f.m.wake:
+	default:
+		t.Fatal("markDone did not wake the worker")
+	}
+	f.m.processDone(context.Background())
+
+	if st := f.state("r1"); st.Video != "converted" {
+		t.Fatalf("complete recording not converted at once: %+v", st)
+	}
+	if f.has("r2", "video") {
+		t.Fatal("converted a recording that may still be growing")
+	}
+	select {
+	case <-f.m.reportQueued():
+	default:
+		t.Fatal("the report was not signalled for sending at once")
+	}
+	f.m.mu.Lock()
+	left := len(f.m.done)
+	f.m.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d recordings still marked complete after processing", left)
+	}
+	f.m.markDone("../x", "r1") // untrusted ids are refused
+	if len(f.m.done) != 0 {
+		t.Fatal("accepted a traversing tenant id")
+	}
+}

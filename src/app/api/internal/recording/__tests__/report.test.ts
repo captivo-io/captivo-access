@@ -47,13 +47,13 @@ describe("recording report", () => {
     const { POST } = await import("../report/route");
     const res = await POST(post([{ tenantId: "t_1", recordingKey: "k_guac", video: true, durationMs: 731000, storedBytes: 1500000 }]) as never);
     expect(res.status).toBe(200);
-    expect(update).toHaveBeenCalledWith({ where: { id: "r1" }, data: { videoReady: true, durationMs: 731000, bytes: 1500000 } });
+    expect(update).toHaveBeenCalledWith({ where: { id: "r1" }, data: { reportedAt: expect.any(Date), videoReady: true, durationMs: 731000, bytes: 1500000 } });
   });
 
   it("never sets videoReady on a recording that is not GUAC", async () => {
     const { POST } = await import("../report/route");
     await POST(post([{ tenantId: "t_1", recordingKey: "k_video", video: true, durationMs: 9000, storedBytes: 10 }]) as never);
-    expect(update).toHaveBeenCalledWith({ where: { id: "r2" }, data: { durationMs: 9000, bytes: 10 } });
+    expect(update).toHaveBeenCalledWith({ where: { id: "r2" }, data: { reportedAt: expect.any(Date), durationMs: 9000, bytes: 10 } });
   });
 
   it("ignores another tenant's items and recordings on another connector's site", async () => {
@@ -70,6 +70,6 @@ describe("recording report", () => {
   it("keeps the counters within their 32-bit columns and ignores junk", async () => {
     const { POST } = await import("../report/route");
     await POST(post([{ tenantId: "t_1", recordingKey: "k_guac", video: false, durationMs: -5, storedBytes: 9e12 }, "x", null]) as never);
-    expect(update).toHaveBeenCalledWith({ where: { id: "r1" }, data: { videoReady: false, bytes: 2 ** 31 - 1 } });
+    expect(update).toHaveBeenCalledWith({ where: { id: "r1" }, data: { reportedAt: expect.any(Date), videoReady: false, bytes: 2 ** 31 - 1 } });
   });
 });

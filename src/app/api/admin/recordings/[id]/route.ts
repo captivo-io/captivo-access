@@ -12,6 +12,26 @@ import { pushConnectorPolicy } from "@/lib/connector/policy";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * A recording's playback state, polled by the player while an RDP/VNC
+ * recording's video is being prepared on its connector.
+ */
+export const GET = withTenantRoute(async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const admin = await getCurrentUser();
+  if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { id } = await params;
+  const rec = await db.sessionRecording.findUnique({
+    where: { id },
+    select: { videoReady: true, reportedAt: true, durationMs: true },
+  });
+  if (!rec) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  return NextResponse.json(
+    { videoReady: rec.videoReady, reported: rec.reportedAt !== null, durationMs: rec.durationMs },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+});
+
 export const DELETE = withTenantRoute(async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

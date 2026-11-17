@@ -106,6 +106,11 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleRecSearch(cst, store, reqBytes)
 	case "recfetch":
 		handleRecFetch(cst, store, reqBytes)
+	case "recdone":
+		var d tunnel.RecDone
+		if json.Unmarshal(reqBytes, &d) == nil && recMaintenance != nil {
+			recMaintenance.markDone(d.TenantID, d.RecordingKey)
+		}
 	default:
 		handleDial(cst, allow, reqBytes)
 	}
@@ -183,6 +188,7 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 		case <-done:
 			return
 		case <-tick.C:
+		case <-recMaintenance.reportQueued():
 		}
 	}
 }

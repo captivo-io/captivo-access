@@ -5,6 +5,8 @@ import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { RecordingPlayer } from "./recording-player";
 import { GuacRecordingPlayer } from "./guac-recording-player";
 import { VideoRecordingPlayer } from "./video-recording-player";
+import { PreparingRecording } from "./preparing-recording";
+import { videoPreparing } from "@/lib/recording/preparing";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +20,7 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
     return <main><div className="empty">Recording not found.</div></main>;
   }
   const user = await db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } });
-  const site = await db.site.findUnique({ where: { id: rec.siteId }, select: { name: true } });
+  const site = await db.site.findUnique({ where: { id: rec.siteId }, select: { name: true, connector: { select: { version: true } } } });
   const estimatedMs = rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0;
   return (
     <main>
@@ -41,6 +43,8 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
             (videoReady); until then, and for SSH, the instruction stream plays. */}
         {rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady)
           ? <VideoRecordingPlayer id={rec.id} durationMs={rec.durationMs ?? estimatedMs} />
+          : videoPreparing(rec, site?.connector?.version)
+          ? <PreparingRecording id={rec.id} estimatedMs={rec.durationMs ?? estimatedMs} />
           : rec.format === "GUAC"
           ? <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.durationMs ?? estimatedMs} />
           : <RecordingPlayer id={rec.id} />}

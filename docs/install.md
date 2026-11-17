@@ -196,14 +196,17 @@ mounted volume, because that means a `docker rm` would destroy every recording.
 
 ### What the connector does with a recording after the session
 
-A few minutes after a session ends, the connector works on its recording, one at a
-time and at low CPU priority:
+As soon as a session ends, the connector works on its recording (the service tells
+it the recording is complete; if that word is lost, it starts once the recording has
+been quiet for five minutes), one at a time and at low CPU priority:
 
 - **RDP and VNC sessions become video.** The screen stream is turned into a VP9 WebM,
   which starts at once and seeks anywhere in the console, and takes a fraction of the
   disk (measured on real sessions: 169 MB to 1.4 MB for 12 minutes, 28 MB to 1.4 MB
-  for a dense minute). The original stream is removed an hour after the console has
-  recorded that the video is there; the keystroke timeline is kept. A video that is
+  for a dense minute). Until the video is in, the console says it is being prepared
+  and plays the recording as it is, then switches over. The original stream is removed
+  an hour after the console has recorded that the video is there; the keystroke
+  timeline is kept. A video that is
   not as long as the recording, or not smaller, is discarded and the stream kept.
   Converting takes one CPU core for roughly a sixth of the session's length
   (measured: 105 s for a 12-minute session) and about 300 MB of memory while it runs.

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
@@ -105,4 +107,70 @@ func (r *recIndexReporter) reportTruncated(recordingKey string) {
 	if err := r.send(r.userID, r.siteID, r.host, body); err != nil {
 		log.Printf("recording index key=%s: truncated report failed err=%v", recordingKey, err)
 	}
+}
+
+// recDoneSince is the first connector release that understands tunnel.RecDone.
+const recDoneSince = "2.22.0"
+
+// notifyRecDone tells the connector holding a recording that it is complete, so
+// its worker starts on it at once (connector/recmaint.go) instead of waiting
+// for the recording to go quiet. Best-effort: the connector falls back to that
+// wait, which is also what an older connector does.
+func notifyRecDone(s *Session, tenantID, key string) {
+	if s == nil || s.mux == nil || !connectorAtLeast(s, recDoneSince) {
+		return
+	}
+	st, err := s.mux.Open()
+	if err != nil {
+		return
+	}
+	defer st.Close()
+	b, err := json.Marshal(tunnel.RecDone{Kind: "recdone", TenantID: tenantID, RecordingKey: key})
+	if err == nil {
+		_ = tunnel.WriteFrame(st, b)
+	}
+}
+
+// connectorAtLeast compares the version a connector reports in its telemetry
+// with min (plain X.Y.Z). An unknown version (no telemetry yet, a dev build)
+// is not assumed to be new enough.
+func connectorAtLeast(s *Session, min string) bool {
+	t, _ := s.Telemetry()
+	if t == nil {
+		return false
+	}
+	return versionAtLeast(t.Version, min)
+}
+
+func versionAtLeast(v, min string) bool {
+	parse := func(s string) ([3]int, bool) {
+		var out [3]int
+		s = strings.TrimPrefix(strings.TrimSpace(s), "v")
+		if i := strings.IndexAny(s, "-+"); i >= 0 {
+			s = s[:i]
+		}
+		parts := strings.Split(s, ".")
+		if len(parts) != 3 {
+			return out, false
+		}
+		for i, p := range parts {
+			n, err := strconv.Atoi(p)
+			if err != nil || n < 0 {
+				return out, false
+			}
+			out[i] = n
+		}
+		return out, true
+	}
+	a, ok1 := parse(v)
+	b, ok2 := parse(min)
+	if !ok1 || !ok2 {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return true
 }
