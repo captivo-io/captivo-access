@@ -14,7 +14,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Serve an isolated-browser video from the connector that holds it.
+ * Serve a recording's video from the connector that holds it: an isolated-browser
+ * session, or an RDP/VNC session its connector has turned into video.
  *
  * Range is passed THROUGH to the connector rather than answered here: the recording
  * is never in the control plane, and buffering it to satisfy a Range would mean
@@ -28,7 +29,11 @@ export const GET = withTenantRoute(async (req: Request, { params }: { params: Pr
 
   const { id } = await params;
   const rec = await db.sessionRecording.findUnique({ where: { id } });
-  if (!rec || rec.format !== "VIDEO") return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // An isolated-browser recording is video from the start; an RDP/VNC one once
+  // its connector has converted it (both stored as the "video" stream).
+  if (!rec || !(rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady))) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
 
   const connectorId = await connectorForRecording(rec.siteId);
   if (!connectorId) {

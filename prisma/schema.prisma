@@ -668,6 +668,13 @@ model SessionRecording {
   // happens the console must say the recording is shorter than the session rather
   // than let the player imply the session ended there.
   truncated    Boolean          @default(false)
+  // A GUAC recording (RDP/VNC) its connector has turned into a seekable WebM,
+  // which now plays in place of the instruction stream (connector/recmaint.go).
+  // Set from the connector's report; until then the instruction stream plays.
+  videoReady   Boolean          @default(false)
+  // The recording's length as its connector measured it (a video's duration).
+  // Null until reported; lastEventAt - startedAt stands in meanwhile.
+  durationMs   Int?
   chunks       RecordingChunk[]
 
   @@unique([tenantId, recordingKey])

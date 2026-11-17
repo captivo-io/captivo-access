@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/kurtserdar/captivo-access/tunnel"
+
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -72,6 +74,14 @@ type RecordingPolicy struct {
 func (c *ControlClient) ReportErasureAck(connectorID string, retentionRemoved int, purgedKeys []string) {
 	_ = c.post("/api/internal/recording/erasure-ack",
 		map[string]any{"connectorId": connectorID, "retentionRemoved": retentionRemoved, "purgedKeys": purgedKeys}, nil)
+}
+
+// ReportRecordings relays a connector's recording report (tunnel.RecReport) to
+// the control plane. An error means it was not recorded: the connector keeps
+// the items and sends them again.
+func (c *ControlClient) ReportRecordings(connectorID string, items []tunnel.RecReportItem) error {
+	return c.post("/api/internal/recording/report",
+		map[string]any{"connectorId": connectorID, "items": items}, nil)
 }
 
 // ResolveSession exchanges a browser session token for the userId/email it

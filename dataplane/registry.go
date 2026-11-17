@@ -23,6 +23,9 @@ type Session struct {
 
 	ctrlMu     sync.Mutex
 	ctrlStream io.Writer
+	// ctrlWriteMu keeps frames whole: a frame is two writes (length, payload),
+	// and policy pushes and report acks are sent from different goroutines.
+	ctrlWriteMu sync.Mutex
 
 	// kasmToken is the isolated-browser control service's secret, as the
 	// connector presented it at the handshake. Memory only, this connection only.
@@ -63,6 +66,27 @@ func (s *Session) PushPolicy(p tunnel.Policy) error {
 	if err != nil {
 		return err
 	}
+	return s.writeControl(w, b)
+}
+
+// SendControl writes one frame of any kind on the control stream.
+func (s *Session) SendControl(v any) error {
+	s.ctrlMu.Lock()
+	w := s.ctrlStream
+	s.ctrlMu.Unlock()
+	if w == nil {
+		return errors.New("control stream not ready")
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return s.writeControl(w, b)
+}
+
+func (s *Session) writeControl(w io.Writer, b []byte) error {
+	s.ctrlWriteMu.Lock()
+	defer s.ctrlWriteMu.Unlock()
 	return tunnel.WriteFrame(w, b)
 }
 
