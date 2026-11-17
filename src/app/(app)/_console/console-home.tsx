@@ -192,7 +192,10 @@ function LiveRow({ s, onDone }: { s: LiveCard; onDone: (msg: string) => void }) 
   const kind = s.kind === "gateway" ? s.protocol.toUpperCase() : s.kind === "isolated" ? "ISOLATED" : "WEB";
   const name = s.siteName;
   const recorded = s.kind !== "web" && s.recorded;
-  const watch = s.kind === "web" ? (s.liveKey ? `/live/web/${encodeURIComponent(s.liveKey)}` : null) : `/live/${s.sessionId}`;
+  // The Sessions page's watch window, with the session's activity and actions beside it.
+  const watch = s.kind === "web"
+    ? (s.liveKey ? `/admin/live?watch=${encodeURIComponent(`web:${s.liveKey}`)}` : null)
+    : `/admin/live?watch=${encodeURIComponent(s.sessionId)}`;
   return (
     <div className="cx-live-row">
       <div className="cx-thumb" aria-hidden="true">
@@ -314,6 +317,11 @@ export function Empty({ icon, title, text, ok }: { icon: Parameters<typeof NavIc
 /** mm:ss (or h:mm:ss) since a start, ticking every second. */
 function Elapsed({ since }: { since: string }) {
   const now = useNow(1000);
+  // The server's clock and the browser's differ by the time the page took to
+  // arrive: render the ticking time only once mounted, or hydration fails.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return <span className="mono cx-elapsed" />;
   const secs = Math.max(0, Math.floor((now.getTime() - new Date(since).getTime()) / 1000));
   const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), sec = secs % 60;
   const text = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;

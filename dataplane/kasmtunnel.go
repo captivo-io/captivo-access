@@ -421,7 +421,11 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// the deferred broker close above (killing Xvnc/Chromium) — terminate reuses
 		// the normal teardown path.
 		sessionID := newSessionID()
-		hub.RegisterIsolated(sessionID, siteID, userID, d.NavigateUrl, time.Now(), d.ConnectorID, d.KasmAddr, port, id, d.KasmControlAddr, d.FileTransferMode, vncAuth).SetAuth(ck.Value, clientIP)
+		kls := hub.RegisterIsolated(sessionID, siteID, userID, d.NavigateUrl, time.Now(), d.ConnectorID, d.KasmAddr, port, id, d.KasmControlAddr, d.FileTransferMode, vncAuth)
+		kls.SetAuth(ck.Value, clientIP)
+		// Typed input reaches the recording only when the session ends (the broker
+		// keeps it), so the live feed of an isolated session has no keystrokes.
+		kls.SetCapture(d.Record, false)
 		hub.clearEnded(userID, siteID)
 		hub.SetCloser(sessionID, func() {
 			connMu.Lock()

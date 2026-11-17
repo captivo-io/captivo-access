@@ -154,6 +154,7 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	}
 	ls := hub.Register(sessionID, siteID, userID, conn.Protocol, conn.Hostname, time.Now(), connID, connectorID, guacdAddr)
 	ls.SetAuth(ck.Value, clientIP) // checked again every minute (recheck.go)
+	ls.SetCapture(record, record && keystrokeLogging)
 	hub.clearEnded(userID, siteID)
 	// Closing the guacd conn makes the relay error out → goroutines exit → session
 	// tears down (defer c.CloseNow + hub.Remove). This is how admin Terminate works.
@@ -203,9 +204,11 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 			if rec != nil {
 				rec.Write(inst)
 			}
-			for _, ev := range ft.observe(dirDownload, inst) {
+			down := ft.observe(dirDownload, inst)
+			for _, ev := range down {
 				audit.Enqueue(ev)
 			}
+			ls.fileEvents(down)
 			if werr := c.Write(ctx, websocket.MessageText, inst); werr != nil {
 				errc <- werr
 				return
@@ -223,12 +226,16 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 			if !ls.vendorInputAllowed() {
 				continue // an admin has taken control; drop vendor input
 			}
-			for _, ev := range ft.observe(dirUpload, data) {
+			ls.touch(data, time.Now())
+			up := ft.observe(dirUpload, data)
+			for _, ev := range up {
 				audit.Enqueue(ev)
 			}
+			ls.fileEvents(up)
 			if keys != nil {
 				if evs := keys.observe(data, time.Now()); len(evs) > 0 {
 					kw.post(evs)
+					ls.keyEvents(evs)
 				}
 			}
 			if _, werr := guac.Write(data); werr != nil {

@@ -5,6 +5,7 @@ const LABELS: Record<string, string> = {
   "grant.deny": "Grant denied",
   "grant.revoke": "Grant revoked",
   "session.terminate": "Session terminated",
+  "session.message": "Message sent to a session",
   "authsession.revoke": "Auth session revoked",
   "user.update": "User updated",
   "user.delete": "User deleted",

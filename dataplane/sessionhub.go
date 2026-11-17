@@ -24,6 +24,11 @@ type SessionInfo struct {
 	StartedAt    time.Time `json:"startedAt"`
 	ViewerCount  int       `json:"viewerCount"`
 	ControlOwner string    `json:"controlOwner"`
+	ClientIP     string    `json:"clientIp"`
+	Recording    bool      `json:"recording"`
+	Keystrokes   bool      `json:"keystrokes"`
+	// Input over the last two minutes, in 5-second buckets, oldest first.
+	Activity []int `json:"activity"`
 }
 
 // liveSession is one in-progress gateway session. Viewers join guacd's shared
@@ -41,9 +46,10 @@ type liveSession struct {
 	authToken, clientIP                string // for the periodic access recheck (recheck.go)
 
 	mu           sync.Mutex
-	controlOwner string // userID holding control, or "" for the vendor
-	viewers      int    // attached live viewers (for the console list)
-	closer       func() // closes the underlying tunnel; set by guactunnel after Register
+	controlOwner string       // userID holding control, or "" for the vendor
+	viewers      int          // attached live viewers (for the console list)
+	closer       func()       // closes the underlying tunnel; set by guactunnel after Register
+	act          liveActivity // the console's feed and activity bars (liveactivity.go)
 }
 
 func (ls *liveSession) shareInfo() (string, string, string) {
@@ -61,6 +67,7 @@ func (ls *liveSession) kasmAttach() (string, string, int, string) {
 func (ls *liveSession) addViewer() {
 	ls.mu.Lock()
 	ls.viewers++
+	ls.act.addEvent("watch", "An admin started watching", time.Now())
 	ls.mu.Unlock()
 }
 
@@ -69,6 +76,7 @@ func (ls *liveSession) removeViewer() {
 	if ls.viewers > 0 {
 		ls.viewers--
 	}
+	ls.act.addEvent("watch", "An admin stopped watching", time.Now())
 	ls.mu.Unlock()
 }
 
@@ -90,6 +98,9 @@ func (ls *liveSession) setControl(owner string) error {
 	if ls.controlOwner != "" && ls.controlOwner != owner {
 		return errControlHeld
 	}
+	if ls.controlOwner == "" {
+		ls.act.addEvent("control", "An admin took control", time.Now())
+	}
 	ls.controlOwner = owner
 	return nil
 }
@@ -97,8 +108,9 @@ func (ls *liveSession) setControl(owner string) error {
 func (ls *liveSession) releaseControl(owner string) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
-	if ls.controlOwner == owner {
+	if ls.controlOwner == owner && owner != "" {
 		ls.controlOwner = ""
+		ls.act.addEvent("control", "Control returned to the user", time.Now())
 	}
 }
 
@@ -177,11 +189,14 @@ func (h *SessionHub) List() []SessionInfo {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	out := make([]SessionInfo, 0, len(h.m))
+	now := time.Now()
 	for _, ls := range h.m {
+		activity := ls.activitySnapshot(now)
 		ls.mu.Lock()
 		out = append(out, SessionInfo{
 			SessionID: ls.id, SiteID: ls.siteID, UserID: ls.userID, Kind: ls.kind, Protocol: ls.protocol,
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
+			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
 		})
 		ls.mu.Unlock()
 	}

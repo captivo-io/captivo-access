@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kurtserdar/captivo-access/tunnel"
@@ -292,7 +293,46 @@ func main() {
 		uid, sid := r.URL.Query().Get("userId"), r.URL.Query().Get("siteId")
 		watching, controlHeld := hub.WatchStatus(uid, sid)
 		// "ended": why a recheck closed this vendor's session here, so the page can say so.
-		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlHeld, "ended": hub.EndedReason(uid, sid)})
+		// "message": an admin's recent message, which the page shows once.
+		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlHeld, "ended": hub.EndedReason(uid, sid), "message": hub.PendingMessage(uid, sid, time.Now())})
+	})
+	// A live session's recent events, newest first, for the console's watch panel.
+	in.HandleFunc("/sessions/feed", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		events, ok := hub.Feed(r.URL.Query().Get("sessionId"))
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "reason": "not_found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "events": events})
+	})
+	// An admin's message to the user of a live session.
+	in.HandleFunc("/sessions/message", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			SessionID string `json:"sessionId"`
+			Text      string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionID == "" || strings.TrimSpace(body.Text) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "reason": "invalid_body"})
+			return
+		}
+		text := strings.TrimSpace(body.Text)
+		if len([]rune(text)) > 280 {
+			text = string([]rune(text)[:280])
+		}
+		m, ok := hub.Message(body.SessionID, text)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "reason": "not_found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": m})
 	})
 	in.HandleFunc("/kasm-files", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {

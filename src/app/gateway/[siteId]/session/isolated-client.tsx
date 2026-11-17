@@ -6,7 +6,7 @@ import { keysymToDomKey } from "@/lib/session/dom-key";
 import { KEY } from "@/lib/session/keysyms";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
-import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
+import { RecordingNotice, MonitorNotice, AdminMessageBanner, type AdminMessage, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
 import { sessionEndMessage } from "@/lib/session/end-reason";
 
 // ?site pins the session for the data-plane; it sets a cookie so the KasmVNC
@@ -45,6 +45,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
   const canDownload = fileTransferMode === "allow" || fileTransferMode === "no_upload";
   const [ready, setReady] = useState(false);
   const [watching, setWatching] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<AdminMessage | null>(null);
   const [controlHeld, setControlHeld] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [quality, setQuality] = useState<Quality>("auto");
@@ -242,8 +243,8 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
           return;
         }
         if (res.ok) {
-          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string };
-          if (!stop) { setWatching(s.watching); setControlHeld(s.controlHeld); if (s.ended) setEndReason(s.ended); }
+          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string; message?: AdminMessage | null };
+          if (!stop) { setWatching(s.watching); setControlHeld(s.controlHeld); setAdminMessage(s.message ?? null); if (s.ended) setEndReason(s.ended); }
         }
       } catch {
         /* ignore */
@@ -324,6 +325,7 @@ export function IsolatedSession({ siteId, siteName, recorded, fileTransferMode }
       )}
       <RecordingNotice active={recorded && ready} />
       <MonitorNotice watching={watching} controlHeld={controlHeld} />
+      <AdminMessageBanner message={adminMessage} />
       <DropOverlay state={dropState} siteName={siteName} />
       <SessionEnded message={endedMessage} />
       <SessionToast toast={toast} />

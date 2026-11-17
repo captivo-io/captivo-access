@@ -1,10 +1,25 @@
 import { db } from "@/lib/db";
 import { listActiveSessions, listActiveWebSessions } from "@/lib/dataplane/client";
 
+/** What the console's Sessions page adds to every row; optional so older readers (the app) are unaffected. */
+export interface LiveExtra {
+  userId?: string;
+  siteId?: string;
+  userEmail?: string | null;
+  /** From the data plane (gateway and isolated); absent for web apps. */
+  clientIp?: string | null;
+  recording?: boolean;
+  keystrokes?: boolean;
+  activity?: number[];
+  /** The grant the session runs under: no end, an end time, or set hours. */
+  grantEndsAt?: string | null;
+  grantScheduled?: boolean;
+}
+
 export type LiveRow =
-  | { kind: "gateway"; sessionId: string; siteName: string; userLabel: string; protocol: string; startedAt: string; viewerCount: number; controlled: boolean; grantId: string | null }
-  | { kind: "isolated"; sessionId: string; siteName: string; userLabel: string; host: string; startedAt: string; viewerCount: number; grantId: string | null }
-  | { kind: "web"; siteName: string; userLabel: string; host: string; startedAt: string; grantId: string | null; liveKey: string | null; viewerCount: number };
+  | ({ kind: "gateway"; sessionId: string; siteName: string; userLabel: string; protocol: string; startedAt: string; viewerCount: number; controlled: boolean; grantId: string | null } & LiveExtra)
+  | ({ kind: "isolated"; sessionId: string; siteName: string; userLabel: string; host: string; startedAt: string; viewerCount: number; grantId: string | null } & LiveExtra)
+  | ({ kind: "web"; siteName: string; userLabel: string; host: string; startedAt: string; grantId: string | null; liveKey: string | null; viewerCount: number } & LiveExtra);
 
 /**
  * The workspace's live sessions, labelled for people: who, on which site, and
@@ -22,15 +37,25 @@ export async function liveRows(): Promise<LiveRow[]> {
     userIds.length
       ? db.accessGrant.findMany({
           where: { status: "ACTIVE", userId: { in: userIds }, siteId: { in: siteIds } },
-          select: { id: true, userId: true, siteId: true },
+          select: { id: true, userId: true, siteId: true, endsAt: true, schedule: true },
         })
       : Promise.resolve([]),
   ]);
   const users = new Map(userList.map((u) => [u.id, u]));
   const sites = new Map(siteList.map((s) => [s.id, s]));
-  const grantMap = new Map(liveGrants.map((g) => [g.userId + "\x1f" + g.siteId, g.id]));
+  const grantMap = new Map(liveGrants.map((g) => [g.userId + "\x1f" + g.siteId, g]));
   const label = (userId: string) => users.get(userId)?.name ?? users.get(userId)?.email ?? userId;
-  const grant = (userId: string, siteId: string) => grantMap.get(userId + "\x1f" + siteId) ?? null;
+  const grantOf = (userId: string, siteId: string) => grantMap.get(userId + "\x1f" + siteId) ?? null;
+  const grant = (userId: string, siteId: string) => grantOf(userId, siteId)?.id ?? null;
+  const extra = (userId: string, siteId: string): LiveExtra => {
+    const g = grantOf(userId, siteId);
+    return {
+      userId, siteId,
+      userEmail: users.get(userId)?.email ?? null,
+      grantEndsAt: g?.endsAt?.toISOString() ?? null,
+      grantScheduled: g?.schedule != null,
+    };
+  };
 
   const gatewayRows: LiveRow[] = sessions.filter((s) => s.kind !== "isolated").map((s) => ({
     kind: "gateway" as const,
@@ -42,6 +67,8 @@ export async function liveRows(): Promise<LiveRow[]> {
     viewerCount: s.viewerCount,
     controlled: s.controlOwner !== "",
     grantId: grant(s.userId, s.siteId),
+    ...extra(s.userId, s.siteId),
+    clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
   }));
   const isolatedRows: LiveRow[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({
     kind: "isolated" as const,
@@ -52,6 +79,8 @@ export async function liveRows(): Promise<LiveRow[]> {
     startedAt: s.startedAt,
     viewerCount: s.viewerCount,
     grantId: grant(s.userId, s.siteId),
+    ...extra(s.userId, s.siteId),
+    clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
   }));
   const webRows: LiveRow[] = webSessions.map((s) => ({
     kind: "web" as const,
@@ -62,6 +91,9 @@ export async function liveRows(): Promise<LiveRow[]> {
     grantId: grant(s.userId, s.siteId),
     liveKey: s.liveKey || null,
     viewerCount: s.viewers ?? 0,
+    ...extra(s.userId, s.siteId),
+    // A web app tab is watchable exactly when its site records.
+    recording: !!s.liveKey,
   }));
   return [...gatewayRows, ...isolatedRows, ...webRows];
 }

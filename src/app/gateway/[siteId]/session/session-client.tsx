@@ -8,7 +8,7 @@ import { setupGatewayTouch, type TouchController } from "./shell/gateway-touch";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
-import { RecordingNotice, MonitorNotice, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
+import { RecordingNotice, MonitorNotice, AdminMessageBanner, type AdminMessage, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
 import { sessionEndMessage } from "@/lib/session/end-reason";
 import { SessionWatermark } from "./shell/watermark";
 
@@ -21,6 +21,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [watching, setWatching] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<AdminMessage | null>(null);
   const [controlHeld, setControlHeld] = useState(false);
   const guacRef = useRef<any>(null);
   const fsRef = useRef<any>(null);
@@ -407,10 +408,11 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
           return;
         }
         if (res.ok) {
-          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string };
+          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string; message?: AdminMessage | null };
           if (!stop) {
             setWatching(s.watching);
             setControlHeld(s.controlHeld);
+            setAdminMessage(s.message ?? null);
             if (s.ended) setEndReason(s.ended);
           }
         }
@@ -471,6 +473,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       {zoomed && <button type="button" className="gw-zoom-reset" onClick={resetZoom}>Reset zoom</button>}
       <RecordingNotice active={recorded && ready} />
       <MonitorNotice watching={watching} controlHeld={controlHeld} />
+      <AdminMessageBanner message={adminMessage} />
       <DropOverlay state={dropState} siteName={siteName} />
       <SessionToast toast={toastState} />
       {clipboardOpen && (
