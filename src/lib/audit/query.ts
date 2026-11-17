@@ -32,6 +32,10 @@ export type AuditRow = {
   reason: string | null;
   clientIp: string | null;
   userAgent: string | null;
+  // The chain position, for the page's event drawer (BigInt exposed as a string).
+  seq: string;
+  prevHash: string;
+  hash: string;
 };
 
 export async function listAuditEvents(filter: AuditFilter): Promise<{ rows: AuditRow[]; total: number }> {
@@ -61,6 +65,9 @@ export async function listAuditEvents(filter: AuditFilter): Promise<{ rows: Audi
         reason: true,
         clientIp: true,
         userAgent: true,
+        seq: true,
+        prevHash: true,
+        hash: true,
       },
     }),
     db.auditEvent.count({ where }),
@@ -84,6 +91,9 @@ export async function listAuditEvents(filter: AuditFilter): Promise<{ rows: Audi
     reason: e.reason,
     clientIp: e.clientIp,
     userAgent: e.userAgent,
+    seq: String(e.seq),
+    prevHash: e.prevHash,
+    hash: e.hash,
   }));
 
   return { rows, total };
@@ -105,7 +115,7 @@ const CSV_HEADER = [
   "bytesOut",
 ];
 
-function csvEscape(value: string): string {
+export function csvEscape(value: string): string {
   // Formula-injection guard: fields like userAgent/path can carry
   // attacker-influenced content. If the value starts with a character a
   // spreadsheet (Excel/Sheets) interprets as a formula prefix (= + - @) or

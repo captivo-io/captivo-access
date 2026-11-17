@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { verifyAdminChain, type AdminStored } from "@/lib/audit/admin-chain";
-import { chainKey } from "@/lib/audit/chain-key";
+import { chainKey, recordVerification } from "@/lib/audit/chain-key";
 import { withTenantRoute } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -32,5 +32,7 @@ export const GET = withTenantRoute(async () => {
     metadata: r.metadata ?? null, clientIp: r.clientIp, prevHash: r.prevHash, hash: r.hash,
   }));
 
-  return NextResponse.json(verifyAdminChain(events, head ?? undefined));
+  const result = verifyAdminChain(events, head ?? undefined);
+  await recordVerification("admin", result.ok);
+  return NextResponse.json(result);
 });

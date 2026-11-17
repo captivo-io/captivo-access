@@ -24,6 +24,7 @@ export function buildAuditWhere(filter: AuditFilter): Prisma.AuditEventWhereInpu
       { userEmail: { contains: q, mode: "insensitive" } },
       { userName: { contains: q, mode: "insensitive" } },
       { company: { contains: q, mode: "insensitive" } },
+      { clientIp: { contains: q } },
     ];
   }
   return where;

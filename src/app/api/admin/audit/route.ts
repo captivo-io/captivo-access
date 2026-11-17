@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/roles";
 import { listAuditEvents } from "@/lib/audit/query";
 import { parseAuditFilter } from "@/lib/audit/filter";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { auditHistogram } from "@/lib/audit/histogram";
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
@@ -18,7 +19,12 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
   }
 
   const filter = parseAuditFilter(req.nextUrl.searchParams, { defaultLimit: DEFAULT_LIMIT, maxLimit: MAX_LIMIT });
-  const { rows, total } = await listAuditEvents(filter);
+  // The first page of a ranged view also carries the time-range chart.
+  const wantHistogram = req.nextUrl.searchParams.get("histogram") === "1" && filter.from && filter.to && filter.offset === 0;
+  const [{ rows, total }, histogram] = await Promise.all([
+    listAuditEvents(filter),
+    wantHistogram ? auditHistogram({ ...filter, from: filter.from!, to: filter.to! }) : null,
+  ]);
 
-  return NextResponse.json({ rows, total });
+  return NextResponse.json({ rows, total, ...(histogram ? { histogram } : {}) });
 });

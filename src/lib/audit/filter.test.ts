@@ -29,7 +29,7 @@ describe("buildAuditWhere", () => {
     expect(buildAuditWhere({ q: "   ", limit: 50, offset: 0 }).OR).toBeUndefined();
     expect(buildAuditWhere({ limit: 50, offset: 0 }).OR).toBeUndefined();
   });
-  it("adds a case-insensitive OR across text columns for a non-empty q", () => {
+  it("adds a case-insensitive OR across text columns and the client IP for a non-empty q", () => {
     const where = buildAuditWhere({ q: " admin ", limit: 50, offset: 0 });
     expect(where.OR).toEqual([
       { path: { contains: "admin", mode: "insensitive" } },
@@ -37,6 +37,7 @@ describe("buildAuditWhere", () => {
       { userEmail: { contains: "admin", mode: "insensitive" } },
       { userName: { contains: "admin", mode: "insensitive" } },
       { company: { contains: "admin", mode: "insensitive" } },
+      { clientIp: { contains: "admin" } },
     ]);
   });
   it("passes through the scalar filters", () => {
@@ -53,7 +54,7 @@ describe("buildAuditWhere q min-length", () => {
     expect(buildAuditWhere({ q: "  a  ", limit: 50, offset: 0 }).OR).toBeUndefined();
   });
   it("applies the OR search for a 2+ character q", () => {
-    expect(buildAuditWhere({ q: "ab", limit: 50, offset: 0 }).OR).toHaveLength(5);
+    expect(buildAuditWhere({ q: "ab", limit: 50, offset: 0 }).OR).toHaveLength(6);
   });
 });
 
