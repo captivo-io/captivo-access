@@ -281,6 +281,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
               Details <span className={open ? "cn-chev open" : "cn-chev"} aria-hidden="true">▾</span>
             </button>
             <RepairConnectorButton id={c.id} />
+            <Link href={`/admin/connectors/${c.id}#logs`} className="cn-link">Logs →</Link>
             <Link href={`/admin/sites?q=${encodeURIComponent(c.name)}`} className="cn-link">View resources →</Link>
             <span className="cn-spacer" />
             <Menu c={c} onRename={() => setRenaming(true)} onRevoked={onRevoked} />

@@ -153,7 +153,7 @@ async function ConnectorDetailPageImpl({ params }: { params: Promise<{ id: strin
         )}
       </div>
 
-      <div className="card">
+      <div className="card" id="logs" style={{ scrollMarginTop: 90 }}>
         <div className="card-head"><div className="ch-title"><h2>Recent logs</h2><span className="sub">Last lines from the connector</span></div></div>
         {t && t.recentLogs && t.recentLogs.length > 0 ? (
           <div className="term">
