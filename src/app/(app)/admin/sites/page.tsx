@@ -15,7 +15,8 @@ import { withRequestTenant } from "@/lib/tenant/request";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Resources" };
 
-async function AdminSitesPageImpl() {
+async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+  const sp = await searchParams;
   await requireAdmin();
 
   const [sites, connectors] = await Promise.all([
@@ -102,7 +103,7 @@ async function AdminSitesPageImpl() {
         // Existing sites always render (with edit/delete), even when the only
         // connector is revoked — otherwise a revoked connector's sites become
         // invisible and neither the sites nor the connector can be removed.
-        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} hostSuffix={await siteHostSuffix()} />
+        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} hostSuffix={await siteHostSuffix()} initialQuery={typeof sp.q === "string" ? sp.q : ""} initialStatus={sp.status === "down" || sp.status === "up" ? sp.status : "all"} />
       )}
     </main>
   );

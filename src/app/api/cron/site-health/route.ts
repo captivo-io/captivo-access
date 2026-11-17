@@ -7,6 +7,7 @@ import { recordCronRun } from "@/lib/cron/heartbeat";
 import { forEachTenantId, inTenant } from "@/lib/cron/for-each-tenant";
 import { reconcilePendingErasures } from "@/lib/connector/policy";
 import { notifyPlatformAlerts } from "@/lib/platform/alert-push";
+import { probeConnectors, recordConnectorEvent, writeConnectorSamples } from "@/lib/connector/history";
 
 function cronAuthorized(req: NextRequest): boolean {
   const s = process.env.CRON_SECRET;
@@ -45,7 +46,8 @@ export async function POST(req: NextRequest) {
     // probing, the webhooks and the mail are not.
 
     // 1. READ -- scoped, DB only.
-    const { sites, gateways } = await inTenant(tenantId, async () => ({
+    const { sites, gateways, connectors } = await inTenant(tenantId, async () => ({
+      connectors: await db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, tunnelSpark: true } }),
       sites: await db.site.findMany({ select: { id: true, connectorId: true, upstreamUrl: true, name: true, probeOk: true } }),
       // GATEWAY sites have no upstreamUrl; probe their remote-desktop target
       // (VaultCredential.targetHost:targetPort) with the same TCP connect.
@@ -70,6 +72,7 @@ export async function POST(req: NextRequest) {
 
     type Outcome = {
       id: string;
+      connectorId: string;
       name: string;
       was: boolean | null;
       probeOk: boolean;
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
     };
     await runBatched(toProbe, async (site) => ({
       id: site.id,
+      connectorId: site.connectorId,
       name: site.name,
       was: site.probeOk,
       ...(await probeSite(site)),
@@ -96,11 +100,15 @@ export async function POST(req: NextRequest) {
       const vc = site.vaultCredential!;
       return {
         id: site.id,
+        connectorId: site.connectorId,
         name: site.name,
         was: site.probeOk,
         ...(await probeGatewaySite({ connectorId: site.connectorId, targetHost: vc.targetHost, targetPort: vc.targetPort })),
       };
     });
+
+    // Each connector's tunnel and load: the 30-day strip and the spark.
+    const tunnels = connectors.length ? await probeConnectors(connectors.map((c) => c.id)) : null;
 
     // 3. WRITE -- scoped, DB only, one short transaction for the whole pass.
     const now = new Date();
@@ -111,6 +119,7 @@ export async function POST(req: NextRequest) {
           data: { probedAt: now, probeOk: o.probeOk, probeDetail: o.probeDetail, probeLatencyMs: o.probeLatencyMs },
         });
       }
+      if (tunnels) await writeConnectorSamples(connectors, tunnels, now);
     });
 
     // 4. NOTIFY -- after the results are safely written, and one scope EACH.
@@ -121,6 +130,11 @@ export async function POST(req: NextRequest) {
     for (const o of outcomes) {
       const transition = classifyTransition(o.was, o.probeOk);
       if (!transition) continue;
+      await inTenant(tenantId, () =>
+        transition === "site_down"
+          ? recordConnectorEvent(o.connectorId, "bad", `Target unreachable: ${o.name}`)
+          : recordConnectorEvent(o.connectorId, "ok", `Target reachable again: ${o.name}`),
+      ).catch(() => {});
       // Only a down event carries a failure reason; a recovered event has no
       // meaningful detail (probeDetail is just "reachable" on success).
       const detail = transition === "site_down" ? o.probeDetail : null;

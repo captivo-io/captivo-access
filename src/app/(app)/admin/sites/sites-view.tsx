@@ -64,17 +64,22 @@ function targetHost(s: SiteRow): string | null {
 export function SitesView({
   sites,
   hostSuffix,
+  initialQuery = "",
+  initialStatus = "all",
 }: {
   sites: SiteRow[];
   connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   recordingEnabled: boolean;
   /** ".acme.cloud.captivo.io": a web resource's public address is its label plus this. */
   hostSuffix: string | null;
+  /** From the address: Connectors links here with ?q=<connector> or ?status=down. */
+  initialQuery?: string;
+  initialStatus?: Status;
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>("cards");
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<Status>("all");
+  const [q, setQ] = useState(initialQuery);
+  const [status, setStatus] = useState<Status>(initialStatus);
   const [kind, setKind] = useState<Kind>("all");
   const [live, setLive] = useState<Live>({});
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
