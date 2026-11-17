@@ -10,9 +10,19 @@ import { KeystrokeTimeline, fmtMs as fmt } from "./keystroke-timeline";
  * session) before offering Play. Now Play works as soon as the first frames are
  * in; when playback catches up with the download the library pauses, and this
  * resumes it as more arrives ("Buffering…"). Seeking reaches only what is loaded
- * so far, which the bar shows by its length.
+ * so far, which the bar shows shaded.
+ *
+ * The clock runs on its own while playing. The library reports a position only
+ * when it draws a frame, and an idle screen draws none: the clock used to stop
+ * through a still stretch (9:10 for half a minute) and then jump (to 9:40),
+ * though playback itself waited the right time. The bar is laid out on the
+ * recording's expected length (estimatedMs, from its metadata) while it loads,
+ * not on the loaded length, which grew faster than playback and made the thumb
+ * slide back.
  */
-export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
+const TICK_MS = 250;
+
+export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordingId: string; estimatedMs?: number }) {
   const displayRef = useRef<HTMLDivElement>(null);
   const recRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +38,20 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
   const seeking = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(0); // what is loaded so far (all of it once loaded)
+  // Where the clock was last set from the recording, and when: it runs on from there.
+  const anchor = useRef({ pos: 0, at: 0 });
+  const durationRef = useRef(0);
+  const setAnchor = (pos: number) => { anchor.current = { pos, at: performance.now() }; setPosition(pos); };
+
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => {
+      const a = anchor.current;
+      setPosition(Math.min(a.pos + (performance.now() - a.at), durationRef.current));
+    }, TICK_MS);
+    return () => clearInterval(t);
+  }, [playing]);
 
   useEffect(() => {
     let disposed = false;
@@ -61,20 +84,31 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
           loadedRef.current = true;
           setLoaded(true);
           setReady(true);
-          setDuration(recording.getDuration());
+          durationRef.current = recording.getDuration();
+          setDuration(durationRef.current);
           fit();
           if (wantPlay.current && !seeking.current && !recording.isPlaying()) recording.play();
         };
         recording.onprogress = (dur: number) => {
+          durationRef.current = dur;
           setDuration(dur);
           if (dur > 0) setReady(true);
           // Caught up with the download while playing: go on with what arrived.
           if (wantPlay.current && !seeking.current && !recording.isPlaying()) recording.play();
         };
-        recording.onseek = (millis: number) => setPosition(millis);
-        recording.onplay = () => { wantPlay.current = true; setPlaying(true); setBuffering(false); };
+        // A frame drawn while playing. During a seek the library replays from the
+        // nearest keyframe up to the target: those steps are not shown.
+        recording.onseek = (millis: number) => { if (!seeking.current) setAnchor(millis); };
+        recording.onplay = () => {
+          wantPlay.current = true;
+          setPlaying(true);
+          setBuffering(false);
+          setAnchor(recording.getPosition());
+        };
         recording.onpause = () => {
           setPlaying(false);
+          // The library resumes from its last frame, so the clock goes back to it.
+          if (!seeking.current) setAnchor(recording.getPosition());
           if (seeking.current || !wantPlay.current) return;
           if (loadedRef.current) wantPlay.current = false; // the real end
           else setBuffering(true); // caught up with the download
@@ -110,19 +144,24 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
       r.play();
     }
   }
+  function seekTo(ms: number) {
+    const r = recRef.current;
+    if (!r) return;
+    // Only what is loaded can be reached; past it, the end of the loaded part.
+    const millis = Math.min(Math.max(0, ms), durationRef.current);
+    seeking.current = true;
+    setPosition(millis);
+    r.seek(millis, () => { seeking.current = false; setAnchor(millis); });
+  }
   function onScrub(e: React.ChangeEvent<HTMLInputElement>) {
-    const r = recRef.current;
-    if (!r) return;
-    const millis = Number(e.target.value);
-    seeking.current = true;
-    r.seek(millis, () => { seeking.current = false; setPosition(millis); });
+    seekTo(Number(e.target.value));
   }
-  function jumpTo(atMs: number) {
-    const r = recRef.current;
-    if (!r) return;
-    seeking.current = true;
-    r.seek(atMs, () => { seeking.current = false; setPosition(atMs); });
-  }
+  const jumpTo = seekTo;
+
+  // While loading, the bar spans the expected length; once loaded, the real one.
+  const total = loaded ? duration : Math.max(duration, estimatedMs);
+  const loadedPct = total > 0 ? Math.min(100, (duration / total) * 100) : 0;
+  const playedPct = total > 0 ? Math.min(100, (position / total) * 100) : 0;
 
 
   if (error) return <p className="notice error">{error}</p>;
@@ -136,15 +175,16 @@ export function GuacRecordingPlayer({ recordingId }: { recordingId: string }) {
         </button>
         <input
           type="range"
+          className="guac-seek"
           min={0}
-          max={duration || 0}
-          value={position}
+          max={total || 0}
+          value={Math.min(position, total)}
           onChange={onScrub}
           aria-label="Seek"
           disabled={!ready}
-          style={{ flex: 1 }}
+          style={{ ["--played" as string]: `${playedPct}%`, ["--loaded" as string]: `${loadedPct}%` }}
         />
-        <span className="cell-sub">{fmt(position)} / {fmt(duration)}{ready && !loaded ? " · loading" : ""}</span>
+        <span className="cell-sub">{fmt(position)} / {fmt(total)}{ready && !loaded ? " · loading" : ""}</span>
       </div>
       <KeystrokeTimeline recordingId={recordingId} onJump={jumpTo} disabled={!ready} />
     </div>

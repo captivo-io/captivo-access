@@ -37,7 +37,7 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
       ) : null}
       <div className="card">
         {rec.format === "GUAC"
-          ? <GuacRecordingPlayer recordingId={rec.id} />
+          ? <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0} />
           : rec.format === "VIDEO"
           ? <VideoRecordingPlayer id={rec.id} />
           : <RecordingPlayer id={rec.id} />}
