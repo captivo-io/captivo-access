@@ -84,12 +84,12 @@ async function AdminSitesPageImpl() {
           <div className="eyebrow">Infrastructure · {sites.length} resource{sites.length === 1 ? "" : "s"}</div>
           <h1>Resources</h1>
           <p>
-            The internal apps and hosts people reach through your connectors. Test connection checks a live
-            round trip through the connector&apos;s tunnel.
+            A resource is an internal upstream reached through a connector. Send a live test to verify the
+            tunnel works end to end.
           </p>
           <PlanUsageNote usage={siteUsage} noun="resources" />
         </div>
-        {connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} clipboardDefault={await resolvedClipboardDefault()} watermarkDefault={await resolvedWatermarkDefault()} egressDefault={await resolvedIsolatedEgressDefault()} fileTransferDefault={await resolvedIsolatedFileTransferDefault()} webFileTransferDefault={await resolvedWebAppFileTransferDefault()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}
+        <div className="row-actions"><span id="rs-head-actions" className="rs-head-actions" />{connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} clipboardDefault={await resolvedClipboardDefault()} watermarkDefault={await resolvedWatermarkDefault()} egressDefault={await resolvedIsolatedEgressDefault()} fileTransferDefault={await resolvedIsolatedFileTransferDefault()} webFileTransferDefault={await resolvedWebAppFileTransferDefault()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}</div>
       </div>
 
       {sites.length === 0 ? (
@@ -102,7 +102,7 @@ async function AdminSitesPageImpl() {
         // Existing sites always render (with edit/delete), even when the only
         // connector is revoked — otherwise a revoked connector's sites become
         // invisible and neither the sites nor the connector can be removed.
-        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} />
+        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} hostSuffix={await siteHostSuffix()} />
       )}
     </main>
   );

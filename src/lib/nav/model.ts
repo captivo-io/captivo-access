@@ -9,7 +9,7 @@ export type NavIconKey =
   | "mail" | "download"
   | "grid" | "inbox" | "clock" | "settings";
 
-export type BadgeTone = "ok" | "warn" | "muted" | "info";
+export type BadgeTone = "ok" | "warn" | "bad" | "muted" | "info";
 
 export interface NavItem { label: string; href: string; icon: NavIconKey; badge?: number; badgeTone?: BadgeTone; badgeTitle?: string }
 export interface NavSection { label: string; items: NavItem[] }
@@ -67,8 +67,8 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
   if (config) {
     admin.push({ label: "Infrastructure", items: [
       { label: "Connectors", href: "/admin/connectors", icon: "plug", ...badge(counts.outdatedConnectors, "warn", "out of date") },
-      // Unreachable is a warning, not a total: amber, and named on hover.
-      { label: "Resources", href: "/admin/sites", icon: "server", ...badge(counts.unreachableResources, "warn", "unreachable") },
+      // Unreachable is a fault, not a total: red, and named on hover.
+      { label: "Resources", href: "/admin/sites", icon: "server", ...badge(counts.unreachableResources, "bad", "unreachable") },
       // Self-host only: the operator runs DNS for the wildcard app domain. On
       // Cloud the platform provisions each tenant's namespace, nothing to do.
       ...(multiTenantEnabled() ? [] : [{ label: "Custom domain", href: "/admin/domain", icon: "globe" as const }]),
