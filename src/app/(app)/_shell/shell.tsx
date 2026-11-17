@@ -4,6 +4,7 @@ import type { NavModel } from "@/lib/nav/model";
 import type { ProductMenuItem } from "@/lib/products/product-menu";
 import type { ShellWorkspace } from "@/lib/nav/shell-data";
 import { PlatformAnnouncement } from "@/components/platform-announcement";
+import { ROLE_LABELS } from "@/lib/auth/roles";
 import { Sidebar, type ShellView } from "./sidebar";
 import { AppHeader } from "./app-header";
 
@@ -29,6 +30,7 @@ export function Shell(props: {
       <Sidebar
         model={props.model}
         view={props.view}
+        roleLabel={ROLE_LABELS[props.role] ?? props.role}
         products={props.products}
         workspace={props.workspace}
         user={props.user}
