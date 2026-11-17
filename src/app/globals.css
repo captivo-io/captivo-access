@@ -525,16 +525,28 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .guide-steps{margin:.3rem 0 .6rem;padding-left:1.2rem;display:flex;flex-direction:column;gap:.5rem;font-size:.9rem;color:var(--fg);}
 .guide-steps li{line-height:1.5;}
 
-/* Native (guacd) recording replay */
-.guac-recording-display { overflow: auto; max-width: 100%; background: #000; border-radius: 8px; }
-.guac-recording-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+/* Recording replay: one stage and one control bar for every kind of session */
+.rec-player { outline: none; }
+.rec-player:focus-visible { box-shadow: 0 0 0 2px var(--accent, #14b8a6); border-radius: 8px; }
+.rec-stage { position: relative; max-width: 100%; background: #000; border-radius: 8px; overflow: hidden; }
+.rec-stage video { display: block; width: 100%; max-height: 70vh; background: #000; cursor: pointer; }
+.guac-recording-display { overflow: auto; }
+.rec-stage.web-recording .replayer-wrapper { float: none; position: absolute; top: 0; left: 0; transform-origin: top left; }
+.rec-stage.web-recording .replayer-wrapper > iframe { border: none; background: #fff; }
+.rec-player:fullscreen { background: #000; padding: 12px; display: flex; flex-direction: column; justify-content: center; }
+.rec-player:fullscreen .rec-stage video { max-height: calc(100vh - 76px); }
+.rec-player:fullscreen .rec-time { color: #cbd5e1; }
+.rec-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.rec-time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rec-speed { width: auto; min-width: 4.2rem; padding-block: .25rem; }
+.rec-full { min-width: 2.2rem; }
 /* Seek bar: played (accent), loaded so far (mid), not yet loaded (faint). */
-.guac-seek { flex: 1; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; cursor: pointer;
+.rec-seek { flex: 1 1 12rem; min-width: 8rem; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px; cursor: pointer;
   background: linear-gradient(to right, var(--accent, #14b8a6) 0 var(--played, 0%), color-mix(in srgb, var(--muted, #5a6b82) 55%, transparent) var(--played, 0%) var(--loaded, 0%), color-mix(in srgb, var(--muted, #5a6b82) 18%, transparent) var(--loaded, 0%) 100%); }
-.guac-seek:disabled { cursor: default; opacity: .6; }
-.guac-seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #14b8a6); border: 2px solid var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
-.guac-seek::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #14b8a6); border: 2px solid var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
-.guac-seek::-moz-range-track { background: transparent; }
+.rec-seek:disabled { cursor: default; opacity: .6; }
+.rec-seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #14b8a6); border: 2px solid var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.rec-seek::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #14b8a6); border: 2px solid var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.rec-seek::-moz-range-track { background: transparent; }
 
 /* Recording-consent interstitial (native gateway session) */
 .consent-gate { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
@@ -599,8 +611,6 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .heat-tip { position: absolute; transform: translate(-50%, -130%); pointer-events: none; white-space: nowrap; background: var(--surface); border: 1px solid var(--line); color: var(--fg); font-size: .72rem; padding: 3px 7px; border-radius: 6px; box-shadow: var(--shadow); z-index: 5; }
 
 /* Web (rrweb) recording replay — keep the player inside its card */
-.web-recording { max-width: 100%; overflow: hidden; }
-.web-recording .rr-player { max-width: 100%; }
 
 /* Guacamole connection params */
 .guac-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem 1rem; }

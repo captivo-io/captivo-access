@@ -13,6 +13,8 @@ export interface RecordingRowJSON {
   id: string;
   startedAt: string;
   lastEventAt: string;
+  /** Measured by the connector; null until it reports. */
+  durationMs?: number | null;
   host: string;
   bytes: number;
   userId: string;
@@ -49,8 +51,9 @@ function humanBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
-function duration(a: string, b: string): string {
-  const s = Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 1000));
+function duration(a: string, b: string, measuredMs?: number | null): string {
+  const ms = measuredMs ?? new Date(b).getTime() - new Date(a).getTime();
+  const s = Math.max(0, Math.round(ms / 1000));
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
@@ -284,7 +287,7 @@ export function RecordingsTable({
                   </td>
                   <td>{r.siteName ?? r.host}</td>
                   <td><span className="pill">{formatBadge(r)}</span></td>
-                  <td className="cell-sub">{duration(r.startedAt, r.lastEventAt)}</td>
+                  <td className="cell-sub">{duration(r.startedAt, r.lastEventAt, r.durationMs)}</td>
                   <td className="cell-sub">
                     {humanBytes(r.bytes)}
                     {r.truncated ? (

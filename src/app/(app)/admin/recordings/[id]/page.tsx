@@ -19,6 +19,7 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
   }
   const user = await db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } });
   const site = await db.site.findUnique({ where: { id: rec.siteId }, select: { name: true } });
+  const estimatedMs = rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0;
   return (
     <main>
       <div className="page-head">
@@ -36,10 +37,12 @@ async function RecordingPageImpl({ params }: { params: Promise<{ id: string }> }
         </div>
       ) : null}
       <div className="card">
-        {rec.format === "GUAC"
-          ? <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0} />
-          : rec.format === "VIDEO"
-          ? <VideoRecordingPlayer id={rec.id} />
+        {/* An RDP/VNC recording plays as video once its connector has made one
+            (videoReady); until then, and for SSH, the instruction stream plays. */}
+        {rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady)
+          ? <VideoRecordingPlayer id={rec.id} durationMs={rec.durationMs ?? estimatedMs} />
+          : rec.format === "GUAC"
+          ? <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.durationMs ?? estimatedMs} />
           : <RecordingPlayer id={rec.id} />}
       </div>
     </main>

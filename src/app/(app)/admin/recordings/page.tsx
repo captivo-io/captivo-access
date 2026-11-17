@@ -23,6 +23,7 @@ async function AdminRecordingsPageImpl() {
     id: r.id,
     startedAt: r.startedAt.toISOString(),
     lastEventAt: r.lastEventAt.toISOString(),
+    durationMs: r.durationMs,
     host: r.host,
     bytes: r.bytes,
     userId: r.userId,

@@ -1,10 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { KeystrokeTimeline, fmtMs as fmt } from "./keystroke-timeline";
+import { KeystrokeTimeline } from "./keystroke-timeline";
+import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Plays a guac recording WHILE it downloads. A guac recording is a drawing
+ * Plays a guac recording WHILE it downloads. Since 2.21 this is the player for
+ * terminal sessions (SSH, telnet: small, they load in a second) and for an
+ * RDP/VNC session until its connector has turned it into video, which then
+ * plays in VideoRecordingPlayer instead.
+ * A guac recording is a drawing
  * instruction stream, not a video, and the library only replays what it has
  * parsed; the player used to wait for the whole file (353 MB for a 25-minute RDP
  * session) before offering Play. Now Play works as soon as the first frames are
@@ -32,6 +37,7 @@ const TICK_MS = 250;
 const LEAD_MS = 5_000;
 
 export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordingId: string; estimatedMs?: number }) {
+  const playerRef = useRef<HTMLDivElement>(null);
   const displayRef = useRef<HTMLDivElement>(null);
   const recRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +59,17 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
   const durationRef = useRef(0);
   // A seek to a point not yet loaded, taken when the download reaches it.
   const pendingSeek = useRef<number | null>(null);
+  // Fits the display to its box again (window resized, full screen toggled).
+  const refit = useRef<() => void>(() => {});
+  useEffect(() => {
+    const again = () => refit.current();
+    window.addEventListener("resize", again);
+    document.addEventListener("fullscreenchange", again);
+    return () => {
+      window.removeEventListener("resize", again);
+      document.removeEventListener("fullscreenchange", again);
+    };
+  }, []);
   const setAnchor = (pos: number) => { anchor.current = { pos, at: performance.now() }; setPosition(pos); };
 
   useEffect(() => {
@@ -106,12 +123,17 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
         const display = recording.getDisplay();
         displayRef.current.innerHTML = "";
         displayRef.current.appendChild(display.getElement());
+        // Scaled down to the page's width; in full screen, up or down to fit it.
         const fit = () => {
           const dw = display.getWidth();
           const dh = display.getHeight();
-          if (dw > 0 && dh > 0) display.scale(Math.min((displayRef.current?.clientWidth ?? dw) / dw, 1));
+          if (dw <= 0 || dh <= 0) return;
+          const full = !!document.fullscreenElement;
+          const byWidth = (displayRef.current?.clientWidth ?? dw) / dw;
+          display.scale(full ? Math.min(byWidth, (window.innerHeight - 64) / dh) : Math.min(byWidth, 1));
         };
         display.onresize = fit;
+        refit.current = fit;
 
         recording.onload = () => {
           loadedRef.current = true;
@@ -197,38 +219,30 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0 }: { recordin
     pendingSeek.current = null;
     r.seek(millis, () => { seeking.current = false; setAnchor(millis); tryResume(); });
   }
-  function onScrub(e: React.ChangeEvent<HTMLInputElement>) {
-    seekTo(Number(e.target.value));
-  }
   const jumpTo = seekTo;
 
   // While loading, the bar spans the expected length; once loaded, the real one.
   const total = loaded ? duration : Math.max(duration, estimatedMs);
   const loadedPct = total > 0 ? Math.min(100, (duration / total) * 100) : 0;
-  const playedPct = total > 0 ? Math.min(100, (position / total) * 100) : 0;
-
 
   if (error) return <p className="notice error">{error}</p>;
 
   return (
     <div className="guac-recording">
-      <div ref={displayRef} className="guac-recording-display" />
-      <div className="guac-recording-controls">
-        <button type="button" className="btn sm" onClick={toggle} disabled={!ready}>
-          {!ready ? "Loading…" : buffering ? "Buffering…" : playing ? "Pause" : "Play"}
-        </button>
-        <input
-          type="range"
-          className="guac-seek"
-          min={0}
-          max={total || 0}
-          value={Math.min(position, total)}
-          onChange={onScrub}
-          aria-label="Seek"
-          disabled={!ready}
-          style={{ ["--played" as string]: `${playedPct}%`, ["--loaded" as string]: `${loadedPct}%` }}
+      <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d))}>
+        <div ref={displayRef} className="guac-recording-display rec-stage" />
+        <PlaybackBar
+          ready={ready}
+          playing={playing}
+          buffering={buffering}
+          position={position}
+          total={total}
+          loadedPct={loadedPct}
+          note={ready && !loaded ? "loading" : undefined}
+          onToggle={toggle}
+          onSeek={seekTo}
+          onFullscreen={() => toggleFullscreen(playerRef.current)}
         />
-        <span className="cell-sub">{fmt(position)} / {fmt(total)}{ready && !loaded ? " · loading" : ""}</span>
       </div>
       <KeystrokeTimeline recordingId={recordingId} onJump={jumpTo} disabled={!ready} />
     </div>

@@ -1,27 +1,114 @@
 "use client";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { KeystrokeTimeline } from "./keystroke-timeline";
+import { PlaybackBar, playerKeys, toggleFullscreen } from "./playback-bar";
 
-// Streams the assembled WebM straight from the serving route — no client-side blob
-// assembly needed; the browser plays the video/webm response directly.
-export function VideoRecordingPlayer({ id }: { id: string }) {
-  const ref = useRef<HTMLVideoElement>(null);
+/**
+ * Plays a recording stored as WebM: an isolated-browser session, and an RDP/VNC
+ * session once its connector has turned it into video. The browser streams it
+ * with Range requests straight from the serving route, so it starts at once and
+ * seeks anywhere without downloading what lies before.
+ *
+ * durationMs is the length the connector measured, if it has; it stands in when
+ * the file states none (an isolated-browser video cut off before its session
+ * closed, until the connector repairs it).
+ */
+export function VideoRecordingPlayer({ id, durationMs = 0 }: { id: string; durationMs?: number }) {
+  const playerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(durationMs);
+  const [buffered, setBuffered] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const length = () => {
+      const d = Number.isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : durationMs;
+      setDuration(d);
+    };
+    const bufferedEnd = () => {
+      let end = 0;
+      for (let i = 0; i < v.buffered.length; i++) {
+        if (v.buffered.start(i) <= v.currentTime + 0.5) end = Math.max(end, v.buffered.end(i));
+      }
+      setBuffered(end * 1000);
+    };
+    const on: Array<[string, () => void]> = [
+      ["loadedmetadata", () => { length(); setReady(true); }],
+      ["durationchange", length],
+      ["timeupdate", () => { setPosition(v.currentTime * 1000); bufferedEnd(); }],
+      ["progress", bufferedEnd],
+      ["play", () => setPlaying(true)],
+      ["pause", () => { setPlaying(false); setBuffering(false); }],
+      ["ended", () => { setPlaying(false); setBuffering(false); }],
+      ["waiting", () => setBuffering(true)],
+      ["playing", () => setBuffering(false)],
+      ["seeked", () => { setPosition(v.currentTime * 1000); bufferedEnd(); }],
+      ["error", () => setError("Couldn't load this recording. Its connector may be offline; try again in a moment.")],
+    ];
+    for (const [e, f] of on) v.addEventListener(e, f);
+    return () => { for (const [e, f] of on) v.removeEventListener(e, f); };
+  }, [durationMs]);
+
+  function toggle() {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused || v.ended) void v.play().catch(() => {});
+    else v.pause();
+  }
+  function seekTo(ms: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    const max = duration > 0 ? duration : ms;
+    v.currentTime = Math.max(0, Math.min(ms, max)) / 1000;
+    setPosition(v.currentTime * 1000);
+  }
+  function changeSpeed(s: number) {
+    setSpeed(s);
+    if (videoRef.current) videoRef.current.playbackRate = s;
+  }
+
+  if (error) return <p className="notice error">{error}</p>;
+
   return (
     <>
-      <video
-        ref={ref}
-        controls
-        src={`/api/admin/recordings/${id}/video`}
-        style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
-      />
+      <div ref={playerRef} className="rec-player" tabIndex={0} onKeyDown={(e) => playerKeys(e, toggle, (d) => seekTo(position + d))}>
+        <div className="rec-stage">
+          <video
+            ref={videoRef}
+            src={`/api/admin/recordings/${id}/video`}
+            preload="metadata"
+            playsInline
+            onClick={toggle}
+          />
+        </div>
+        <PlaybackBar
+          ready={ready}
+          playing={playing}
+          buffering={buffering}
+          position={position}
+          total={duration}
+          loadedPct={duration > 0 ? (buffered / duration) * 100 : 0}
+          onToggle={toggle}
+          onSeek={seekTo}
+          speed={speed}
+          onSpeed={changeSpeed}
+          onFullscreen={() => toggleFullscreen(playerRef.current)}
+        />
+      </div>
       <KeystrokeTimeline
         recordingId={id}
         onJump={(ms) => {
-          const v = ref.current;
-          if (!v) return;
-          v.currentTime = ms / 1000;
-          void v.play().catch(() => {});
+          seekTo(ms);
+          void videoRef.current?.play().catch(() => {});
         }}
+        disabled={!ready}
       />
     </>
   );
