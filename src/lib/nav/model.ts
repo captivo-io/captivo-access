@@ -18,7 +18,7 @@ export interface NavModel {
   admin: NavSection[];
   /** The person's own access: every signed-in user has it. */
   user: NavSection[];
-  /** Both menus apply: the sidebar offers the Admin / User switch. */
+  /** Both menus apply: the sidebar offers the console / User switch. */
   canSwitchView: boolean;
   showSearch: boolean;
   showNotifications: boolean;

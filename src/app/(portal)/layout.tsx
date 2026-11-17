@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 // A person's own access (My access, requests, history, preferences): the same
 // shell as the console, with the User menu. Someone who also runs the console
-// gets the Admin / User switch at the foot of the sidebar.
+// gets the console / User switch at the foot of the sidebar.
 async function PortalLayoutImpl({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   const tz = await resolvedDisplayTimezone(user.id);

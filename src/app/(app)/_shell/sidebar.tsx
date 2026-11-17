@@ -19,13 +19,15 @@ export type ShellView = "admin" | "user";
 
 /**
  * The sidebar of the design hand-off: product switcher, workspace, the menu in
- * groups, and at the foot the Admin / User switch (only for someone who has
+ * groups, and at the foot the console / User switch, named after the role (only for someone who has
  * both) and the signed-in person. Below 1000px it is a drawer, opened from the
  * header's menu button through <html data-nav-open>.
  */
-export function Sidebar({ model, view, products, workspace, user, accountUrl }: {
+export function Sidebar({ model, view, roleLabel, products, workspace, user, accountUrl }: {
   model: NavModel;
   view: ShellView;
+  /** The console side of the view switch is named after the person's role (Admin, Operator, Auditor). */
+  roleLabel: string;
   products: ProductMenuItem[];
   workspace: ShellWorkspace;
   user: { name: string; email: string };
@@ -133,7 +135,7 @@ export function Sidebar({ model, view, products, workspace, user, accountUrl }: 
             <>
               <p className="sb-group-h">View</p>
               <div className="seg sb-view" role="group" aria-label="View">
-                <Link href="/" className={view === "admin" ? "seg-opt on" : "seg-opt"} aria-pressed={view === "admin"}>Admin</Link>
+                <Link href="/" className={view === "admin" ? "seg-opt on" : "seg-opt"} aria-pressed={view === "admin"}>{roleLabel}</Link>
                 <Link href="/access" className={view === "user" ? "seg-opt on" : "seg-opt"} aria-pressed={view === "user"}>User</Link>
               </div>
             </>
