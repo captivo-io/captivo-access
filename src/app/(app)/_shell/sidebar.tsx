@@ -122,7 +122,7 @@ export function Sidebar({ model, view, roleLabel, products, workspace, user, acc
                   <Link key={it.href} href={it.href} className={active ? "sb-link active" : "sb-link"} aria-current={active ? "page" : undefined}>
                     <NavIcon name={it.icon} />
                     <span className="sb-link-label">{it.label}</span>
-                    {n ? <span className={`sb-badge ${tone ?? "muted"}`}>{n}</span> : null}
+                    {n ? <span className={`sb-badge ${tone ?? "muted"}`} title={it.badgeTitle} aria-label={it.badgeTitle}>{n}</span> : null}
                   </Link>
                 );
               })}

@@ -45,12 +45,12 @@ export function TestConnectionButton({ siteId }: { siteId: string }) {
   }
 
   return (
-    <span>
-      <button type="button" className="btn sm ghost" onClick={handleClick} disabled={busy}>
+    <span className="test-conn">
+      <button type="button" className="btn sm" onClick={handleClick} disabled={busy}>
         {busy ? "Testing…" : "Test connection"}
       </button>
       {result && (
-        <p className="notice" role="status">
+        <p className="notice test-result" role="status">
           {result}
         </p>
       )}

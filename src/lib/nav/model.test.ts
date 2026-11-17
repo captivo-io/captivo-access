@@ -6,6 +6,8 @@ const hrefs = (m: ReturnType<typeof buildNavModel>) => m.admin.flatMap((s) => s.
 describe("buildNavModel", () => {
   it("ADMIN: every section, with badges where there is something to count", () => {
     const m = buildNavModel("ADMIN", { pending: 3, unread: 5, live: 1, outdatedConnectors: 2, unreachableResources: 0 });
+    expect(buildNavModel("ADMIN", { pending: 0, unread: 0, unreachableResources: 5 }).admin[2].items[1])
+      .toMatchObject({ badge: 5, badgeTone: "warn", badgeTitle: "5 unreachable" });
     expect(m.admin.map((s) => s.label)).toEqual(["Overview", "Operate", "Infrastructure", "Identity & access", "Platform"]);
     expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Sessions", "Recordings", "Audit"]);
     const item = (label: string) => m.admin.flatMap((s) => s.items).find((i) => i.label === label);

@@ -1,5 +1,4 @@
 import { requireAdmin } from "@/lib/current-user";
-import { SitesIcon } from "@/components/icons";
 import { db } from "@/lib/db";
 import { timeAgo } from "@/lib/format";
 import { recordingEnabled } from "@/lib/recording/enabled";
@@ -38,7 +37,7 @@ async function AdminSitesPageImpl() {
         clipboardMode: true,
         logoType: true,
         connector: { select: { name: true, status: true } },
-        vaultCredential: { select: { targetHost: true, targetPort: true } },
+        vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } },
         _count: { select: { grants: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -58,12 +57,14 @@ async function AdminSitesPageImpl() {
     description: s.description,
     accessMode: s.accessMode,
     gatewayTarget: s.vaultCredential ? `${s.vaultCredential.targetHost}:${s.vaultCredential.targetPort}` : null,
+    protocol: s.accessMode === "GATEWAY" && s.vaultCredential ? String(s.vaultCredential.protocol).toUpperCase() : null,
     hasLogo: s.logoType != null,
     connectorId: s.connectorId,
     insecureSkipVerify: s.insecureSkipVerify,
     recordSessions: s.recordSessions,
     clipboardMode: s.clipboardMode,
     connectorName: s.connector.name,
+    connectorOnline: s.connector.status === "ONLINE",
     grantCount: s._count.grants,
     probeOk: s.probeOk,
     probeDetail: s.probeDetail,
@@ -80,11 +81,11 @@ async function AdminSitesPageImpl() {
     <main>
       <div className="page-head">
         <div>
-          <div className="page-title-row"><span className="page-icon"><SitesIcon /></span><h1>Resources</h1></div>
+          <div className="eyebrow">Infrastructure · {sites.length} resource{sites.length === 1 ? "" : "s"}</div>
+          <h1>Resources</h1>
           <p>
-            A resource is an internal upstream reachable through a connector, addressed by its real internal
-            URL. Use &quot;Test connection&quot; to verify a live round trip through the connector&apos;s
-            tunnel.
+            The internal apps and hosts people reach through your connectors. Test connection checks a live
+            round trip through the connector&apos;s tunnel.
           </p>
           <PlanUsageNote usage={siteUsage} noun="resources" />
         </div>
