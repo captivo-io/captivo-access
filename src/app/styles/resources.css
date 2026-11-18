@@ -74,7 +74,7 @@
 .rf-check-card b{font-size:14px;font-weight:600;}
 .rf-check-card.warn{border-color:rgba(var(--warn-rgb),.5);background:rgba(var(--warn-rgb),.08);}
 .rf-check-card.warn .cell-sub{color:var(--warn);}
-.rf-creds{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;}
+.rf-creds{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end;}
 .rf-wide{grid-column:1 / -1;}
 .rf-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding-top:14px;border-top:1px solid var(--line-soft);}
 .rf-row-t{flex:1 1 260px;display:flex;flex-direction:column;gap:3px;min-width:0;}
