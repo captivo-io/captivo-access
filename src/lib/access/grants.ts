@@ -64,7 +64,9 @@ export async function listUserGrants(userId: string) {
       approvedAt: true,
       schedule: true,
       denyReason: true,
-      site: { select: { id: true, name: true, hostname: true, recordSessions: true, logoType: true, accessMode: true } },
+      // The tile fields (icon, colour, logo, and the address the automatic icon reads)
+      // stay on the server: callers map out only what they show.
+      site: { select: { id: true, name: true, hostname: true, recordSessions: true, logoType: true, accessMode: true, upstreamUrl: true, iconName: true, iconColor: true, logoBg: true, vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } } } },
     },
   });
 }

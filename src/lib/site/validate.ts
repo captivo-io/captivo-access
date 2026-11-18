@@ -37,6 +37,7 @@ export type SiteValidation =
       recordSessions: boolean;
       keystrokeLogging: boolean;
       watermark: boolean | null; // null = inherit the Policy default
+      clipboardMode: string | null; // read by the gateway descriptor (guacd disable-copy/paste)
       guacParams: GuacParams;
     }
   | {
@@ -129,6 +130,7 @@ export function validateSiteInput(
       recordSessions: opts.recordingEnabled && body.recordSessions === true,
       keystrokeLogging: opts.recordingEnabled && body.recordSessions === true && body.keystrokeLogging === true,
       watermark: watermarkFrom(body),
+      clipboardMode: CLIP.includes(str(body.clipboardMode)) ? str(body.clipboardMode) : null,
       guacParams: parseGuacParams(body.guacParams),
     };
   }
@@ -181,4 +183,31 @@ export function validateSiteInput(
     watermark: watermarkFrom(body),
     fileTransferMode: FT.includes(ft) ? ft : null,
   };
+}
+
+const ICON_COLORS_OK = ["blue", "violet", "green", "amber", "cyan", "slate"];
+const LOGO_BG_OK = ["white", "tint", "none"];
+
+/**
+ * The tile fields of a create/update body. A field left out stays as it is;
+ * null (or "auto") puts the automatic choice back.
+ */
+export function appearanceFrom(body: Record<string, unknown>, iconNames: string[]): { iconName?: string | null; iconColor?: string | null; logoBg?: string | null } | { error: string } {
+  const out: { iconName?: string | null; iconColor?: string | null; logoBg?: string | null } = {};
+  if (body.iconName !== undefined) {
+    if (body.iconName === null || body.iconName === "auto") out.iconName = null;
+    else if (typeof body.iconName === "string" && iconNames.includes(body.iconName)) out.iconName = body.iconName;
+    else return { error: "invalid_icon" };
+  }
+  if (body.iconColor !== undefined) {
+    if (body.iconColor === null) out.iconColor = null;
+    else if (typeof body.iconColor === "string" && ICON_COLORS_OK.includes(body.iconColor)) out.iconColor = body.iconColor;
+    else return { error: "invalid_icon" };
+  }
+  if (body.logoBg !== undefined) {
+    if (body.logoBg === null) out.logoBg = null;
+    else if (typeof body.logoBg === "string" && LOGO_BG_OK.includes(body.logoBg)) out.logoBg = body.logoBg;
+    else return { error: "invalid_icon" };
+  }
+  return out;
 }

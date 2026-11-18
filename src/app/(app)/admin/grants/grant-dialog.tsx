@@ -6,6 +6,7 @@ import { parseDatetimeLocal } from "@/lib/time/datetime-local";
 import type { Schedule } from "@/lib/access/schedule";
 import type { SiteTile } from "@/lib/access/grant-rows";
 import { ROLE_LABELS } from "@/lib/auth/roles";
+import { ResourceIcon } from "@/components/resource-icon";
 import { grantCovers, type CoverWindow } from "@/lib/access/grant-cover";
 import type { Role } from "@/generated/prisma/enums";
 
@@ -183,8 +184,8 @@ export function GrantDialogBody({
             return (
               <label key={s.id} className={["gd-res-row", on && "on", cover && "covered"].filter(Boolean).join(" ")}>
                 <input type="checkbox" checked={on} disabled={!!cover && !on} onChange={() => setSiteIds((v) => (on ? v.filter((x) => x !== s.id) : [...v, s.id]))} />
-                <span className={s.remote ? "rs-proto sm remote" : "rs-proto sm"} aria-hidden="true">{s.proto}</span>
-                <span className="rq-opt-main"><b>{s.name}</b>{s.host && <span className="mono t-muted">{s.host}</span>}</span>
+                <ResourceIcon name={s.icon} color={s.color} logoUrl={s.logoUrl} logoBg={s.logoBg} size={30} />
+                <span className="rq-opt-main"><b>{s.name}</b><span className="mono t-muted"><span className="rs-proto-l">{s.proto}</span>{s.host ? ` · ${s.host}` : ""}</span></span>
                 {cover ? (
                   <span className={on ? "gd-has t-bad" : "gd-has"}>has {cover.label} · nothing to add</span>
                 ) : had.length > 0 ? (

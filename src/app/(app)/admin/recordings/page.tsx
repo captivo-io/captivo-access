@@ -1,3 +1,4 @@
+import { siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
 import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { listRecordings } from "@/lib/recording/query";
@@ -16,7 +17,7 @@ async function AdminRecordingsPageImpl() {
   const [ws, users, sites, { rows, total }, kpis, retention] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
-    db.site.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.site.findMany({ select: SITE_TILE_SELECT, orderBy: { name: "asc" } }),
     listRecordings({ limit: 48, offset: 0 }),
     recordingKpis(),
     resolvedRecordingRetentionDays(),
@@ -36,6 +37,7 @@ async function AdminRecordingsPageImpl() {
     userEmail: userMap.get(r.userId)?.email ?? null,
     siteId: r.siteId,
     siteName: siteMap.get(r.siteId)?.name ?? null,
+    site: siteMap.has(r.siteId) ? siteTile(siteMap.get(r.siteId)!) : null,
     format: r.format,
     protocol: r.protocol,
     truncated: r.truncated,

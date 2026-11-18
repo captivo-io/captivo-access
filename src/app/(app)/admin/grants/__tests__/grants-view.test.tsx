@@ -25,7 +25,7 @@ const users = [
   { id: "admin", name: "Serdar Kurt", email: "s@x.io", role: "ADMIN" as const },
   { id: "vendor", name: "Demo Vendor", email: "d@x.io", role: "VENDOR" as const },
 ];
-const sites = [{ id: "rdp", name: "DC-RDP", proto: "RDP", remote: true, host: "10.0.0.2:3389" }];
+const sites = [{ id: "rdp", name: "DC-RDP", proto: "RDP", remote: true, host: "10.0.0.2:3389", icon: "directory", color: "violet" as const, logoUrl: null, logoBg: null }];
 
 const text = () => document.body.textContent ?? "";
 const btn = (label: string) => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(label)) as HTMLButtonElement;

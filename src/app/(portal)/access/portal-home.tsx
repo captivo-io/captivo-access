@@ -1,3 +1,4 @@
+import type { IconColor } from "@/lib/site/icons";
 import { RequestAccessButton } from "./request-access-button";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { AccessCards } from "./access-cards";
@@ -12,6 +13,8 @@ export interface CardVM {
   hostname: string;
   accessMode: string;
   hasLogo: boolean;
+  /** The resource's tile, as the admin console shows it. */
+  tile: { icon: string; color: IconColor; logoUrl: string | null; logoBg: string | null };
   siteId: string;
   glyph: string;
   status: "active" | "upcoming" | "off_hours" | "pending";

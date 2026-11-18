@@ -6,6 +6,7 @@ import "./styles/directory.css";
 import "./styles/sso-email.css";
 import "./styles/updates.css";
 import "./styles/policy.css";
+import "./styles/resources.css";
 
 export const metadata: Metadata = {
   title: { default: "Captivo Access", template: "%s · Captivo Access" },

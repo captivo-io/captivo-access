@@ -8,7 +8,7 @@ export const ALLOWED_LOGO_TYPES = new Set([
   "image/svg+xml",
   "image/webp",
 ]);
-export const MAX_LOGO_BYTES = 200 * 1024; // 200 KB
+export const MAX_LOGO_BYTES = 512 * 1024; // 512 KB
 
 export type LogoUpdate =
   | { action: "keep" } // field absent -> leave the existing logo unchanged

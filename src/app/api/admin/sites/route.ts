@@ -12,6 +12,8 @@ import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { crossTenantHostnameTaken } from "@/lib/site/hostname";
 import { capabilityAllowed, assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
 import { parseLogoUpload } from "@/lib/site/logo";
+import { appearanceFrom } from "@/lib/site/validate";
+import { ICON_NAMES } from "@/lib/site/icons";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
@@ -46,7 +48,9 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (logoResult.action === "error") {
     return NextResponse.json({ error: logoResult.error }, { status: 400 });
   }
-  const logoData = logoResult.action === "set" ? { logo: logoResult.data, logoType: logoResult.type } : {};
+  const look = appearanceFrom(body, ICON_NAMES);
+  if ("error" in look) return NextResponse.json({ error: look.error }, { status: 400 });
+  const logoData = { ...(logoResult.action === "set" ? { logo: logoResult.data, logoType: logoResult.type } : {}), ...look };
 
   if (v.mode === "TRANSPARENT") {
     if (await crossTenantHostnameTaken(v.hostname)) {
@@ -105,7 +109,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   }
   const id = await db.$transaction(async (tx) => {
     const site = await tx.site.create({
-      data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, accessMode: "GATEWAY", ...logoData },
+      data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, accessMode: "GATEWAY", ...logoData },
       select: { id: true },
     });
     await tx.vaultCredential.create({

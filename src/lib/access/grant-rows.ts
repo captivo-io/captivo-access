@@ -2,27 +2,40 @@ import { db } from "@/lib/db";
 import { parseSchedule, compactDays, nextScheduleStart } from "@/lib/access/schedule";
 import { grantKind, grantState, isPermanent, endsSoon, type GrantKind, type GrantState } from "@/lib/access/grant-view";
 import type { DecisionReason } from "@/lib/access/classify";
+import { kindOf, resolveIcon, type IconColor } from "@/lib/site/icons";
 
-/** What a resource tile shows: WEB/HTTPS/RDP/SSH…, and the address it points at. */
-export interface SiteTile { id: string; name: string; proto: string; remote: boolean; host: string | null }
+/**
+ * What a resource tile shows: its icon (or logo), WEB/HTTPS/RDP/SSH…, and the
+ * address it points at. Shared by every page that lists resources.
+ */
+export interface SiteTile {
+  id: string; name: string; proto: string; remote: boolean; host: string | null;
+  icon: string; color: IconColor;
+  /** /api/sites/<id>/logo when a logo is uploaded. */
+  logoUrl: string | null; logoBg: string | null;
+}
 
 type SiteFacts = {
   id: string; name: string; accessMode: string; upstreamUrl: string | null;
+  iconName?: string | null; iconColor?: string | null; logoBg?: string | null; logoType?: string | null;
   vaultCredential: { targetHost: string; targetPort: number | null; protocol: string } | null;
 };
 
 export function siteTile(s: SiteFacts): SiteTile {
   const remote = s.accessMode === "GATEWAY";
+  const v = s.vaultCredential;
+  const target = remote ? v?.targetHost ?? null : s.upstreamUrl;
+  const ic = resolveIcon({ name: s.name, target, kind: kindOf({ accessMode: s.accessMode, protocol: v?.protocol }), iconName: s.iconName, iconColor: s.iconColor });
+  const look = { icon: ic.name, color: ic.color, logoUrl: s.logoType ? `/api/sites/${s.id}/logo` : null, logoBg: s.logoBg ?? null };
   if (remote) {
-    const v = s.vaultCredential;
-    return { id: s.id, name: s.name, remote, proto: v ? String(v.protocol).toUpperCase() : "REMOTE", host: v ? (v.targetPort ? `${v.targetHost}:${v.targetPort}` : v.targetHost) : null };
+    return { id: s.id, name: s.name, remote, proto: v ? String(v.protocol).toUpperCase() : "REMOTE", host: v ? (v.targetPort ? `${v.targetHost}:${v.targetPort}` : v.targetHost) : null, ...look };
   }
   const u = s.upstreamUrl ?? "";
-  return { id: s.id, name: s.name, remote, proto: u.startsWith("http://") ? "HTTP" : "HTTPS", host: u ? u.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "") : null };
+  return { id: s.id, name: s.name, remote, proto: u.startsWith("http://") ? "HTTP" : "HTTPS", host: u ? u.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "") : null, ...look };
 }
 
 export const SITE_TILE_SELECT = {
-  id: true, name: true, accessMode: true, upstreamUrl: true,
+  id: true, name: true, accessMode: true, upstreamUrl: true, iconName: true, iconColor: true, logoBg: true, logoType: true,
   vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } },
 } as const;
 

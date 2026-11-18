@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CardVM } from "./portal-home";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
+import { ResourceIcon } from "@/components/resource-icon";
 
 type TypeFilter = "all" | "web" | "remote";
 const PAGE_SIZE = 25;
@@ -59,10 +60,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
           return (
             <div key={c.id} className="ma-row">
               <span className="ma-res">
-                <span className={remote ? "ma-tile violet" : "ma-tile"}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {c.hasLogo ? <img src={`/api/sites/${c.siteId}/logo`} alt="" width={36} height={36} /> : c.glyph}
-                </span>
+                <ResourceIcon name={c.tile.icon} color={c.tile.color} logoUrl={c.tile.logoUrl} logoBg={c.tile.logoBg} size={40} />
                 <span className="ma-res-main">
                   <span className="ma-res-t"><b>{c.siteName}</b><span className={remote ? "chip violet" : "chip"}>{remote ? "REMOTE" : "WEB"}</span></span>
                   {c.hostname && <span className="mono t-muted ma-host">{c.hostname}</span>}
