@@ -1,5 +1,6 @@
 // Recurring weekly access window. Timezone handling uses Node's built-in Intl
 // (DST-correct) — no external dependency.
+import { parseDatetimeLocal } from "@/lib/time/datetime-local";
 
 export type Schedule = {
   timezone: string; // IANA zone, e.g. "Europe/Istanbul"
@@ -93,4 +94,35 @@ const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function formatSchedule(schedule: Schedule): string {
   const days = [...schedule.days].sort((a, b) => a - b).map((d) => DAY_ABBR[d]).join(", ");
   return `${days} ${schedule.start}–${schedule.end} (${schedule.timezone})`;
+}
+
+/** "Mon–Fri", "Sat–Sun", "Mon, Wed, Fri": the days, Monday first, runs joined. */
+export function compactDays(days: number[]): string {
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const on = order.filter((d) => days.includes(d));
+  if (on.length === 7) return "Every day";
+  const runs: number[][] = [];
+  for (const d of on) {
+    const last = runs.at(-1);
+    if (last && order.indexOf(d) === order.indexOf(last.at(-1)!) + 1) last.push(d);
+    else runs.push([d]);
+  }
+  return runs.map((r) => (r.length >= 3 ? `${DAY_ABBR[r[0]]}–${DAY_ABBR[r.at(-1)!]}` : r.map((d) => DAY_ABBR[d]).join(", "))).join(", ");
+}
+
+/**
+ * When the schedule next opens after `now` (null when it never does). A window
+ * that is open at `now` is not counted: this is the next start.
+ */
+export function nextScheduleStart(schedule: Schedule, now: Date): Date | null {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: schedule.timezone, year: "numeric", month: "2-digit", day: "2-digit" });
+  for (let i = 0; i <= 7; i++) {
+    const probe = new Date(now.getTime() + i * 86_400_000);
+    const date = day.format(probe); // YYYY-MM-DD in the schedule's zone
+    const at = parseDatetimeLocal(`${date}T${schedule.start}`, schedule.timezone);
+    if (!at || at <= now) continue;
+    const wd = WEEKDAY_INDEX[new Intl.DateTimeFormat("en-US", { timeZone: schedule.timezone, weekday: "short" }).format(at)];
+    if (schedule.days.includes(wd)) return at;
+  }
+  return null;
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useTimezone } from "@/app/(app)/_shell/timezone-context";
 import { TimezoneHint } from "@/app/(app)/_shell/effective-timezone";
 import { formatDatetimeLocal, parseDatetimeLocal } from "@/lib/time/datetime-local";
@@ -29,42 +28,36 @@ function saveError(code: string | undefined): string {
   }
 }
 
-export function EditGrantButton({ id, endsAt, note }: { id: string; endsAt: string | null; note: string | null }) {
+/** The end date and note of a grant: what an edit can change. */
+export function EditGrantBody({ id, endsAt, note, onDone, onClose }: {
+  id: string; endsAt: string | null; note: string | null; onDone: () => void; onClose: () => void;
+}) {
   const tz = useTimezone();
-  const [open, setOpen] = useState(false);
-  // Filled when the editor opens (client-side) so the browser-zone fallback never
-  // runs during SSR.
-  const [endsAtLocal, setEndsAtLocal] = useState("");
+  // Mounted only on the client (inside the open dialog), so the browser-zone
+  // fallback never runs during SSR.
+  const [endsAtLocal, setEndsAtLocal] = useState(() => toLocalInput(endsAt, tz));
   const [noteValue, setNoteValue] = useState(note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   async function save() {
     setError(null);
+    const payload: { endsAt?: string; note: string } = { note: noteValue };
+    if (endsAtLocal) {
+      const d = parseDatetimeLocal(endsAtLocal, tz);
+      if (!d) { setError("Enter a valid end date."); return; }
+      payload.endsAt = d.toISOString();
+    }
     setBusy(true);
     try {
-      const payload: { endsAt?: string; note: string } = { note: noteValue };
-      if (endsAtLocal) {
-        const d = parseDatetimeLocal(endsAtLocal, tz);
-        if (!d) {
-          setError("Enter a valid end date.");
-          setBusy(false);
-          return;
-        }
-        payload.endsAt = d.toISOString();
-      }
       const res = await fetch(`/api/admin/grants/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
       const result = await res.json().catch(() => ({}));
-      if (!res.ok || !result?.ok) {
-        setError(saveError(result?.error));
-        return;
-      }
-      router.refresh();
+      if (!res.ok || !result?.ok) { setError(saveError(result?.error)); return; }
+      onDone();
     } catch {
       setError("Couldn't save, please try again.");
     } finally {
@@ -72,46 +65,23 @@ export function EditGrantButton({ id, endsAt, note }: { id: string; endsAt: stri
     }
   }
 
-  if (!open) {
-    return (
-      <button type="button" className="btn sm" onClick={() => { setEndsAtLocal(toLocalInput(endsAt, tz)); setOpen(true); }}>
-        Edit
-      </button>
-    );
-  }
-
   return (
-    <div>
-      <div className="field">
-        <label className="field-label" htmlFor={`edit-ends-${id}`}>End date<TimezoneHint /></label>
-        <input
-          id={`edit-ends-${id}`}
-          type="datetime-local"
-          className="input"
-          value={endsAtLocal}
-          onChange={(e) => setEndsAtLocal(e.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label className="field-label" htmlFor={`edit-note-${id}`}>Note</label>
-        <input
-          id={`edit-note-${id}`}
-          type="text"
-          className="input"
-          value={noteValue}
-          maxLength={500}
-          onChange={(e) => setNoteValue(e.target.value)}
-        />
-      </div>
-      <div className="row-actions">
-        <button type="button" className="btn sm" onClick={save} disabled={busy}>
-          {busy ? "Saving…" : "Save"}
-        </button>
-        <button type="button" className="btn sm" onClick={() => setOpen(false)} disabled={busy}>
-          Cancel
-        </button>
-      </div>
+    <form className="rq" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <label className="rq-sec">
+        <span className="rq-label"><span>End date<TimezoneHint /></span>{!endsAt && <span className="mono t-muted">now permanent</span>}</span>
+        <input className="input" type="datetime-local" value={endsAtLocal} onChange={(e) => setEndsAtLocal(e.target.value)} />
+      </label>
+      <label className="rq-sec">
+        <span className="rq-label"><span>Note</span></span>
+        <input className="input" type="text" value={noteValue} maxLength={500} onChange={(e) => setNoteValue(e.target.value)} />
+      </label>
+      <p className="rq-hint">To change the resource or the recurring hours, revoke this grant and give a new one.</p>
       {error && <p className="notice error" role="alert">{error}</p>}
-    </div>
+      <div className="rq-foot">
+        <span className="rq-status" />
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="submit" className="btn primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </form>
   );
 }

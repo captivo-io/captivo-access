@@ -44,7 +44,7 @@ export function ConsoleHome({ data }: { data: ConsoleData }) {
           sub={longest !== null ? `longest ${fmtMinutes(longest)}` : "none"} />
         <Kpi label="Pending" value={kpis.pending} href="/admin/grants" tone={kpis.pending > 0 ? "warn" : undefined}
           sub={kpis.pending > 0 ? "awaiting a decision" : "none"} />
-        <Kpi label="Expiring 24h" value={kpis.expiring24h} href="/admin/grants" tone={kpis.expiring24h > 0 ? "warn" : undefined}
+        <Kpi label="Expiring 24h" value={kpis.expiring24h} href="/admin/grants?status=soon" tone={kpis.expiring24h > 0 ? "warn" : undefined}
           sub={kpis.expiring24h > 0 ? "grants ending soon" : "none"} />
         <Kpi label="Recordings · 7d" value={kpis.recordings7d} href="/admin/recordings"
           sub={recordedPct !== null ? `${recordedPct}% recorded` : null} />
@@ -101,7 +101,7 @@ export function ConsoleHome({ data }: { data: ConsoleData }) {
               {expiring.map((e) => (
                 <div key={e.id} className="cx-exp">
                   <div className="cx-exp-main">
-                    <Link href="/admin/grants" className="cx-exp-t"><b>{e.userLabel}</b> → {e.siteName}</Link>
+                    <Link href="/admin/grants?status=soon" className="cx-exp-t"><b>{e.userLabel}</b> → {e.siteName}</Link>
                     <span className="cx-exp-left">{expiresIn(e.endsAt, now)} left</span>
                   </div>
                   <ExtendButton grantId={e.id} endsAt={e.endsAt} />

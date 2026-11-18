@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateSchedule, parseSchedule, isWithinSchedule, formatSchedule, type Schedule } from "./schedule";
+import { validateSchedule, parseSchedule, isWithinSchedule, formatSchedule, compactDays, nextScheduleStart, type Schedule } from "./schedule";
 
 const weekdays: Schedule = { timezone: "Europe/Istanbul", days: [1, 2, 3, 4, 5], start: "09:00", end: "18:00" };
 
@@ -64,5 +64,23 @@ describe("isWithinSchedule", () => {
 describe("formatSchedule", () => {
   it("summarizes days, hours, and zone", () => {
     expect(formatSchedule(weekdays)).toBe("Mon, Tue, Wed, Thu, Fri 09:00–18:00 (Europe/Istanbul)");
+  });
+});
+
+describe("compactDays / nextScheduleStart", () => {
+  it("joins runs of days", () => {
+    expect(compactDays([1, 2, 3, 4, 5])).toBe("Mon–Fri");
+    expect(compactDays([1, 3, 5])).toBe("Mon, Wed, Fri");
+    expect(compactDays([6, 0])).toBe("Sat, Sun");
+    expect(compactDays([0, 1, 2, 3, 4, 5, 6])).toBe("Every day");
+  });
+  it("finds the next opening in the schedule's zone", () => {
+    const s = { timezone: "Europe/Istanbul", days: [1, 2, 3, 4, 5], start: "09:00", end: "18:00" };
+    // Wed 2026-11-18 20:00 Istanbul → Thu 09:00 Istanbul (06:00Z)
+    expect(nextScheduleStart(s, new Date("2026-11-18T17:00:00Z"))?.toISOString()).toBe("2026-11-19T06:00:00.000Z");
+    // Fri 20:00 → Mon 09:00
+    expect(nextScheduleStart(s, new Date("2026-11-20T17:00:00Z"))?.toISOString()).toBe("2026-11-23T06:00:00.000Z");
+    // inside today's window → tomorrow's start
+    expect(nextScheduleStart(s, new Date("2026-11-18T08:00:00Z"))?.toISOString()).toBe("2026-11-19T06:00:00.000Z");
   });
 });
