@@ -7,28 +7,41 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 
+// Body { withResources: true, confirmName } also deletes the revoked
+// connector's resources (and their grants) in the same transaction.
 export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { id } = await ctx.params;
+  const body = (await req.json().catch(() => ({}))) as { withResources?: unknown; confirmName?: unknown };
   const connector = await db.connector.findUnique({
     where: { id },
-    select: { id: true, status: true, _count: { select: { sites: true } } },
+    select: { id: true, name: true, status: true, sites: { select: { id: true } } },
   });
   if (!connector) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const check = canDeleteConnector({ status: connector.status, siteCount: connector._count.sites });
-  if (!check.ok) return NextResponse.json({ error: check.reason }, { status: 409 });
+  const withSites = body.withResources === true ? { name: connector.name, confirmName: body.confirmName } : undefined;
+  const check = canDeleteConnector({ status: connector.status, siteCount: connector.sites.length, withSites });
+  if (!check.ok) return NextResponse.json({ error: check.reason }, { status: check.reason === "confirm_mismatch" ? 400 : 409 });
 
-  await db.connector.delete({ where: { id } });
+  const siteIds = withSites ? connector.sites.map((s) => s.id) : [];
+  await db.$transaction(async (tx) => {
+    if (siteIds.length) await tx.site.deleteMany({ where: { id: { in: siteIds } } }); // cascades their AccessGrant rows
+    await tx.connector.delete({ where: { id } });
+  });
+  const ip = clientIp(req.headers) ?? null;
+  const actor = { id: admin.id, email: admin.email };
+  for (const siteId of siteIds) {
+    await recordAdminAction({ actor, action: "resource.delete", targetType: "resource", targetId: siteId, summary: `Deleted resource ${siteId}`, clientIp: ip });
+  }
   await recordAdminAction({
-    actor: { id: admin.id, email: admin.email },
+    actor,
     action: "connector.delete",
     targetType: "connector", targetId: id,
-    summary: `Deleted connector ${id}`,
-    clientIp: clientIp(req.headers) ?? null,
+    summary: siteIds.length ? `Deleted connector ${id} with its ${siteIds.length} resource${siteIds.length === 1 ? "" : "s"}` : `Deleted connector ${id}`,
+    clientIp: ip,
   });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, deletedResources: siteIds.length });
 });
