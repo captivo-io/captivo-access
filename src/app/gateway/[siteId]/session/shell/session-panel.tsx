@@ -28,7 +28,7 @@ export function SessionPanel({ siteName, mode, connectedAt, quick, sections, lea
   leave: { label: string; sub: string; onClick: () => void };
 }) {
   const [open, setOpen] = useState(false);
-  const handle = useEdgeDrag("captivo.session.controls-top");
+  const { attach: handleRef, style: handleStyle, handlers: handleEvents } = useEdgeDrag("captivo.session.controls-top");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!open) return;
@@ -44,7 +44,7 @@ export function SessionPanel({ siteName, mode, connectedAt, quick, sections, lea
 
   return (
     <>
-      <button type="button" ref={handle.ref} style={handle.style} {...handle.handlers} className={`ss-handle${open ? " open" : ""}`} onClick={() => setOpen((v) => !v)} aria-label="Session controls" aria-expanded={open} title="Session controls · drag to move">
+      <button type="button" ref={handleRef} style={handleStyle} {...handleEvents} className={`ss-handle${open ? " open" : ""}`} onClick={() => setOpen((v) => !v)} aria-label="Session controls" aria-expanded={open} title="Session controls · drag to move">
         <BrandMark size={18} />
         <span className="ss-handle-label">Controls</span>
       </button>

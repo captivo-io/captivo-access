@@ -7,7 +7,7 @@ import { useEdgeDrag } from "./shell/edge-drag";
 export function OnScreenKeyboard({ sendKey }: { sendKey: (keysym: number, pressed: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [mods, setMods] = useState<ModState>(EMPTY_MODS);
-  const handle = useEdgeDrag("captivo.session.keyboard-top");
+  const { attach: handleRef, style: handleStyle, handlers: handleEvents } = useEdgeDrag("captivo.session.keyboard-top");
 
   const press = (k: KeyDef) => {
     const { events, next } = applyKey(mods, k);
@@ -18,7 +18,7 @@ export function OnScreenKeyboard({ sendKey }: { sendKey: (keysym: number, presse
 
   return (
     <>
-      <button type="button" ref={handle.ref} style={handle.style} {...handle.handlers} title="Keyboard · drag to move" onClick={() => setOpen((v) => !v)} className="osk-handle" aria-label="On-screen keyboard">⌨</button>
+      <button type="button" ref={handleRef} style={handleStyle} {...handleEvents} title="Keyboard · drag to move" onClick={() => setOpen((v) => !v)} className="osk-handle" aria-label="On-screen keyboard">⌨</button>
       {open && (
         <div className="osk" role="group" aria-label="On-screen keyboard">
           <button type="button" className="osk-close" onClick={() => setOpen(false)} aria-label="Close keyboard">✕</button>

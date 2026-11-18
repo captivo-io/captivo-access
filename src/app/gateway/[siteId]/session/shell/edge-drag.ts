@@ -76,5 +76,5 @@ export function useEdgeDrag(storageKey: string) {
   const setRef = useCallback((node: HTMLButtonElement | null) => { ref.current = node; }, []);
 
   const style: CSSProperties | undefined = top === null ? undefined : { top, transform: "none" };
-  return { ref: setRef, style, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onClickCapture } };
+  return { attach: setRef, style, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp, onClickCapture } };
 }
