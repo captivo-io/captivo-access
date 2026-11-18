@@ -452,10 +452,46 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Emit a single session_open when a new web span starts (so the activity feed
 	// shows one "connected" like gateway/isolated), then the per-request ALLOW —
 	// which stays in the audit log for compliance but is collapsed out of the feed.
+	// The console's recording player loading a page's images and styles is an
+	// admin watching a replay, not someone using the app: no web span, no
+	// session_open, and the request is logged as a replay.
+	if replayAsset(r, host, p.managerURL) {
+		p.audit.Enqueue(auditEvent("ALLOW", "replay", userID, siteID, host, r, resp.Status, written))
+		return
+	}
 	if p.web.Touch(userID, siteID, host, p.webIdle) {
 		p.audit.Enqueue(auditEvent("ALLOW", "session_open", userID, siteID, host, r, resp.Status, 0))
 	}
 	p.audit.Enqueue(auditEvent("ALLOW", "", userID, siteID, host, r, resp.Status, written))
+}
+
+// replayAssetDests are the Sec-Fetch-Dest values of what a replayed page loads.
+// A replay never navigates, runs scripts or calls the app's API, so anything
+// else (a document, a fetch, a websocket) is real use whatever its Referer.
+var replayAssetDests = map[string]bool{"image": true, "style": true, "font": true, "video": true, "audio": true, "track": true}
+
+// replayAsset reports whether r is the console's recording player fetching a
+// subresource of a recorded page. The player rebuilds the page inside the
+// console, so the browser names the console as the Referer: the manager's own
+// host, or a tenant console, which sits one label above its apps
+// (captivo.acme.cloud.captivo.io → acme.cloud.captivo.io).
+func replayAsset(r *http.Request, host, managerURL string) bool {
+	if r.Method != http.MethodGet || !replayAssetDests[r.Header.Get("Sec-Fetch-Dest")] {
+		return false
+	}
+	ref, err := url.Parse(r.Referer())
+	if err != nil {
+		return false
+	}
+	rh := strings.ToLower(ref.Hostname())
+	if rh == "" || rh == host {
+		return false
+	}
+	if m, err := url.Parse(managerURL); err == nil && strings.EqualFold(m.Hostname(), rh) {
+		return true
+	}
+	i := strings.IndexByte(host, '.')
+	return i > 0 && host[i+1:] == rh
 }
 
 // writeProxyResponse writes the upstream response (status, already-copied

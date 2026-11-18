@@ -34,6 +34,7 @@ const REASONS: Record<string, string> = {
   allow: "Grant active",
   session_open: "Session opened",
   session_close: "Session closed",
+  replay: "Loaded by a recording replay",
   no_grant: "No grant for this resource",
   user_disabled: "Account disabled",
   revoked: "Grant revoked",

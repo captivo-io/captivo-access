@@ -30,6 +30,9 @@ describe("accessReasonLabel", () => {
   it("keeps the session length after session_close", () => {
     expect(accessReasonLabel("session_close 12m 4s")).toBe("Session closed · 12m 4s");
   });
+  it("names the requests a recording replay made", () => {
+    expect(accessReasonLabel("replay")).toBe("Loaded by a recording replay");
+  });
   it("shows an unknown code as stored, and nothing for none", () => {
     expect(accessReasonLabel("something_new")).toBe("something_new");
     expect(accessReasonLabel(null)).toBeNull();
