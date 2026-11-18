@@ -14,6 +14,8 @@ import { paramsToGuacFields } from "@/lib/gateway/guac-fields";
 import { PolicyView, type PolicyValues, type PolicyEnv } from "./policy-view";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { sendingMode } from "@/lib/email/mailer";
+import { closeRefusalFor } from "@/lib/workspace/close";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Policy" };
@@ -38,7 +40,7 @@ const env = (name: string) => process.env[name]?.trim() || null;
 const num = (v: number | null) => (v === null || v === undefined ? "" : String(v));
 
 async function PolicyPageImpl() {
-  await requireCapability("configure");
+  const me = await requireCapability("configure");
   // Fresh reads (the settings caches are per server module and can be 30 s
   // behind a save); the resolved values below then use this fresh copy.
   const s = await getPlatformSettingsFresh();
@@ -55,6 +57,10 @@ async function PolicyPageImpl() {
     sendingMode().catch(() => null),
   ]);
   const own = sid ? await db.session.findUnique({ where: { id: sid }, select: { amr: true } }) : null;
+  // Offered wherever closing could be allowed; a stale session is not a reason
+  // to hide it (the close page asks for a fresh sign-in).
+  const gate = await closeRefusalFor(me, ws.slug);
+  const closable = gate === null || gate === "reauth_required";
 
   // What the form starts from: the stored value, or (where nothing is stored)
   // what applies now, so a switch shows the truth. Saving sends only what the
@@ -116,6 +122,22 @@ async function PolicyPageImpl() {
         mailOff={mail === "none"}
         cron={cron.stale.length > 0 ? { anyRun: cron.anyRun, stale: cron.stale.map((x) => JOB_LABEL[x.job]) } : null}
       />
+      {closable && (
+        // Outside PolicyView, so its save bar never carries it.
+        <section className="pol-card pol-danger" id="danger" aria-labelledby="danger-t">
+          <div className="pol-card-h">
+            <span className="pol-ic" aria-hidden="true">!</span>
+            <span><b id="danger-t">Danger zone</b><span className="cell-sub">Actions that can&apos;t be undone from the console.</span></span>
+          </div>
+          <div className="pol-row">
+            <div className="pol-label">
+              <span className="pol-label-t">Close this workspace</span>
+              <span className="pol-desc">Stops the console and every app, ends all sessions and disconnects the connectors. Captivo keeps the data for 30 days in case you change your mind, then removes it for good.</span>
+            </div>
+            <div className="pol-ctl"><Link className="btn danger" href="/admin/workspace/close">Close workspace…</Link></div>
+          </div>
+        </section>
+      )}
     </main>
   );
 }

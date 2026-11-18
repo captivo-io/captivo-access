@@ -18,8 +18,8 @@ import type { EntitlementLookup } from "@/lib/auth/captivo-id-client";
 
 export interface EntitledDeps {
   fetchEntitlement: (organizationId: string) => Promise<EntitlementLookup>;
-  /** The workspace this organisation already has, or null. */
-  findWorkspaceForOrg: (organizationId: string) => Promise<{ slug: string } | null>;
+  /** The workspace this organisation already has, or null; `closedAt` when it was closed and is not purged yet. */
+  findWorkspaceForOrg: (organizationId: string) => Promise<{ slug: string; closedAt?: Date | null } | null>;
   create: (input: { name: string; slug: string; adminEmail: string; adminName?: string; plan?: string; limits?: TenantLimits; captivoOrgId?: string }) => Promise<{ tenant: { id: string; slug: string }; inviteUrl: string }>;
   reportLink: (input: { organizationId: string; tenantId: string; consoleOrigin: string }) => Promise<boolean>;
   consoleOriginFor: (slug: string) => string | null;
@@ -29,7 +29,7 @@ export interface EntitledDeps {
 
 export type ProvisionResult =
   | { ok: true; inviteUrl: string; linked: boolean }
-  | { ok: false; error: string; existingSlug?: string };
+  | { ok: false; error: string; existingSlug?: string; closedAt?: Date };
 
 const TR = { ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u", Ç: "c", Ğ: "g", İ: "i", Ö: "o", Ş: "s", Ü: "u" } as const;
 
@@ -83,6 +83,9 @@ export async function provisionEntitledWorkspace(
   // Tenant.captivoOrgId is the backstop; this check is what produces an answer
   // the person can act on.
   const existing = await deps.findWorkspaceForOrg(input.organizationId);
+  // A closed workspace still holds the organisation until it is purged; sending
+  // the person to its address would land them on a console that is gone.
+  if (existing?.closedAt) return { ok: false, error: "workspace_closed", existingSlug: existing.slug, closedAt: existing.closedAt };
   if (existing) return { ok: false, error: "already_provisioned", existingSlug: existing.slug };
 
   // Formed before anything is created: a workspace at an address we cannot

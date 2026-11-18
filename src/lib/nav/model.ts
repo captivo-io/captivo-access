@@ -121,4 +121,5 @@ export function navLabel(model: NavModel, pathname: string): string | null {
 const OFF_NAV: [string, string][] = [
   ["/admin/notifications", "Notifications"],
   ["/settings", "My account"],
+  ["/admin/workspace/close", "Close workspace"],
 ];

@@ -13,7 +13,7 @@ const SRC = readFileSync(path.join(__dirname, "route.ts"), "utf-8");
  */
 describe("the platform host does not offer a workspace that exists", () => {
   it("looks the organisation up before offering creation", () => {
-    const lookup = SRC.indexOf("tenantSlugByOrg(grant.org)");
+    const lookup = SRC.indexOf("tenantByOrg(grant.org)");
     const offer = SRC.indexOf("/workspace/new");
     expect(lookup).toBeGreaterThan(-1);
     expect(lookup).toBeLessThan(offer);
@@ -21,6 +21,10 @@ describe("the platform host does not offer a workspace that exists", () => {
 
   it("sends them to that console instead", () => {
     expect(SRC).toMatch(/return NextResponse\.redirect\(`https:\/\/\$\{existingSlug\}\.\$\{domain\}`\)/);
+  });
+
+  it("does not send them to a workspace that was closed", () => {
+    expect(SRC).toMatch(/existing && !existing\.deletedAt \? existing\.slug : null/);
   });
 
   it("still offers creation when there is genuinely no workspace", () => {

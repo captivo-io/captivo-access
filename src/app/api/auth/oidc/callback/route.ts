@@ -17,7 +17,7 @@ import { managerBaseUrl } from "@/lib/url";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { signWorkspaceClaim } from "@/lib/signup/workspace-claim";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
-import { tenantSlugByOrg } from "@/lib/platform/sql";
+import { tenantByOrg } from "@/lib/platform/sql";
 import { consoleDomain } from "@/lib/tenant/console-domain";
 import { currentTenantId } from "@/lib/tenant/context";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -220,7 +220,10 @@ async function handler(req: NextRequest) {
       // the address form, typed an address they had already chosen, and was
       // told at the submit that it was taken -- by themselves. The manager's
       // own hosts comment claimed this forwarding existed; it did not.
-      const existingSlug = await tenantSlugByOrg(grant.org);
+      // A closed workspace's address no longer resolves: the creation page
+      // below says it was closed and until when support can restore it.
+      const existing = await tenantByOrg(grant.org);
+      const existingSlug = existing && !existing.deletedAt ? existing.slug : null;
       const domain = consoleDomain();
       if (existingSlug && domain) {
         return NextResponse.redirect(`https://${existingSlug}.${domain}`);

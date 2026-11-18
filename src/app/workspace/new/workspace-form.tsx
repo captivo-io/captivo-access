@@ -36,7 +36,7 @@ export function WorkspaceForm({ defaultSlug, domain }: { defaultSlug: string; do
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ slug }),
     });
-    const body = (await res.json().catch(() => ({}))) as { inviteUrl?: string; linked?: boolean; error?: string; consoleUrl?: string };
+    const body = (await res.json().catch(() => ({}))) as { inviteUrl?: string; linked?: boolean; error?: string; consoleUrl?: string; workspace?: string; restorableUntil?: string; support?: string };
     if (res.ok && body.inviteUrl) {
       if (body.linked === false) {
         setBusy(false);
@@ -47,6 +47,11 @@ export function WorkspaceForm({ defaultSlug, domain }: { defaultSlug: string; do
       return;
     }
     setBusy(false);
+    if (body.error === "workspace_closed") {
+      const until = body.restorableUntil ? new Date(body.restorableUntil).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }) : null;
+      setError(`Your organisation's workspace${body.workspace ? ` ${body.workspace}` : ""} was closed.${until ? ` It can be restored until ${until} by writing to ${body.support ?? "support"};` : ""} after that a new one can be set up here.`);
+      return;
+    }
     const message = MESSAGES[body.error ?? ""] ?? "Something went wrong. Please try again.";
     setError(body.consoleUrl ? `${message} (${body.consoleUrl})` : message);
   }

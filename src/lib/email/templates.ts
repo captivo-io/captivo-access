@@ -82,3 +82,21 @@ export function siteEventEmail(input: {
   });
   return { subject, html, text };
 }
+
+export function workspaceClosedEmail(input: {
+  workspace: string;
+  closedBy: string;
+  restorableUntil: string; // already formatted, e.g. "18 Dec 2026"
+  support: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `Workspace closed: ${input.workspace}`;
+  const { html, text } = renderEmail({
+    heading: escapeHtml(subject),
+    bodyLines: [
+      `${escapeHtml(input.closedBy)} closed the Captivo Access workspace <b>${escapeHtml(input.workspace)}</b>. Its console and every app stopped, all sessions ended and its connectors can no longer connect.`,
+      `Its data is kept until <b>${escapeHtml(input.restorableUntil)}</b>. To restore it before then, write to ${escapeHtml(input.support)}. After that date it is removed permanently.`,
+      "If you did not expect this, contact support straight away.",
+    ],
+  });
+  return { subject, html, text };
+}

@@ -50,6 +50,7 @@ describe("buildNavModel", () => {
     expect(navLabel(m, "/admin/recordings/abc")).toBe("Recordings");
     expect(navLabel(m, "/admin/notifications")).toBe("Notifications");
     expect(navLabel(m, "/settings/recovery")).toBe("My account");
+    expect(navLabel(m, "/admin/workspace/close")).toBe("Close workspace");
     expect(navLabel(m, "/access")).toBe("My access");
     expect(navLabel(m, "/nowhere")).toBeNull();
   });
