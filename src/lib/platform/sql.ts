@@ -89,6 +89,17 @@ export async function tenantSlugByOrg(organizationId: string): Promise<string | 
   return rows[0]?.platform_tenant_slug_by_org ?? null;
 }
 
+/** The organisation's workspace and, when it was closed, since when (still restorable until purged). */
+export async function tenantByOrg(organizationId: string): Promise<{ slug: string; deletedAt: Date | null } | null> {
+  const slug = await tenantSlugByOrg(organizationId);
+  if (!slug) return null;
+  const rows = await base.$queryRawUnsafe<{ deletedAt: Date | null }[]>(
+    `SELECT "deletedAt" FROM platform_list_tenants() WHERE slug = $1`,
+    slug,
+  );
+  return { slug, deletedAt: rows[0]?.deletedAt ?? null };
+}
+
 export async function softDeleteTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_delete_tenant($1)`, id); }
 export async function restoreTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_restore_tenant($1)`, id); }
 export async function purgeTenantRow(id: string): Promise<void> { await base.$executeRawUnsafe(`SELECT platform_purge_tenant($1)`, id); }

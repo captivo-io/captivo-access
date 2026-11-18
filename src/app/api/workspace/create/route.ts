@@ -6,7 +6,9 @@ import { readWorkspaceClaim } from "@/lib/signup/workspace-claim";
 import { provisionEntitledWorkspace } from "@/lib/signup/entitled-flow";
 import { fetchAccessEntitlement, reportTenantLink } from "@/lib/auth/captivo-id-client";
 import { createTenant } from "@/lib/platform/tenants";
-import { tenantSlugByOrg } from "@/lib/platform/sql";
+import { tenantByOrg } from "@/lib/platform/sql";
+import { PURGE_AFTER_DAYS } from "@/lib/platform/tenants";
+import { restorableUntil, SUPPORT_ADDRESS } from "@/lib/workspace/close-gate";
 import { consoleDomain } from "@/lib/tenant/console-domain";
 import { isValidTenantSlug, isReservedSlug } from "@/lib/tenant/constants";
 
@@ -39,8 +41,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     {
       fetchEntitlement: (org) => fetchAccessEntitlement(org),
       findWorkspaceForOrg: async (org) => {
-        const existing = await tenantSlugByOrg(org);
-        return existing ? { slug: existing } : null;
+        const existing = await tenantByOrg(org);
+        return existing ? { slug: existing.slug, closedAt: existing.deletedAt } : null;
       },
       create: (input) => createTenant(input),
       reportLink: (input) => reportTenantLink(input),
@@ -58,10 +60,18 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     const STATUS: Record<string, number> = {
       slug_taken: 409,
       already_provisioned: 409,
+      workspace_closed: 409,
       not_entitled: 403,
       entitlement_expired: 403,
       centre_unavailable: 503,
     };
+    // workspace_closed instead says until when support can still bring it back.
+    if (result.closedAt) {
+      return NextResponse.json(
+        { error: result.error, workspace: result.existingSlug, restorableUntil: restorableUntil(result.closedAt, PURGE_AFTER_DAYS).toISOString(), support: SUPPORT_ADDRESS },
+        { status: STATUS[result.error] ?? 400 },
+      );
+    }
     const d = consoleDomain();
     const consoleUrl = result.existingSlug && d ? `https://${result.existingSlug}.${d}` : undefined;
     return NextResponse.json(

@@ -9,6 +9,9 @@ import { consoleDomain } from "@/lib/tenant/console-domain";
 import { AuthShell } from "@/components/auth-shell";
 import { BrandMark } from "@/components/brand";
 import { WorkspaceForm } from "./workspace-form";
+import { tenantByOrg } from "@/lib/platform/sql";
+import { PURGE_AFTER_DAYS } from "@/lib/platform/tenants";
+import { restorableUntil, SUPPORT_ADDRESS } from "@/lib/workspace/close-gate";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Set up your workspace" };
@@ -24,6 +27,24 @@ async function NewWorkspacePageImpl() {
   // No claim means this page was reached without completing the sign-in that
   // issues one. Send them back to the front door rather than explaining.
   if (!claim) redirect("/login");
+
+  // The organisation's workspace was closed and is not purged yet: it still
+  // holds the organisation, so a new one can't be made until it is restored or gone.
+  const existing = await tenantByOrg(claim.org).catch(() => null);
+  if (existing?.deletedAt) {
+    const until = restorableUntil(existing.deletedAt, PURGE_AFTER_DAYS).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+    return (
+      <AuthShell>
+        <BrandMark size={38} className="auth-mark" />
+        <h1>{claim.orgName}&apos;s workspace was closed</h1>
+        <p>
+          The Captivo Access workspace <b>{existing.slug}</b> was closed by an administrator. Its data is kept
+          until <b>{until}</b>: to restore it, write to <a href={`mailto:${SUPPORT_ADDRESS}`}>{SUPPORT_ADDRESS}</a>.
+        </p>
+        <p>After that date it is removed for good and you can set up a new workspace here.</p>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell>

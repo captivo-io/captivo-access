@@ -111,6 +111,17 @@ describe("provisionEntitledWorkspace", () => {
     expect(d.create).not.toHaveBeenCalled();
   });
 
+  it("says the organisation's workspace was closed rather than pointing at it", async () => {
+    // A closed workspace keeps the organisation until it is purged, and its
+    // address no longer resolves: "sign in there" would be a dead end.
+    const d = ok();
+    const closedAt = new Date("2026-11-18T12:00:00Z");
+    d.findWorkspaceForOrg = vi.fn(async () => ({ slug: "acme", closedAt }));
+    const r = await provisionEntitledWorkspace(input, d);
+    expect(r).toEqual({ ok: false, error: "workspace_closed", existingSlug: "acme", closedAt });
+    expect(d.create).not.toHaveBeenCalled();
+  });
+
   it("proceeds when the organisation has no workspace yet", async () => {
     const d = ok();
     const r = await provisionEntitledWorkspace(input, d);

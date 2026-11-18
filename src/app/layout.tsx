@@ -11,6 +11,7 @@ import "./styles/notifications.css";
 import "./styles/connector-detail.css";
 import "./styles/account.css";
 import "./styles/onboarding.css";
+import "./styles/workspace-close.css";
 
 export const metadata: Metadata = {
   title: { default: "Captivo Access", template: "%s · Captivo Access" },
