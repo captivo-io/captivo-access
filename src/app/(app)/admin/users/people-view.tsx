@@ -121,7 +121,7 @@ export function PeopleView({
         ))}
       </div>
 
-      {tab === "users" && <UsersTab people={people} initialQuery={initialQuery} zone={zone} now={now} say={say} />}
+      {tab === "users" && <UsersTab people={people} initialQuery={initialQuery} zone={zone} now={now} say={say} canEmail={canEmail} />}
       {tab === "invites" && <InvitesTab invites={invites} fresh={fresh} zone={zone} now={now} say={say} />}
       {tab === "sessions" && <SessionsTab sessions={sessions} zone={zone} now={now} say={say} />}
 
@@ -144,8 +144,11 @@ type Say = (msg: string, ok?: boolean) => void;
 
 const ROLE_FILTERS: ("all" | Role)[] = ["all", "ADMIN", "OPERATOR", "AUDITOR", "STAFF", "VENDOR"];
 
-function UsersTab({ people, initialQuery, zone, now, say }: { people: PersonRow[]; initialQuery: string; zone: string; now: number; say: Say }) {
+type ResetLink = { email: string; link: string; emailed: boolean | null; removed: number };
+
+function UsersTab({ people, initialQuery, zone, now, say, canEmail }: { people: PersonRow[]; initialQuery: string; zone: string; now: number; say: Say; canEmail: boolean }) {
   const [f, setF] = useState<UserFilter>({ q: initialQuery, status: "all", role: "all" });
+  const [reset, setReset] = useState<ResetLink | null>(null);
   const shown = useMemo(() => filterUsers(people, f), [people, f]);
   const present = new Set(people.map((p) => p.role));
   return (
@@ -175,14 +178,18 @@ function UsersTab({ people, initialQuery, zone, now, say }: { people: PersonRow[
       ) : (
         <div className="pp-card">
           <div className="pp-urow pp-cols" aria-hidden="true"><span>Person</span><span>Role</span><span>Sign-in</span><span>Last active</span><span>Status</span><span /></div>
-          {shown.map((p) => <UserRow key={p.id} p={p} zone={zone} now={now} say={say} />)}
+          {shown.map((p) => <UserRow key={p.id} p={p} zone={zone} now={now} say={say} canEmail={canEmail} onReset={setReset} />)}
         </div>
       )}
+      <Modal open={reset !== null} onClose={() => setReset(null)} title="New passkey link"
+        subtitle={reset ? `${reset.removed} ${reset.removed === 1 ? "passkey" : "passkeys"} removed from ${reset.email}. They sign in again after registering a new one with this link.` : undefined} size="md">
+        {reset && <OneTimeLink label="New passkey link" link={reset.link} emailed={reset.emailed} email={reset.email} onClose={() => setReset(null)} />}
+      </Modal>
     </>
   );
 }
 
-function UserRow({ p, zone, now, say }: { p: PersonRow; zone: string; now: number; say: Say }) {
+function UserRow({ p, zone, now, say, canEmail, onReset }: { p: PersonRow; zone: string; now: number; say: Say; canEmail: boolean; onReset: (r: ResetLink) => void }) {
   const auth = p.source === "captivo"
     ? { main: "Captivo ID", warn: false }
     : p.passkeys > 0
@@ -205,7 +212,7 @@ function UserRow({ p, zone, now, say }: { p: PersonRow; zone: string; now: numbe
       </span>
       <span className="pp-last">{p.isSelf ? "Now" : p.lastActive ? when(p.lastActive, zone, now) : "—"}</span>
       <span className={p.status === "ACTIVE" ? "pp-st ok" : "pp-st muted"}><span aria-hidden="true" />{p.status === "ACTIVE" ? "Active" : "Disabled"}</span>
-      <UserMenu p={p} say={say} />
+      <UserMenu p={p} say={say} canEmail={canEmail} onReset={onReset} />
     </div>
   );
 }
@@ -277,13 +284,31 @@ function RoleMenu({ p, say }: { p: PersonRow; say: Say }) {
   );
 }
 
-function UserMenu({ p, say }: { p: PersonRow; say: Say }) {
+function UserMenu({ p, say, canEmail, onReset }: { p: PersonRow; say: Say; canEmail: boolean; onReset: (r: ResetLink) => void }) {
   const { open, setOpen, ref } = usePopover();
   const [confirm, setConfirm] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (!open) setConfirm(false); }, [open]);
+  useEffect(() => { if (!open) { setConfirm(false); setConfirmReset(false); } }, [open]);
   const grant = p.status === "ACTIVE";
-  if (!grant && !p.canToggle && !p.canDelete) return <span />;
+  if (!grant && !p.canToggle && !p.canDelete && !p.canReset) return <span />;
+
+  async function resetPasskeys() {
+    setBusy(true);
+    let r: { link?: string; emailed?: boolean | null; removed?: number; error?: string } = {};
+    try {
+      const res = await fetch(`/api/admin/users/${p.id}/reset-passkeys`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sendEmail: canEmail }) });
+      r = await res.json().catch(() => ({}));
+    } catch { /* reported below */ }
+    setBusy(false);
+    setOpen(false);
+    if (r.link) {
+      onReset({ email: p.email, link: r.link, emailed: r.emailed ?? null, removed: r.removed ?? 0 });
+      say(`Passkeys reset for ${p.name || p.email}`);
+    } else {
+      say(r.error === "managed_by_center" ? "This person signs in through their Captivo organisation." : "Couldn't reset the passkeys. Try again.", false);
+    }
+  }
 
   async function toggle() {
     setBusy(true);
@@ -311,6 +336,13 @@ function UserMenu({ p, say }: { p: PersonRow; say: Say }) {
       {open && (
         <div className="rs-menu-pop" role="menu">
           {grant && <Link role="menuitem" className="rs-mi" href={`/admin/grants?new=1&user=${encodeURIComponent(p.id)}`}>Grant access</Link>}
+          {p.canReset && (confirmReset ? (
+            <button type="button" role="menuitem" className="rs-mi danger-solid" disabled={busy} onClick={() => void resetPasskeys()}>
+              {busy ? "Resetting…" : p.passkeys > 0 ? `Sure? Remove ${p.passkeys} ${p.passkeys === 1 ? "passkey" : "passkeys"}` : "Sure? Make a passkey link"}
+            </button>
+          ) : (
+            <button type="button" role="menuitem" className="rs-mi" title="Removes their passkeys and signs them out; you get a one-time link for a new passkey" onClick={() => setConfirmReset(true)}>Reset passkeys</button>
+          ))}
           {p.canToggle && (
             <button type="button" role="menuitem" className="rs-mi" disabled={busy} onClick={() => void toggle()}>{p.status === "ACTIVE" ? "Disable" : "Enable"}</button>
           )}

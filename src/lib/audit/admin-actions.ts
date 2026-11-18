@@ -9,6 +9,7 @@ const LABELS: Record<string, string> = {
   "authsession.revoke": "Auth session revoked",
   "user.update": "User updated",
   "user.delete": "User deleted",
+  "user.passkeys_reset": "Passkeys reset",
   "invite.create": "Invite created",
   "invite.revoke": "Invite revoked",
   "invite.resend": "New invite link created",

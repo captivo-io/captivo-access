@@ -13,7 +13,7 @@ import { cookieSecure, cookieDomain } from "@/lib/auth/cookies";
 import { hasAnyUser } from "@/lib/auth/bootstrap";
 import { verifyInvite } from "@/lib/auth/invite";
 import { normalizeDisplayName } from "@/lib/auth/display-name";
-import { readRecoverToken, clearRecoverToken } from "@/lib/auth/recover-token";
+import { readRecoverClaims, clearRecoverToken } from "@/lib/auth/recover-token";
 import { getCurrentUser } from "@/lib/current-user";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getRpId, originMatchesRp, requestOrigin } from "@/lib/auth/rp";
@@ -81,7 +81,8 @@ async function handler(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
   if (mode === "recover") {
-    const userId = await readRecoverToken();
+    const claims = await readRecoverClaims();
+    const userId = claims?.userId ?? null;
     const response = body.response as RegistrationResponseJSON | undefined;
     if (!userId || !response) {
       return NextResponse.json({ error: "recover_invalid" }, { status: 401 });
@@ -109,16 +110,33 @@ async function handler(req: NextRequest) {
     const { credential } = result.registrationInfo;
 
     // A NEW passkey is added to the existing user — no new User is CREATED.
-    await db.passkey.create({
-      data: {
-        userId: user.id,
-        credentialId: credential.id,
-        publicKey: Buffer.from(credential.publicKey),
-        counter: BigInt(credential.counter ?? 0),
-        transports: credential.transports ?? [],
-        label: "Recovery passkey",
-      },
+    // After an admin reset, the link is consumed in the same transaction: a
+    // link used (or replaced) meanwhile saves nothing.
+    const resetId = claims?.resetId ?? null;
+    const saved = await db.$transaction(async (tx) => {
+      if (resetId) {
+        const used = await tx.passkeyReset.updateMany({
+          where: { id: resetId, userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+          data: { usedAt: new Date() },
+        });
+        if (used.count === 0) return false;
+      }
+      await tx.passkey.create({
+        data: {
+          userId: user.id,
+          credentialId: credential.id,
+          publicKey: Buffer.from(credential.publicKey),
+          counter: BigInt(credential.counter ?? 0),
+          transports: credential.transports ?? [],
+          label: resetId ? "Passkey" : "Recovery passkey",
+        },
+      });
+      return true;
     });
+    if (!saved) {
+      await clearRecoverToken();
+      return NextResponse.json({ error: "recover_invalid" }, { status: 401 });
+    }
 
     const token = await createSession(user.id, { ...requestMeta(req), amr: passkeyAmr(result.registrationInfo.userVerified) });
     (await cookies()).set(SESSION_COOKIE, token, {

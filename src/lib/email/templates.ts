@@ -14,6 +14,20 @@ export function inviteEmail(input: { name: string; link: string }): { subject: s
   return { subject, html, text };
 }
 
+export function passkeyResetEmail(input: { name: string; link: string }): { subject: string; html: string; text: string } {
+  const subject = "Set up a new passkey for Captivo Access";
+  const { html, text } = renderEmail({
+    heading: subject,
+    bodyLines: [
+      `Hi ${escapeHtml(input.name)},`,
+      "An administrator removed the passkeys on your Captivo Access account. Use the button below to register a new one on this device; until you do, you can't sign in.",
+      "This link is single-use and time-limited. If you didn't expect it, tell your administrator.",
+    ],
+    button: { label: "Set up a new passkey", url: input.link },
+  });
+  return { subject, html, text };
+}
+
 export function approvalRequestEmail(input: {
   vendorName: string;
   vendorEmail: string;

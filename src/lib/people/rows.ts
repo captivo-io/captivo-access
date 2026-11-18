@@ -20,6 +20,8 @@ export interface PersonRow {
   roles: Role[];
   canToggle: boolean;
   canDelete: boolean;
+  /** Remove their passkeys and issue a one-time link for a new one. */
+  canReset: boolean;
 }
 
 export type InviteState = "pending" | "used" | "expired";
