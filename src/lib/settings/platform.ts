@@ -324,3 +324,22 @@ export async function displayTimezoneFromCenter(): Promise<boolean> {
   const c = await db.platformSettings.findUnique({ where: { tenantId: currentTenantId() }, select: { displayTimezoneFromCenterAt: true } });
   return (c?.displayTimezoneFromCenterAt ?? null) !== null;
 }
+
+/** When an admin hid the Console setup card; null while it has not been hidden. */
+export async function onboardingDismissedAt(): Promise<Date | null> {
+  try {
+    const c = await db.platformSettings.findUnique({ where: { tenantId: currentTenantId() }, select: { onboardingDismissedAt: true } });
+    return c?.onboardingDismissedAt ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function dismissOnboarding(): Promise<void> {
+  const at = new Date();
+  await db.platformSettings.upsert({
+    where: { tenantId: currentTenantId() },
+    create: { tenantId: currentTenantId(), onboardingDismissedAt: at },
+    update: { onboardingDismissedAt: at },
+  });
+}

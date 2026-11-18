@@ -7,22 +7,24 @@ import { LocalTime } from "@/app/(app)/_shell/local-time";
 
 const PANEL_ID = "cn-install";
 
+function showPanel() {
+  const el = document.getElementById(PANEL_ID);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.remove("flash");
+  void el.offsetWidth; // restart the highlight
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1800);
+  el.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+}
+
 /** The header's "Add connector": the install panel is on the page, so it scrolls there and lights it up. */
 export function AddConnectorScroll() {
   return (
     <button
       type="button"
       className="btn primary"
-      onClick={() => {
-        const el = document.getElementById(PANEL_ID);
-        if (!el) return;
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.remove("flash");
-        void el.offsetWidth; // restart the highlight
-        el.classList.add("flash");
-        setTimeout(() => el.classList.remove("flash"), 1800);
-        el.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
-      }}
+      onClick={showPanel}
     >
       + Add connector
     </button>
@@ -39,6 +41,10 @@ export function InstallPanel({ first, pending }: { first: boolean; pending: { id
   const router = useRouter();
   const [k, setK] = useState(0);
   const waiting = pending.filter((p) => Date.parse(p.expiresAt) > Date.now()).length;
+  // The Console setup card's "Add connector" links here as /admin/connectors#cn-install.
+  useEffect(() => {
+    if (window.location.hash === `#${PANEL_ID}`) showPanel();
+  }, []);
   useEffect(() => {
     if (!waiting) return;
     const t = setInterval(() => router.refresh(), 10_000);
