@@ -40,7 +40,7 @@ export function EmailForm({ initial, adminEmail, mode, preview }: {
   const [hostHint, setHostHint] = useState("smtp.example.com");
   const [testTo, setTestTo] = useState(adminEmail);
   const [busy, setBusy] = useState<null | "save" | "test">(null);
-  const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; msg: string; turnOn?: boolean } | null>(null);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   function pick(k: PresetKey) {
@@ -57,11 +57,11 @@ export function EmailForm({ initial, adminEmail, mode, preview }: {
     setPort(tls ? "465" : "587");
   }
 
-  async function save(): Promise<boolean> {
+  async function save(on = enabled): Promise<boolean> {
     const res = await fetch("/api/admin/smtp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ host, port: Number(port), secure, username, password, fromName, fromEmail, enabled }),
+      body: JSON.stringify({ host, port: Number(port), secure, username, password, fromName, fromEmail, enabled: on }),
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -79,7 +79,19 @@ export function EmailForm({ initial, adminEmail, mode, preview }: {
     setBusy("save");
     setNotice(null);
     try {
-      if (await save()) setNotice({ ok: true, msg: "Saved." });
+      // Saved but switched off is the easy mistake: nothing goes out. Say so and offer the switch.
+      if (await save()) setNotice(enabled || !host.trim()
+        ? { ok: true, msg: "Saved." }
+        : { ok: false, msg: `Saved, but sending is off: invites, access requests and alerts don't use this server${mode === "platform" ? " (the platform's server sends them meanwhile)" : " and no email goes out"}.`, turnOn: true });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onTurnOn() {
+    setBusy("save");
+    try {
+      if (await save(true)) { setEnabled(true); setNotice({ ok: true, msg: "Sending is on. Invites and alerts go out through this server." }); }
     } finally {
       setBusy(null);
     }
@@ -178,7 +190,12 @@ export function EmailForm({ initial, adminEmail, mode, preview }: {
               <input className="input" type="email" value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="no-reply@example.com" />
             </label>
           </div>
-          {notice && <p className={notice.ok ? "em-notice ok" : "em-notice bad"} role="alert">{notice.msg}</p>}
+          {notice && (
+            <p className={notice.ok ? "em-notice ok" : notice.turnOn ? "em-notice warn" : "em-notice bad"} role="alert">
+              {notice.msg}
+              {notice.turnOn && <button type="button" className="btn sm primary em-turnon" disabled={busy !== null} onClick={() => void onTurnOn()}>Turn sending on</button>}
+            </p>
+          )}
         </form>
 
         <form className="em-test" onSubmit={(e) => void onTest(e)}>
