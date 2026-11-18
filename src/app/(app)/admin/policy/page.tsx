@@ -1,11 +1,17 @@
 import { requireCapability } from "@/lib/current-user";
-import { getSessionPolicy } from "@/lib/policy/session-policy";
-import { getPlatformSettings, resolvedRecordingConsentRequired, resolvedGuacParamDefaults, resolvedWatermarkDefault, resolvedRecordingMode } from "@/lib/settings/platform";
+import { getSessionPolicyFresh } from "@/lib/policy/session-policy";
+import {
+  getPlatformSettingsFresh, resolvedGuacParamDefaults, resolvedRecordingConsentRequired, resolvedWatermarkDefault, resolvedRecordingMode,
+} from "@/lib/settings/platform";
 import { cronHealth, type CronJob } from "@/lib/cron/heartbeat";
-import { SessionPolicyForm } from "./session-policy-form";
 import { timeZoneManaged } from "@/lib/tenant/center-time-zone";
 import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
-import { PlatformSettingsForm } from "./platform-settings-form";
+import { currentSessionId } from "@/lib/auth/session";
+import { hasSecondFactor } from "@/lib/auth/amr";
+import { db } from "@/lib/db";
+import { workspaceView } from "@/lib/mobile/views";
+import { paramsToGuacFields } from "@/lib/gateway/guac-fields";
+import { PolicyView, type PolicyValues, type PolicyEnv } from "./policy-view";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -18,57 +24,99 @@ const JOB_LABEL: Record<CronJob, string> = {
   "audit-anchor": "External anchor",
 };
 
-async function AdminPolicyPageImpl() {
+// The server's list, so the first browser render matches the HTML.
+function timeZoneList(): string[] {
+  try {
+    return Intl.supportedValuesOf("timeZone");
+  } catch {
+    return ["UTC", "Europe/Istanbul", "Europe/London", "America/New_York"];
+  }
+}
+
+const env = (name: string) => process.env[name]?.trim() || null;
+const num = (v: number | null) => (v === null || v === undefined ? "" : String(v));
+
+async function PolicyPageImpl() {
   await requireCapability("configure");
-  const [policy, platform, consentEffective, cron, guacDefaults, watermarkEffective, recordingModeEffective] = await Promise.all([
-    getSessionPolicy(),
-    getPlatformSettings(),
-    resolvedRecordingConsentRequired(),
+  // Fresh reads (the settings caches are per server module and can be 30 s
+  // behind a save); the resolved values below then use this fresh copy.
+  const s = await getPlatformSettingsFresh();
+  const [ws, policy, cron, guac, consent, watermark, recordingMode, zoneManaged, sid] = await Promise.all([
+    workspaceView().catch(() => ({ name: "", slug: null as string | null })),
+    getSessionPolicyFresh(),
     cronHealth(),
     resolvedGuacParamDefaults(),
+    resolvedRecordingConsentRequired(),
     resolvedWatermarkDefault(),
     resolvedRecordingMode(),
+    timeZoneManaged(),
+    currentSessionId(),
   ]);
+  const own = sid ? await db.session.findUnique({ where: { id: sid }, select: { amr: true } }) : null;
+
+  // What the form starts from: the stored value, or (where nothing is stored)
+  // what applies now, so a switch shows the truth. Saving sends only what the
+  // admin changes, so an untouched env-backed value stays with the env.
+  const values: PolicyValues = {
+    idleTimeoutMinutes: num(policy.idleTimeoutMinutes),
+    maxSessionHours: num(policy.maxSessionHours),
+    maxConcurrentPerUser: num(policy.maxConcurrentPerUser),
+    requireSecondFactor: policy.requireSecondFactor,
+    maxGrantDays: num(s.maxGrantDays),
+    inviteTtlHours: num(s.inviteTtlHours),
+    requireRequestJustification: s.requireRequestJustification ?? true,
+    defaultConnectorLogLevel: s.defaultConnectorLogLevel ?? "info",
+    vendorIpAllowlist: s.vendorIpAllowlist ?? "",
+    isolatedEgressDefault: s.isolatedEgressDefault ?? "internet",
+    recordingMode,
+    recordingConsentRequired: consent,
+    watermarkDefault: watermark,
+    clipboardDefault: s.clipboardDefault ?? "allow",
+    isolatedFileTransferDefault: s.isolatedFileTransferDefault ?? "none",
+    webAppFileTransferDefault: s.webAppFileTransferDefault ?? "allow",
+    keystrokeLoggingMode: s.keystrokeLoggingMode ?? "per_resource",
+    displayTimezone: s.displayTimezone ?? "",
+    recordingRetentionDays: num(s.recordingRetentionDays),
+    auditRetentionDays: num(s.auditRetentionDays),
+    externalAnchorEnabled: s.externalAnchorEnabled ?? false,
+    anchorTsaUrl: s.anchorTsaUrl ?? "",
+    notificationWebhookUrl: s.notificationWebhookUrl ?? "",
+    notifySiteHealth: s.notifySiteHealth ?? true,
+    notifyAccessRequests: s.notifyAccessRequests ?? true,
+    notifyAccessDecisions: s.notifyAccessDecisions ?? true,
+    guac: paramsToGuacFields(guac),
+  };
+
+  // Rows whose value comes from the environment right now (nothing stored).
+  const fromEnv: PolicyEnv = {};
+  const mark = (key: keyof PolicyEnv, stored: unknown, name: string) => {
+    const v = env(name);
+    if ((stored === null || stored === undefined) && v) fromEnv[key] = v;
+  };
+  mark("maxSessionHours", policy.maxSessionHours, "SESSION_TTL_HOURS");
+  mark("inviteTtlHours", s.inviteTtlHours, "INVITE_TTL_HOURS");
+  mark("auditRetentionDays", s.auditRetentionDays, "AUDIT_RETENTION_DAYS");
+  mark("notificationWebhookUrl", s.notificationWebhookUrl, "NOTIFICATION_WEBHOOK_URL");
+  mark("recordingConsentRequired", s.recordingConsentRequired, "RECORDING_CONSENT_REQUIRED");
+  mark("watermarkDefault", s.watermarkDefault, "WATERMARK_DEFAULT");
+  mark("recordingMode", s.recordingMode, "RECORDING_MODE");
 
   return (
     <main>
-      <div className="page-head">
-        <div>
-          <div className="page-title-row"><span className="page-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg></span><h1>Policy</h1></div>
-          <p>Organization-wide controls. Applied everywhere — the console and vendor sessions. These settings live in
-            the database and can also be set from the environment; the value here always wins.</p>
-        </div>
-      </div>
-
-      {cron.stale.length > 0 && (
-        <div className={`notice ${cron.anyRun ? "warn" : ""}`} role="alert">
-          {cron.anyRun ? (
-            <>
-              <b>Some scheduled jobs look stopped:</b>{" "}
-              {cron.stale.map((s) => JOB_LABEL[s.job]).join(", ")}. The settings that rely on them won&apos;t take
-              effect until they run again — check the cron on your server (see the install docs).
-            </>
-          ) : (
-            <>
-              <b>Background jobs haven&apos;t run yet.</b> If you deployed with <code>deploy/setup.sh</code> they&apos;re
-              already scheduled and will start shortly. Otherwise, schedule the cron jobs (retention &amp; health) on
-              your server — see the install docs — or these settings won&apos;t take effect.
-            </>
-          )}
-        </div>
-      )}
-
-      <div className="card">
-        <div className="card-head"><h2>Session controls</h2></div>
-        <SessionPolicyForm initial={policy} />
-      </div>
-
-      <PlatformSettingsForm initial={platform} consentEffective={consentEffective} watermarkEffective={watermarkEffective} recordingModeEffective={recordingModeEffective} guacDefaults={guacDefaults} timezoneManagedAt={(await timeZoneManaged()) ? captivoAccountUrl() : null} />
+      <PolicyView
+        workspace={ws.slug}
+        initial={values}
+        fromEnv={fromEnv}
+        hasTsaAuth={!!s.anchorTsaAuth}
+        canRequireTwoStep={!!own && hasSecondFactor(own.amr)}
+        zoneLockedUrl={zoneManaged ? captivoAccountUrl() : null}
+        timeZones={timeZoneList()}
+        cron={cron.stale.length > 0 ? { anyRun: cron.anyRun, stale: cron.stale.map((x) => JOB_LABEL[x.job]) } : null}
+      />
     </main>
   );
 }
 
-export default async function AdminPolicyPage(...args: Parameters<typeof AdminPolicyPageImpl>) {
-  return withRequestTenant(() => AdminPolicyPageImpl(...args));
+export default async function AdminPolicyPage(...args: Parameters<typeof PolicyPageImpl>) {
+  return withRequestTenant(() => PolicyPageImpl(...args));
 }
-

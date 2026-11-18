@@ -16,9 +16,12 @@ function addEntry(bl: BlockList, entry: string): boolean {
     const slash = entry.indexOf("/");
     if (slash >= 0) {
       const addr = entry.slice(0, slash);
-      const prefix = Number(entry.slice(slash + 1));
+      const rawPrefix = entry.slice(slash + 1);
+      // Digits only: Number("") is 0, so "1.2.3.4/" would otherwise allow everyone.
+      if (!/^\d{1,3}$/.test(rawPrefix)) return false;
+      const prefix = Number(rawPrefix);
       const fam = isIP(addr);
-      if (!fam || !Number.isInteger(prefix)) return false;
+      if (!fam) return false;
       bl.addSubnet(addr, prefix, fam === 4 ? "ipv4" : "ipv6");
       return true;
     }

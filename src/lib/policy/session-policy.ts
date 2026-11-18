@@ -26,13 +26,17 @@ export function evictionIds(activeOldestFirst: { id: string }[], cap: number | n
   return activeOldestFirst.slice(0, excess).map((s) => s.id);
 }
 
-let cache: { policy: SessionPolicy; at: number } | null = null;
+// Per workspace: one shared slot would hand one tenant's policy (idle timeout,
+// two-step requirement) to another for up to 30 s on Cloud.
+const cache = new Map<string, { policy: SessionPolicy; at: number }>();
 
 export async function getSessionPolicy(): Promise<SessionPolicy> {
-  if (cache && Date.now() - cache.at < 30_000) return cache.policy;
+  const tid = currentTenantId();
+  const hit = cache.get(tid);
+  if (hit && Date.now() - hit.at < 30_000) return hit.policy;
   let c;
   try {
-    c = await db.sessionPolicy.findUnique({ where: { tenantId: currentTenantId() } });
+    c = await db.sessionPolicy.findUnique({ where: { tenantId: tid } });
   } catch {
     return EMPTY; // table missing / DB down -> no enforcement
   }
@@ -42,8 +46,14 @@ export async function getSessionPolicy(): Promise<SessionPolicy> {
     maxConcurrentPerUser: c?.maxConcurrentPerUser ?? null,
     requireSecondFactor: c?.requireSecondFactor ?? false,
   };
-  cache = { policy, at: Date.now() };
+  cache.set(tid, { policy, at: Date.now() });
   return policy;
+}
+
+/** Straight from the database: the Policy page shows what is stored now. */
+export async function getSessionPolicyFresh(): Promise<SessionPolicy> {
+  cache.delete(currentTenantId());
+  return getSessionPolicy();
 }
 
 export async function saveSessionPolicy(input: SessionPolicy): Promise<void> {
@@ -52,5 +62,5 @@ export async function saveSessionPolicy(input: SessionPolicy): Promise<void> {
     create: { tenantId: currentTenantId(), ...input },
     update: { ...input },
   });
-  cache = null;
+  cache.delete(currentTenantId());
 }

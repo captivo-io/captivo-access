@@ -46,3 +46,10 @@ describe("validateAllowlist", () => {
     expect(validateAllowlist("10.0.0.0/8, 999.1.1.1, 10.0.0.0/40")).toEqual(["999.1.1.1", "10.0.0.0/40"]);
   });
 });
+
+describe("an empty prefix", () => {
+  it("is invalid, and never opens the list to everyone", () => {
+    expect(validateAllowlist("1.2.3.4/")).toEqual(["1.2.3.4/"]);
+    expect(ipAllowed("10.0.0.0/8, 1.2.3.4/", "203.0.113.9")).toBe(false);
+  });
+});
