@@ -151,7 +151,7 @@ describe("the slow-route budget outlasts what those routes wait on", () => {
     const SLOW = [
       "admin/directory/test", "admin/directory/resolve-preview",
       "admin/sites/[id]/test", "admin/sites/[id]/verify-domain",
-      "admin/smtp/test", "admin/domain/verify", "admin/updates/check",
+      "admin/smtp/test", "admin/sso/test", "admin/domain/verify", "admin/updates/check",
       "auth/oidc/callback", "isolated/files/download", "isolated/files/upload",
       "admin/recordings/[id]/video", "admin/recordings/[id]/guac",
       "admin/recordings/[id]/events", "admin/recordings/[id]/keyevents",

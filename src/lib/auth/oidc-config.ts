@@ -129,6 +129,10 @@ export async function saveOidcConfig(input: {
   const secretProvided = typeof input.clientSecret === "string" && input.clientSecret.length > 0;
   const encSecret = secretProvided ? encrypt(input.clientSecret!.trim()) : undefined;
 
+  // A test result belongs to the issuer it was run against: a new issuer starts untested.
+  const prev = await db.oidcConfig.findUnique({ where: { tenantId: currentTenantId() }, select: { issuer: true } });
+  const issuerChanged = prev !== null && prev.issuer.trim().replace(/\/+$/, "").toLowerCase() !== issuer.replace(/\/+$/, "").toLowerCase();
+
   await db.oidcConfig.upsert({
     where: { tenantId: currentTenantId() },
     create: { tenantId: currentTenantId(), enabled: input.enabled, issuer, clientId, clientSecret: encSecret ?? "", buttonLabel },
@@ -138,6 +142,7 @@ export async function saveOidcConfig(input: {
       clientId,
       buttonLabel,
       ...(encSecret !== undefined ? { clientSecret: encSecret } : {}),
+      ...(issuerChanged ? { lastVerifiedAt: null, lastVerifiedOk: null, lastVerifiedDetail: null } : {}),
     },
   });
 }

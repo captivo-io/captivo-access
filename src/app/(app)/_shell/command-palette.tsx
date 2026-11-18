@@ -16,8 +16,8 @@ const PAGES: { label: string; href: string; cap: Capability | null }[] = [
   { label: "Notifications", href: "/admin/notifications", cap: "read_console" },
   { label: "Live sessions", href: "/admin/live", cap: "read_console" },
   { label: "Users", href: "/admin/users", cap: "configure" },
-  { label: "Invites", href: "/admin/invites", cap: "configure" },
-  { label: "Sessions", href: "/admin/sessions", cap: "configure" },
+  { label: "Invites", href: "/admin/users?tab=invites", cap: "configure" },
+  { label: "Console sessions", href: "/admin/users?tab=sessions", cap: "configure" },
   { label: "Audit log", href: "/admin/audit", cap: "read_console" },
   { label: "Settings", href: "/settings/passkeys", cap: null },
 ];
@@ -39,8 +39,8 @@ const CMD_ICONS: Record<string, string[]> = {
   "/admin/notifications": ["M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z", "M10 20a2 2 0 0 0 4 0"],
   "/admin/live": ["M3 12h4l2 6 4-14 2 8h6"],
   "/admin/users": ["M16 19v-2a4 4 0 0 0-8 0v2", "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"],
-  "/admin/invites": ["M4 6h16v12H4z", "M4 7l8 6 8-6"],
-  "/admin/sessions": ["M4 5h16v11H4z", "M9 20h6M12 16v4"],
+  "/admin/users?tab=invites": ["M4 6h16v12H4z", "M4 7l8 6 8-6"],
+  "/admin/users?tab=sessions": ["M4 5h16v11H4z", "M9 20h6M12 16v4"],
   "/admin/audit": ["M6 3h9l4 4v14H6z", "M9 12h6M9 16h6M9 8h3"],
   "/settings/passkeys": ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z", "M12 4v2M12 18v2M5 8l1.7 1M17.3 15L19 16M5 16l1.7-1M17.3 9L19 8"],
 };

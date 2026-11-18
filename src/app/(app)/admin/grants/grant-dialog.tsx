@@ -135,7 +135,7 @@ export function GrantDialogBody({
   return (
     <form className="rq gd" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
       <div className="rq-sec">
-        <div className="rq-label"><span>User</span><Link href="/admin/invites" className="gd-invite">+ Invite vendor</Link></div>
+        <div className="rq-label"><span>User</span><Link href="/admin/users?new=1" className="gd-invite">+ Invite vendor</Link></div>
         <div className="gd-users" role="radiogroup" aria-label="User">
           {users.map((u) => (
             <button key={u.id} type="button" role="radio" aria-checked={u.id === userId} className={u.id === userId ? "gd-user on" : "gd-user"} onClick={() => setUserId(u.id)}>

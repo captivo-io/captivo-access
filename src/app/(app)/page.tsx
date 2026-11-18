@@ -30,7 +30,7 @@ async function DashboardPageImpl() {
       </div>
       {actions && (
         <div className="row-actions">
-          <Link href="/admin/invites?new=1" className="btn">Invite vendor</Link>
+          <Link href="/admin/users?new=1" className="btn">Invite vendor</Link>
           {can(user.role, "approve_grants") && <Link href="/admin/grants?new=1" className="btn primary">+ Grant access</Link>}
         </div>
       )}

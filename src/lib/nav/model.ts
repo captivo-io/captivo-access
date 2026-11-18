@@ -76,10 +76,8 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
     ] });
     admin.push({ label: "Identity & access", items: [
       { label: "Users & vendors", href: "/admin/users", icon: "users" },
-      { label: "Invites", href: "/admin/invites", icon: "userPlus" },
       { label: "Directory", href: "/admin/directory", icon: "folder" },
       { label: "Single sign-on", href: "/admin/sso", icon: "lock" },
-      { label: "Operator sessions", href: "/admin/sessions", icon: "monitor" },
     ] });
     admin.push({ label: "Platform", items: [
       { label: "Email", href: "/admin/email", icon: "mail" },

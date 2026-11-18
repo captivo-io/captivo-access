@@ -1,12 +1,13 @@
 import { requireCapability } from "@/lib/current-user";
-import { UpdatesIcon } from "@/components/icons";
 import { db } from "@/lib/db";
 import { getUpdateCheckConfig } from "@/lib/updates/update-check-config";
-import { isUpdateAvailable, isConnectorOutdated } from "@/lib/updates/semver";
+import { isConnectorOutdated } from "@/lib/updates/semver";
+import { updateStatus } from "@/lib/updates/status";
 import { connectorTunnelUrl } from "@/lib/url";
 import { buildConnectorUpdateCommand } from "@/lib/connector/repair";
 import { managerVersion } from "@/lib/version";
-import { UpdatesForm } from "./updates-form";
+import { workspaceView } from "@/lib/mobile/views";
+import { UpdatesView } from "./updates-view";
 import { UpgradeGuide } from "./upgrade-guide";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -15,45 +16,47 @@ export const metadata = { title: "Updates" };
 
 async function AdminUpdatesPageImpl() {
   await requireCapability("configure");
-  const cfg = await getUpdateCheckConfig();
-  const mgr = managerVersion();
-  const updateAvailable = isUpdateAvailable(cfg?.latestVersion, mgr);
-
-  // Only when an update is available do we look at connector drift and build the
-  // per-connector command (the token volume is kept, so it's a plain update).
-  let outdatedConnectors = 0;
-  let connectorCommand: string | null = null;
-  if (updateAvailable) {
-    const connectors = await db.connector.findMany({
+  const [cfg, ws, connectors] = await Promise.all([
+    getUpdateCheckConfig(),
+    workspaceView().catch(() => ({ name: "", slug: null as string | null })),
+    db.connector.findMany({
       where: { status: { not: "REVOKED" } },
-      select: { version: true },
-    });
-    const outdated = connectors.filter((c) => isConnectorOutdated(c.version, mgr));
-    outdatedConnectors = outdated.length;
-    if (outdatedConnectors > 0) {
-      const managerUrl = process.env.MANAGER_PUBLIC_URL?.replace(/\/+$/, "") || "https://manager.<your-access-domain>";
-      connectorCommand = buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl());
-    }
+      select: { id: true, name: true, version: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const mgr = managerVersion();
+  const behind = updateStatus(mgr, cfg?.latestVersion) === "behind";
+
+  // The per-connector command only matters when an update is out and a connector
+  // trails this console (the token volume is kept, so it's a plain update).
+  const outdatedConnectors = connectors.filter((c) => isConnectorOutdated(c.version, mgr)).length;
+  let connectorCommand: string | null = null;
+  if (behind && outdatedConnectors > 0) {
+    const managerUrl = process.env.MANAGER_PUBLIC_URL?.replace(/\/+$/, "") || "https://manager.<your-access-domain>";
+    connectorCommand = buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl());
   }
 
   return (
-    <main>
+    <main className="up-main">
       <div className="page-head">
         <div>
-          <div className="page-title-row"><span className="page-icon"><UpdatesIcon /></span><h1>Updates</h1></div>
-          <p>See when a newer version of Captivo Access is available. Connectors older than the manager are flagged under Connectors.</p>
+          <div className="eyebrow">Platform{ws.slug ? ` · ${ws.slug}` : ""}</div>
+          <h1>Updates</h1>
+          <p>Follow new releases of Captivo Access. Connectors running an older version than this console are flagged on the Connectors page.</p>
         </div>
       </div>
-      <div className="card">
-        <UpdatesForm
-          initialEnabled={cfg?.enabled ?? true}
-          currentVersion={mgr}
-          latestVersion={cfg?.latestVersion ?? null}
-          lastCheckedAt={cfg?.lastCheckedAt ? cfg.lastCheckedAt.toISOString() : null}
-          lastCheckOk={cfg?.lastCheckOk ?? null}
-        />
-      </div>
-      {updateAvailable && (
+      <UpdatesView
+        available={cfg !== null}
+        initialEnabled={cfg?.enabled ?? true}
+        running={mgr}
+        latestVersion={cfg?.latestVersion ?? null}
+        latestUrl={cfg?.latestUrl ?? null}
+        lastCheckedAt={cfg?.lastCheckedAt ? cfg.lastCheckedAt.toISOString() : null}
+        lastCheckOk={cfg?.lastCheckOk ?? null}
+        connectors={connectors}
+      />
+      {behind && (
         <UpgradeGuide
           currentVersion={mgr}
           latestVersion={cfg?.latestVersion ?? ""}
@@ -69,4 +72,3 @@ async function AdminUpdatesPageImpl() {
 export default async function AdminUpdatesPage(...args: Parameters<typeof AdminUpdatesPageImpl>) {
   return withRequestTenant(() => AdminUpdatesPageImpl(...args));
 }
-

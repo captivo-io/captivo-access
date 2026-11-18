@@ -15,6 +15,8 @@ export async function createInvite(input: {
   createdById?: string | null;
   phone?: string | null;
   company?: string | null;
+  /** How long the link works; the policy's invite TTL when omitted. */
+  ttlHours?: number;
 }) {
   const token = generateToken();
   const inv = await db.invite.create({
@@ -25,7 +27,7 @@ export async function createInvite(input: {
       phone: input.phone ?? null,
       company: input.company ?? null,
       tokenHash: await hashToken(token),
-      expiresAt: new Date(Date.now() + (await ttlMs())),
+      expiresAt: new Date(Date.now() + (input.ttlHours ? input.ttlHours * 3600_000 : await ttlMs())),
       createdById: input.createdById ?? null,
     },
   });

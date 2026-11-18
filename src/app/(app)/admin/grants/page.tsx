@@ -15,7 +15,7 @@ import { withRequestTenant } from "@/lib/tenant/request";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Grants" };
 
-async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ new?: string; status?: string }> }) {
+async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ new?: string; status?: string; user?: string }> }) {
   const sp = await searchParams;
   const user = await requireCapability("read_console");
   const canApprove = can(user.role, "approve_grants");
@@ -80,6 +80,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
         serverNow={now.getTime()}
         initialFilter={initialFilter}
         openNew={sp.new === "1"}
+        openUser={typeof sp.user === "string" ? sp.user : null}
       />
     </main>
   );
