@@ -10,7 +10,7 @@ import { ResourceIcon } from "@/components/resource-icon";
 import { grantCovers, type CoverWindow } from "@/lib/access/grant-cover";
 import type { Role } from "@/generated/prisma/enums";
 
-export type GrantUser = { id: string; name: string; email: string; role: Role };
+export type GrantUser = { id: string; name: string; email: string; role: Role; company?: string | null; status?: string };
 /** A live grant the person already has, described ("access until Nov 20, 18:00", "permanent access"). */
 export type ExistingGrant = CoverWindow & { userId: string; siteId: string; label: string };
 type Duration = "1h" | "4h" | "1d" | "1w" | "perm" | "custom";
@@ -27,6 +27,12 @@ const DAYS = [
   { i: 1, l: "Mon" }, { i: 2, l: "Tue" }, { i: 3, l: "Wed" }, { i: 4, l: "Thu" },
   { i: 5, l: "Fri" }, { i: 6, l: "Sat" }, { i: 0, l: "Sun" },
 ];
+
+const SEARCH_FROM = 4;
+const COMPACT_FROM = 8;
+type RoleFilter = "all" | "vendor" | "staff" | "console";
+const ROLE_FILTER_LABEL: Record<RoleFilter, string> = { all: "All", vendor: "Vendors", staff: "Staff", console: "Console" };
+const roleGroup = (r: Role): Exclude<RoleFilter, "all"> => (r === "VENDOR" ? "vendor" : r === "STAFF" ? "staff" : "console");
 
 export function initials(name: string, email: string): string {
   const parts = (name || email).trim().split(/[\s@._-]+/).filter(Boolean);
@@ -71,6 +77,9 @@ export function GrantDialogBody({
   const tz = useTimezone();
   const zone = tz ?? browserZone();
   const [userId, setUserId] = useState<string | null>(initialUserId ?? null);
+  const [uq, setUq] = useState("");
+  const [roleF, setRoleF] = useState<RoleFilter>("all");
+  const [hi, setHi] = useState(0);
   const [siteIds, setSiteIds] = useState<string[]>(initialSiteIds ?? []);
   const [q, setQ] = useState("");
   const [later, setLater] = useState(false);
@@ -152,21 +161,55 @@ export function GrantDialogBody({
     }
   }
 
+  // People who can be given access: not disabled. With many, a search and a
+  // role filter appear and the cards become a compact list; the chosen person
+  // stays at the top.
+  const pickable = users.filter((u) => u.status !== "DISABLED");
+  const roleGroups = (["vendor", "staff", "console"] as const).filter((g) => pickable.some((u) => roleGroup(u.role) === g));
+  const t = uq.trim().toLowerCase();
+  const shownUsers = pickable
+    .filter((u) => (roleF === "all" || roleGroup(u.role) === roleF) && (!t || [u.name, u.email, u.company].some((v) => v?.toLowerCase().includes(t))))
+    .sort((a, b) => (a.id === userId ? -1 : b.id === userId ? 1 : 0));
+  const compact = pickable.length > COMPACT_FROM;
+  function onUserKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, shownUsers.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); const u = shownUsers[hi]; if (u) { setUserId(u.id); setUq(""); } }
+  }
+
   return (
     <form className="rq gd" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
       <div className="rq-sec">
         <div className="rq-label"><span>User</span><Link href="/admin/users?new=1" className="gd-invite">+ Invite vendor</Link></div>
-        <div className="gd-users" role="radiogroup" aria-label="User">
-          {users.map((u) => (
-            <button key={u.id} type="button" role="radio" aria-checked={u.id === userId} className={u.id === userId ? "gd-user on" : "gd-user"} onClick={() => setUserId(u.id)}>
+        {pickable.length > SEARCH_FROM && (
+          <div className="gd-ufind">
+            <label className="ma-search gd-search">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              <input value={uq} onChange={(e) => { setUq(e.target.value); setHi(0); }} onKeyDown={onUserKey} placeholder="Search name, email or company…" aria-label="Search people" />
+            </label>
+            {roleGroups.length > 1 && (
+              <div className="seg" role="radiogroup" aria-label="Role">
+                {(["all", ...roleGroups] as RoleFilter[]).map((g) => (
+                  <button key={g} type="button" role="radio" aria-checked={roleF === g} className={roleF === g ? "seg-opt on" : "seg-opt"} onClick={() => { setRoleF(g); setHi(0); }}>{ROLE_FILTER_LABEL[g]}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <div className={compact ? "gd-users compact" : "gd-users"} role="radiogroup" aria-label="User">
+          {shownUsers.length === 0 && <div className="rq-empty">No one matches. <Link href="/admin/users?new=1">Invite them</Link>.</div>}
+          {shownUsers.map((u, i) => (
+            <button key={u.id} type="button" role="radio" aria-checked={u.id === userId}
+              className={["gd-user", u.id === userId && "on", i === hi && uq && "hi"].filter(Boolean).join(" ")} onClick={() => setUserId(u.id)}>
               <span className="gr-av sm" aria-hidden="true">{initials(u.name, u.email)}</span>
               <span className="gd-user-t">
                 <span className="gd-user-n">{u.name || u.email}<RoleChip role={u.role} /></span>
-                <span className="mono t-muted">{u.email}</span>
+                <span className="mono t-muted">{u.email}{u.company ? ` · ${u.company}` : ""}</span>
               </span>
             </button>
           ))}
         </div>
+        {pickable.length > SEARCH_FROM && <span className="cell-sub gd-ucount">{shownUsers.length === pickable.length ? `${pickable.length} people` : `${shownUsers.length} of ${pickable.length} people`}</span>}
       </div>
 
       <div className="rq-sec">
