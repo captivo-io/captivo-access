@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 
 export { classifyGrant, type DecisionReason, type Decision, type GrantWindow } from "./classify";
-import { classifyGrant, type DecisionReason, type Decision } from "./classify";
+import { classifyGrant, type Decision } from "./classify";
 
 // Deny-reason priority when multiple grants all deny: show the most "promising"
 // reason (soonest/most-actionable) → pending_approval > not_yet > off_schedule > expired > revoked/denied.
