@@ -2,9 +2,9 @@ import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { timeAgo } from "@/lib/format";
 import { recordingEnabled } from "@/lib/recording/enabled";
-import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { AddSiteButton } from "./add-site-button";
 import { resourceContext } from "./context";
+import { resolvedRecordingMode, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
 import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
 import { SitesView, type SiteRow } from "./sites-view";
@@ -33,6 +33,7 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
         connectorId: true,
         insecureSkipVerify: true,
         recordSessions: true,
+        keystrokeLogging: true,
         clipboardMode: true,
         logoType: true,
         iconName: true,
@@ -67,6 +68,7 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
     connectorId: s.connectorId,
     insecureSkipVerify: s.insecureSkipVerify,
     recordSessions: s.recordSessions,
+    keystrokeLogging: s.keystrokeLogging,
     clipboardMode: s.clipboardMode,
     connectorName: s.connector.name,
     connectorOnline: s.connector.status === "ONLINE",
@@ -107,7 +109,7 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
         // Existing sites always render (with edit/delete), even when the only
         // connector is revoked — otherwise a revoked connector's sites become
         // invisible and neither the sites nor the connector can be removed.
-        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} hostSuffix={await siteHostSuffix()} initialQuery={typeof sp.q === "string" ? sp.q : ""} initialStatus={sp.status === "down" || sp.status === "up" ? sp.status : "all"} />
+        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} initialQuery={typeof sp.q === "string" ? sp.q : ""} initialStatus={sp.status === "down" || sp.status === "up" ? sp.status : "all"} />
       )}
     </main>
   );
