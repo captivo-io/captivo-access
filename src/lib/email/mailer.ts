@@ -51,12 +51,35 @@ export async function getAdminEmails(): Promise<string[]> {
 
 export type MailMessage = { to: string | string[]; subject: string; html: string; text: string };
 
+export type SendingMode = "own" | "platform" | "none";
+
+/**
+ * Who sends this workspace's mail right now: its own server (enabled), the
+ * Captivo platform's (Cloud fallback), or nobody (invites are copyable links,
+ * alerts stay in the console bell). Same decision as getSendingSmtpConfig.
+ */
+export async function sendingMode(): Promise<SendingMode> {
+  const own = await getSmtpConfig();
+  if (own?.enabled) return "own";
+  const cfg = await getSendingSmtpConfig();
+  return cfg?.enabled ? "platform" : "none";
+}
+
 // Best-effort: returns a result, never throws into the caller's flow.
 export async function sendMail(msg: MailMessage): Promise<{ sent: boolean; reason?: string }> {
   try {
     const cfg = await getSendingSmtpConfig();
     if (!cfg) return { sent: false, reason: "not_configured" };
     if (!cfg.enabled) return { sent: false, reason: "disabled" };
+    const { sent, reason } = await sendWith(cfg, msg);
+    return reason ? { sent, reason } : { sent };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : "send_failed" };
+  }
+}
+
+async function sendWith(cfg: SmtpLike, msg: MailMessage): Promise<{ sent: boolean; reason?: string; response?: string }> {
+  try {
     const transport = nodemailer.createTransport(
       buildTransportOptions({
         host: cfg.host,
@@ -66,21 +89,29 @@ export async function sendMail(msg: MailMessage): Promise<{ sent: boolean; reaso
         password: decrypt(cfg.password),
       }),
     );
-    await transport.sendMail({
+    const info = await transport.sendMail({
       from: `"${cfg.fromName}" <${cfg.fromEmail}>`,
       to: msg.to,
       subject: msg.subject,
       html: msg.html,
       text: msg.text,
     });
-    return { sent: true };
+    const response = typeof info?.response === "string" ? info.response : undefined;
+    return response ? { sent: true, response } : { sent: true };
   } catch (e) {
     return { sent: false, reason: e instanceof Error ? e.message : "send_failed" };
   }
 }
 
-export async function sendTestEmail(to: string): Promise<{ sent: boolean; reason?: string }> {
-  return sendMail({
+/**
+ * Sends through the workspace's OWN saved settings, switched on or not: the test
+ * on the Email page checks these settings, so it must not succeed through the
+ * platform's fallback server instead.
+ */
+export async function sendTestEmail(to: string): Promise<{ sent: boolean; reason?: string; response?: string }> {
+  const own = await getSmtpConfig();
+  if (!own) return { sent: false, reason: "not_configured" };
+  return sendWith(own, {
     to,
     subject: "Captivo Access — SMTP test",
     html: "<p>This is a test email from Captivo Access. Your SMTP settings are working.</p>",

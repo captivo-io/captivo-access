@@ -5,7 +5,7 @@ import { createInvite } from "@/lib/auth/invite";
 import { normalizeEmail } from "@/lib/auth/email";
 import { db } from "@/lib/db";
 import { managerBaseUrl } from "@/lib/url";
-import { getSmtpConfig, sendMail } from "@/lib/email/mailer";
+import { getSendingSmtpConfig, sendMail } from "@/lib/email/mailer";
 import { inviteEmail } from "@/lib/email/templates";
 import type { Role } from "@/generated/prisma/enums";
 import { recordAdminAction } from "@/lib/audit/admin";
@@ -14,6 +14,8 @@ import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { currentTenantId } from "@/lib/tenant/context";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+
+const MAX_TTL_HOURS = 30 * 24;
 
 export const POST = withTenantRoute(async (req: NextRequest) => {
   const admin = await getCurrentUser();
@@ -31,6 +33,11 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
   const company = typeof body.company === "string" ? body.company.trim() : "";
   const sendEmail = body.sendEmail === true;
+  // Link lifetime picked in the dialog (hours); the policy's default when absent.
+  const ttl = body.expiresInHours;
+  if (ttl !== undefined && !(typeof ttl === "number" && Number.isInteger(ttl) && ttl >= 1 && ttl <= MAX_TTL_HOURS)) {
+    return NextResponse.json({ error: "invalid_expiry" }, { status: 400 });
+  }
 
   if (!name || !email || !role || !ASSIGNABLE_ROLES.includes(role)) {
     return NextResponse.json({ error: "name_email_role_required" }, { status: 400 });
@@ -63,20 +70,23 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     throw e;
   }
 
-  const { token } = await createInvite({
+  const { id, token } = await createInvite({
     email,
     name,
     role,
     createdById: admin.id,
     phone: phone || null,
     company: company || null,
+    ttlHours: typeof ttl === "number" ? ttl : undefined,
   });
   const link = `${managerBaseUrl(req)}/invite/${token}`;
 
   let emailed = false;
   if (sendEmail) {
     try {
-      const smtp = await getSmtpConfig();
+      // The mail server that actually sends: the workspace's own, or on Cloud
+      // the platform's when the operator allows that fallback.
+      const smtp = await getSendingSmtpConfig();
       if (smtp?.enabled) {
         const m = inviteEmail({ name, link });
         const r = await sendMail({ to: email, subject: m.subject, html: m.html, text: m.text });
@@ -90,10 +100,10 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "invite.create",
-    targetType: "invite",
+    targetType: "invite", targetId: id,
     summary: `Created invite for ${email}`,
     metadata: { email, role },
     clientIp: clientIp(req.headers) ?? null,
   });
-  return NextResponse.json({ link, emailed: sendEmail ? emailed : null });
+  return NextResponse.json({ id, link, emailed: sendEmail ? emailed : null });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

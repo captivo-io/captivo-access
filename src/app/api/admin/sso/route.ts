@@ -3,7 +3,8 @@ import { getCurrentUser } from "@/lib/current-user";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { can } from "@/lib/auth/roles";
-import { saveOidcConfig, deleteOidcConfig } from "@/lib/auth/oidc-config";
+import { saveOidcConfig, deleteOidcConfig, getOwnOidcConfig } from "@/lib/auth/oidc-config";
+import { enableError } from "./enable-rule";
 import { isPlatformIssuer, readPlatformOidc } from "@/lib/auth/oidc-source";
 import { withTenantRoute } from "@/lib/tenant/request";
 
@@ -23,12 +24,16 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   // Captivo ID is already the sign-in on Cloud; as a tenant's "own" provider it
   // could only be saved without its secret, and would replace the working one.
   if (isPlatformIssuer(issuer, readPlatformOidc(process.env))) return NextResponse.json({ error: "captivo_id_issuer" }, { status: 400 });
+  // The tenant's own row only (never Captivo ID's view of the slot).
+  const existing = await getOwnOidcConfig();
+  const saved = existing && !existing.ignored ? existing : null;
   // Enabling requires a secret to exist (either provided now or already stored).
-  if (enabled && !(clientSecret && clientSecret.length > 0)) {
-    const { getOidcConfig } = await import("@/lib/auth/oidc-config");
-    const existing = await getOidcConfig();
-    if (!existing?.hasSecret) return NextResponse.json({ error: "secret_required" }, { status: 400 });
+  if (enabled && !(clientSecret && clientSecret.length > 0) && !saved?.hasSecret) {
+    return NextResponse.json({ error: "secret_required" }, { status: 400 });
   }
+  // ...and a passed connection test for this issuer, unless it is already on.
+  const rule = enableError(saved, { enabled, issuer });
+  if (rule) return NextResponse.json({ error: rule }, { status: 400 });
 
   await saveOidcConfig({ enabled, issuer, clientId, clientSecret, buttonLabel });
   await recordAdminAction({

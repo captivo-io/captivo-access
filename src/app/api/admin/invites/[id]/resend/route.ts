@@ -4,10 +4,12 @@ import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { createInvite } from "@/lib/auth/invite";
 import { managerBaseUrl } from "@/lib/url";
-import { getSmtpConfig, sendMail } from "@/lib/email/mailer";
+import { getSendingSmtpConfig, sendMail } from "@/lib/email/mailer";
 import { inviteEmail } from "@/lib/email/templates";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { recordAdminAction } from "@/lib/audit/admin";
+import { clientIp } from "@/lib/request-ip";
 
 export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -29,7 +31,7 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
   const consumed = await db.invite.deleteMany({ where: { id, usedAt: null } });
   if (consumed.count === 0) return NextResponse.json({ error: "already_used" }, { status: 409 });
 
-  const { token } = await createInvite({
+  const { id: newId, token } = await createInvite({
     email: old.email, name: old.name, role: old.role, createdById: admin.id, phone: old.phone, company: old.company,
   });
 
@@ -37,7 +39,7 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
 
   let emailed = false;
   try {
-    const smtp = await getSmtpConfig();
+    const smtp = await getSendingSmtpConfig();
     if (smtp?.enabled) {
       const m = inviteEmail({ name: old.name, link });
       const r = await sendMail({ to: old.email, subject: m.subject, html: m.html, text: m.text });
@@ -46,5 +48,13 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
   } catch {
     // best-effort: email must never fail the resend
   }
-  return NextResponse.json({ link, emailed });
+  await recordAdminAction({
+    actor: { id: admin.id, email: admin.email },
+    action: "invite.resend",
+    targetType: "invite", targetId: newId,
+    summary: `New invite link for ${old.email}`,
+    metadata: { email: old.email, replaces: id, emailed },
+    clientIp: clientIp(req.headers) ?? null,
+  });
+  return NextResponse.json({ id: newId, link, emailed });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

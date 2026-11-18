@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { geist, geistMono, grotesk } from "./fonts";
 import "./globals.css";
+import "./styles/people.css";
+import "./styles/directory.css";
+import "./styles/sso-email.css";
+import "./styles/updates.css";
 
 export const metadata: Metadata = {
   title: { default: "Captivo Access", template: "%s · Captivo Access" },

@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   saved: [] as unknown[],
   removed: 0,
   audit: [] as string[],
+  own: null as null | { enabled: boolean; issuer: string; hasSecret: boolean; lastVerifiedOk: boolean | null; ignored: boolean },
 }));
 vi.mock("@/lib/current-user", () => ({ getCurrentUser: async () => h.user }));
 vi.mock("@/lib/auth/roles", () => ({ can: (role: string) => role === "admin" }));
@@ -14,7 +15,7 @@ vi.mock("@/lib/tenant/request", () => ({ withTenantRoute: <T,>(f: T) => f }));
 vi.mock("@/lib/auth/oidc-config", () => ({
   saveOidcConfig: async (c: unknown) => { h.saved.push(c); },
   deleteOidcConfig: async () => { h.removed++; return true; },
-  getOidcConfig: async () => ({ hasSecret: false }),
+  getOwnOidcConfig: async () => h.own,
 }));
 
 import { POST, DELETE } from "./route";
@@ -24,7 +25,7 @@ const post = (body: Record<string, unknown>) => POST(new NextRequest("https://ac
 describe("SSO settings route", () => {
   beforeEach(() => {
     h.user = { id: "u1", email: "a@acme.test", role: "admin" };
-    h.saved = []; h.removed = 0; h.audit = [];
+    h.saved = []; h.removed = 0; h.audit = []; h.own = null;
     vi.stubEnv("CAPTIVO_DEPLOYMENT", "saas");
     vi.stubEnv("CAPTIVO_ID_ISSUER", "https://id.captivo.io");
     vi.stubEnv("CAPTIVO_ID_CLIENT_ID", "captivo-access");
@@ -43,6 +44,33 @@ describe("SSO settings route", () => {
     const r = await post({ enabled: false, issuer: "https://acme.okta.com", clientId: "abc" });
     expect(r.status).toBe(200);
     expect(h.saved).toHaveLength(1);
+  });
+
+  it("refuses to switch SSO on before its connection test passed", async () => {
+    h.own = { enabled: false, issuer: "https://acme.okta.com", hasSecret: true, lastVerifiedOk: null, ignored: false };
+    const r = await post({ enabled: true, issuer: "https://acme.okta.com", clientId: "abc" });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: "test_required" });
+    expect(h.saved).toEqual([]);
+  });
+
+  it("switches SSO on once the test passed for the same issuer", async () => {
+    h.own = { enabled: false, issuer: "https://acme.okta.com/", hasSecret: true, lastVerifiedOk: true, ignored: false };
+    const r = await post({ enabled: true, issuer: "https://acme.okta.com", clientId: "abc" });
+    expect(r.status).toBe(200);
+    expect(h.saved).toHaveLength(1);
+  });
+
+  it("needs a new test when the issuer changes, even if SSO is on", async () => {
+    h.own = { enabled: true, issuer: "https://acme.okta.com", hasSecret: true, lastVerifiedOk: true, ignored: false };
+    const r = await post({ enabled: true, issuer: "https://login.microsoftonline.com/x/v2.0", clientId: "abc" });
+    expect(await r.json()).toEqual({ error: "test_required" });
+  });
+
+  it("keeps re-saving a provider that is already on", async () => {
+    h.own = { enabled: true, issuer: "https://acme.okta.com", hasSecret: true, lastVerifiedOk: false, ignored: false };
+    const r = await post({ enabled: true, issuer: "https://acme.okta.com", clientId: "abc", buttonLabel: "Okta" });
+    expect(r.status).toBe(200);
   });
 
   it("removes the tenant's provider for an admin, and records it", async () => {

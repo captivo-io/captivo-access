@@ -24,7 +24,7 @@ type Dialog = { userId?: string; siteIds?: string[] } | null;
 type Toast = { msg: string; ok: boolean } | null;
 
 export function GrantsView({
-  head, pending, rows, users, sites, canApprove, canConfigure, maxGrantDays, serverNow, initialFilter, openNew,
+  head, pending, rows, users, sites, canApprove, canConfigure, maxGrantDays, serverNow, initialFilter, openNew, openUser = null,
 }: {
   /** The page title block, and the pending-requests card shown under the header. */
   head: React.ReactNode;
@@ -38,6 +38,8 @@ export function GrantsView({
   serverNow: number;
   initialFilter: GrantFilter;
   openNew: boolean;
+  /** Preselect this user when the dialog opens on arrival (People → Grant access). */
+  openUser?: string | null;
 }) {
   const router = useRouter();
   const zone = useZone();
@@ -53,7 +55,7 @@ export function GrantsView({
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dialog, setDialog] = useState<Dialog>(openNew && canApprove ? {} : null);
+  const [dialog, setDialog] = useState<Dialog>(openNew && canApprove ? { userId: openUser ?? undefined } : null);
   const [edit, setEdit] = useState<GrantRowJSON | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [bulkAsk, setBulkAsk] = useState(false);

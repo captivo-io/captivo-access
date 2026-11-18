@@ -11,6 +11,7 @@ const LABELS: Record<string, string> = {
   "user.delete": "User deleted",
   "invite.create": "Invite created",
   "invite.revoke": "Invite revoked",
+  "invite.resend": "New invite link created",
   "connector.create": "Connector created",
   "connector.revoke": "Connector revoked",
   "connector.delete": "Connector deleted",
