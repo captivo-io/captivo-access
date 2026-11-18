@@ -27,3 +27,11 @@ describe("SSO connection test", () => {
     expect(r.steps[2]).toEqual({ key: "client", ok: false, detail: "client secret missing" });
   });
 });
+
+describe("the Cloud guard's refusal", () => {
+  it("is named, not reported as an unreachable issuer", async () => {
+    const refused = Object.assign(new Error("refused: 10.0.0.5 is on a private or internal network"), { name: "PrivateAddressError" });
+    const r = await runSsoTest({ issuer: "https://idp.internal", clientId: "c", hasSecret: true }, { discover: async () => { throw refused; }, fetchJwks: async () => ({}) });
+    expect(r.error).toBe("private_address");
+  });
+});

@@ -4,6 +4,8 @@ export type SmtpSettings = {
   secure: boolean;
   username: string;
   password: string;
+  /** Connect to this checked address instead of resolving `host` again (Cloud guard); TLS still verifies `host`. */
+  address?: string;
 };
 
 export type TransportOptions = {
@@ -14,6 +16,7 @@ export type TransportOptions = {
   connectionTimeout: number;
   greetingTimeout: number;
   socketTimeout: number;
+  tls?: { servername: string };
 };
 
 /**
@@ -31,7 +34,8 @@ const SOCKET_TIMEOUT_MS = 20_000;
 
 export function buildTransportOptions(cfg: SmtpSettings): TransportOptions {
   return {
-    host: cfg.host,
+    host: cfg.address ?? cfg.host,
+    ...(cfg.address ? { tls: { servername: cfg.host } } : {}),
     port: cfg.port,
     secure: cfg.secure,
     auth: { user: cfg.username, pass: cfg.password },

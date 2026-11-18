@@ -29,7 +29,7 @@ async function handler(req: NextRequest) {
   // authorizationScope).
   let disc: Awaited<ReturnType<typeof discover>>;
   try {
-    disc = await discover(cfg.issuer);
+    disc = await discover(cfg.issuer, cfg.isPlatform === true);
   } catch (e) {
     console.error(`[oidc] start failed (sso): discover_failed: ${e instanceof Error ? e.message : String(e)}`);
     return NextResponse.redirect(new URL("/login?error=sso", base));

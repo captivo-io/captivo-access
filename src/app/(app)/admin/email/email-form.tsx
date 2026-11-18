@@ -20,6 +20,7 @@ const SAVE_ERRORS: Record<string, string> = {
 };
 const TEST_ERRORS: Record<string, string> = {
   not_configured: "Save your SMTP settings first.",
+  private_address: "That mail server is on a private or internal network; the cloud service can't connect to it.",
 };
 
 export function EmailForm({ initial, adminEmail, mode, preview }: {

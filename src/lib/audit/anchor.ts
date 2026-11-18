@@ -1,3 +1,4 @@
+import { tenantFetch } from "@/lib/net/guarded-fetch";
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import { buildTimeStampRequest, parseTimeStampResponse } from "./rfc3161";
@@ -74,21 +75,10 @@ async function runAnchorFor(target: AnchorTarget): Promise<AnchorRunResult> {
     const headers: Record<string, string> = { "Content-Type": "application/timestamp-query" };
     if (auth) headers.Authorization = "Basic " + Buffer.from(auth).toString("base64");
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    let der: Buffer;
-    try {
-      const res = await fetch(tsaUrl, {
-        method: "POST",
-        headers,
-        body: new Uint8Array(req),
-        signal: controller.signal,
-      });
-      if (!res.ok) return { status: "failed", error: `TSA HTTP ${res.status}` };
-      der = Buffer.from(await res.arrayBuffer());
-    } finally {
-      clearTimeout(timer);
-    }
+    // The TSA is the workspace's choice: guarded on Cloud (lib/net/guarded-fetch).
+    const res = await tenantFetch(tsaUrl, { method: "POST", headers, body: new Uint8Array(req), timeoutMs: 15_000 });
+    if (!res.ok) return { status: "failed", error: `TSA HTTP ${res.status}` };
+    const der = Buffer.from(await res.arrayBuffer());
 
     const { token, genTime } = parseTimeStampResponse(der);
     // Prisma's Bytes wants a Uint8Array over a plain ArrayBuffer; a Node Buffer's
