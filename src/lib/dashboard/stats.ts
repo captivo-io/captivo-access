@@ -2,30 +2,6 @@ import { db } from "@/lib/db";
 import { countPendingGrants } from "@/lib/access/grants";
 import { countUnreadNotifications } from "@/lib/notifications";
 
-export type SetupStatus = {
-  connectors: number;
-  connectorsOnline: number;
-  sites: number;
-  grants: number;
-  pending: number;
-  sitesReachable: number;
-  sitesUnreachable: number;
-};
-
-export async function getSetupStatus(): Promise<SetupStatus> {
-  const [connectors, connectorsOnline, sites, grants, pending, sitesReachable, sitesUnreachable] =
-    await Promise.all([
-      db.connector.count(),
-      db.connector.count({ where: { status: "ONLINE" } }),
-      db.site.count(),
-      db.accessGrant.count(),
-      countPendingGrants(),
-      db.site.count({ where: { probeOk: true } }),
-      db.site.count({ where: { probeOk: false } }),
-    ]);
-  return { connectors, connectorsOnline, sites, grants, pending, sitesReachable, sitesUnreachable };
-}
-
 export function healthTone(reachable: number, total: number): "ok" | "warn" | "danger" | "neutral" {
   if (total === 0) return "neutral";
   if (reachable === total) return "ok";

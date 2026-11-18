@@ -696,6 +696,8 @@ model PlatformSettings {
   isolatedEgressDefault       String? // network access for isolated resources that inherit: internet | strict | open; null → internet
   isolatedFileTransferDefault String? // file transfer for isolated resources that inherit: allow | no_upload | no_download | none; null → none
   webAppFileTransferDefault   String? // file transfer for web apps that inherit: allow | no_upload | no_download | none; null → allow
+  /// When an admin hid the Console setup card ("Hide setup" / "Go to console"); null = not hidden.
+  onboardingDismissedAt       DateTime?
   updatedAt                   DateTime  @updatedAt
 }
 
