@@ -7,6 +7,7 @@ import {
   buildConnectorUpdateCommand,
   GATEWAY_NETWORK,
   buildInstallCommand,
+  buildConnectorCleanupCommand,
 } from "./repair";
 
 describe("canRepairConnector", () => {
@@ -202,5 +203,22 @@ describe("the isolated browser has no network but the connector", () => {
     const join = cmd.indexOf("docker network connect captivo-isolated access-connector");
     expect(join).toBeGreaterThan(cmd.indexOf("docker run -d --name access-connector"));
     expect(join).toBeLessThan(cmd.indexOf("docker run -d --name captivo-kasm"));
+  });
+});
+
+describe("buildConnectorCleanupCommand", () => {
+  const install = buildConnectorRunCommand("CODE", "https://m.example", "wss://d.example");
+  const cleanup = buildConnectorCleanupCommand();
+
+  it("removes every container, volume and network the install command creates", () => {
+    const named = (re: RegExp) => [...new Set([...install.matchAll(re)].map((m) => m[1]))];
+    for (const c of named(/--name (\S+)/g)) expect(cleanup).toMatch(new RegExp(`docker rm -f .*\\b${c}\\b`));
+    for (const v of named(/-v ([a-z_]+):\//g)) expect(cleanup).toMatch(new RegExp(`docker volume rm .*\\b${v}\\b`));
+    for (const n of named(/docker network create (?:--internal )?(\S+)/g)) expect(cleanup).toMatch(new RegExp(`docker network rm .*\\b${n}\\b`));
+  });
+
+  it("is one command per line so a missing name does not stop the rest", () => {
+    expect(cleanup.split("\n")).toHaveLength(5);
+    expect(cleanup).not.toMatch(/&&|;/);
   });
 });

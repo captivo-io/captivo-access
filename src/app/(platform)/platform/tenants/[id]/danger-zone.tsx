@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { CommandBlock } from "@/app/(app)/_shell/command-block";
+import { buildConnectorCleanupCommand } from "@/lib/connector/repair";
 
 type T = { id: string; slug: string; name: string; deleted: boolean; status: string };
 
@@ -38,6 +40,10 @@ export function DangerZone({ tenant }: { tenant: T }) {
             <div className="setting setting-stack"><div className="setting-main"><span className="setting-label">Purge now</span><div className="setting-hint">Permanently removes every row of this tenant (users, resources, audit, recordings). Cannot be undone. Otherwise happens automatically 30 days after deletion.</div></div><div className="setting-ctl"><input className="input" placeholder={`type "${tenant.slug}" to confirm`} value={confirmSlug} onChange={(e) => setConfirmSlug(e.target.value)} /><button type="button" className="btn danger" disabled={busy !== null || confirmSlug !== tenant.slug} onClick={() => act("purge")}>{busy === "purge" ? "Purging…" : "Purge permanently"}</button></div></div>
           </>
         )}
+        <div className="setting setting-stack">
+          <div className="setting-main"><span className="setting-label">Connector hosts</span><div className="setting-hint">Deleting or purging the tenant stops its connectors from connecting, but their containers stay on the customer&apos;s hosts. Give the customer this command to run on each host; it removes the containers, their recordings and keys, the networks and the images.</div></div>
+          <CommandBlock command={buildConnectorCleanupCommand()} title="connector-cleanup" />
+        </div>
       </div>
       {err && <p className="notice error" style={{ marginTop: 10 }}>{err}</p>}
     </div>

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/app/(app)/_shell/confirm-dialog";
+import { CleanupHostModal } from "./cleanup-host";
 
 const MESSAGES: Record<string, string> = {
   has_sites: "This connector still has resources — move or remove them under Resources first.",
@@ -11,6 +12,7 @@ const MESSAGES: Record<string, string> = {
 export function DeleteConnectorButton({ id, name }: { id: string; name: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState(false);
   const { confirm, dialog } = useConfirm();
   const router = useRouter();
 
@@ -25,7 +27,8 @@ export function DeleteConnectorButton({ id, name }: { id: string; name: string }
         setError((result?.error && MESSAGES[result.error]) || "Couldn't delete the connector, please try again.");
         return;
       }
-      router.refresh();
+      // The card goes on refresh, so hand over the host cleanup first.
+      setDeleted(true);
     } catch {
       setError("Couldn't delete the connector, please try again.");
     } finally {
@@ -36,6 +39,7 @@ export function DeleteConnectorButton({ id, name }: { id: string; name: string }
   return (
     <>
       {dialog}
+      <CleanupHostModal open={deleted} onClose={() => { setDeleted(false); router.refresh(); }} name={name} deleted />
       <span>
         <button type="button" className="btn sm danger" onClick={handleClick} disabled={busy}>
           {busy ? "Deleting…" : "Delete"}
