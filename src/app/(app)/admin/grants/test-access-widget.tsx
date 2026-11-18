@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DecisionReason } from "@/lib/access/evaluate";
+import type { DecisionReason } from "@/lib/access/classify";
 
 const REASON_LABEL: Record<Exclude<DecisionReason, "allow">, string> = {
   no_grant: "No grant for this resource",
@@ -51,11 +51,8 @@ export function TestAccessWidget({
   }
 
   return (
-    <div className="card" style={{ marginTop: "1.6rem" }}>
-      <div className="card-head">
-        <h2>Check access</h2>
-      </div>
-      <p>Pick a user and a resource to see the live access decision.</p>
+    <div className="rq">
+      <p className="rq-hint">Pick a user and a resource to see the decision the gateway would make right now.</p>
       <div className="field">
         <label className="field-label" htmlFor="test-access-user">
           User
@@ -80,7 +77,7 @@ export function TestAccessWidget({
           ))}
         </select>
       </div>
-      <button type="button" className="btn" onClick={handleCheck} disabled={busy || !userId || !siteId}>
+      <button type="button" className="btn primary" onClick={handleCheck} disabled={busy || !userId || !siteId}>
         {busy ? "Checking…" : "Check access"}
       </button>
       {result && "error" in result && (

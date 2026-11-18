@@ -1,97 +1,86 @@
 import { requireCapability } from "@/lib/current-user";
-import { GrantsIcon } from "@/components/icons";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
-import { listGrants, listPendingGrants } from "@/lib/access/grants";
-import { classifyGrant } from "@/lib/access/evaluate";
+import { listPendingGrants } from "@/lib/access/grants";
 import { parseSchedule, formatSchedule } from "@/lib/access/schedule";
+import { grantRows, siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
+import { GRANT_FILTERS, type GrantFilter } from "@/lib/access/grant-view";
+import { resolvedMaxGrantDays } from "@/lib/settings/platform";
+import { workspaceView } from "@/lib/mobile/views";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
-import { AddGrantButton } from "./add-grant-button";
-import { TestAccessWidget } from "./test-access-widget";
 import { DecisionButtons } from "./decision-buttons";
-import { GrantsTable, type GrantRow } from "./grants-table";
+import { GrantsView } from "./grants-view";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Grants" };
 
-async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
-  const openNew = (await searchParams).new === "1";
+async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ new?: string; status?: string }> }) {
+  const sp = await searchParams;
   const user = await requireCapability("read_console");
   const canApprove = can(user.role, "approve_grants");
   const canConfigure = can(user.role, "configure");
+  const now = new Date();
 
-  const [users, sites, grants, pending] = await Promise.all([
+  const [ws, users, sites, rows, pending, maxGrantDays] = await Promise.all([
+    workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findMany({
       select: { id: true, name: true, email: true, role: true },
       orderBy: [{ role: "desc" }, { name: "asc" }], // connect-only roles (Vendor/Staff) first, Admin last
     }),
-    db.site.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    listGrants(),
+    db.site.findMany({ select: SITE_TILE_SELECT, orderBy: { name: "asc" } }),
+    grantRows(now),
     listPendingGrants(),
+    resolvedMaxGrantDays(),
   ]);
+  const tiles = sites.map(siteTile);
+  const initialFilter: GrantFilter = GRANT_FILTERS.includes(sp.status as GrantFilter) ? (sp.status as GrantFilter) : "all";
 
-  const now = new Date();
-  const grantRows: GrantRow[] = grants.map((g) => {
-    const s = parseSchedule(g.schedule);
-    return {
-      id: g.id,
-      userName: g.user.name,
-      userEmail: g.user.email,
-      siteName: g.site.name,
-      startsAt: g.startsAt ? g.startsAt.toISOString() : null,
-      endsAt: g.endsAt ? g.endsAt.toISOString() : null,
-      scheduleText: s ? formatSchedule(s) : null,
-      note: g.note,
-      reason: classifyGrant(g, now),
-      denyReason: g.denyReason,
-      active: g.status === "ACTIVE",
-    };
-  });
+  const head = (
+    <div>
+      <div className="eyebrow">Operate{ws.slug ? ` · ${ws.slug}` : ""}</div>
+      <h1>Grants</h1>
+      <p>Give users time-boxed or permanent access to resources. Every grant is logged and can be revoked at any moment.</p>
+    </div>
+  );
+  const pendingCard = pending.length > 0 && (
+    <section className="gr-pending">
+      <div className="gr-pending-head"><b>Requests waiting for a decision</b><span className="mono t-muted">{pending.length}</span></div>
+      {pending.map((p) => {
+        const s = parseSchedule(p.schedule);
+        return (
+          <div key={p.id} className="gr-pending-row">
+            <span className="gr-pending-who"><b>{p.user.name}</b><span className="mono t-muted">{p.user.email}</span></span>
+            <span className="gr-pending-what">
+              <b>{p.site.name}</b>
+              <span className="cell-sub">
+                {p.startsAt ? <LocalTime iso={p.startsAt.toISOString()} /> : "Now"} → {p.endsAt ? <LocalTime iso={p.endsAt.toISOString()} /> : "Permanent"}
+                {s && <> · {formatSchedule(s)}</>}
+              </span>
+            </span>
+            <span className="gr-pending-why">{p.note ?? "—"}</span>
+            {canApprove ? <DecisionButtons grantId={p.id} /> : <span className="cell-sub">Awaiting an approver</span>}
+          </div>
+        );
+      })}
+    </section>
+  );
 
   return (
     <main>
-      <div className="page-head">
-        <div>
-          <div className="page-title-row"><span className="page-icon"><GrantsIcon /></span><h1>Access grants</h1></div>
-          <p>Grant a user time-boxed access to a resource. Leave the end date empty for permanent access.</p>
-        </div>
-        {canApprove && users.length > 0 && sites.length > 0 && <AddGrantButton users={users} sites={sites} initialOpen={openNew} />}
-      </div>
-
-      {pending.length > 0 && (
-        <div className="card">
-          <div className="card-head"><h2>Pending requests</h2></div>
-          <div className="table-wrap">
-            <table className="table">
-              <thead><tr><th>User</th><th>App</th><th>Requested window</th><th>Justification</th><th></th></tr></thead>
-              <tbody>
-                {pending.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.user.name}<div className="cell-sub">{p.user.email}</div></td>
-                    <td>{p.site.name}</td>
-                    <td className="cell-sub">
-                      {p.startsAt ? <LocalTime iso={p.startsAt.toISOString()} /> : "Immediately"} → {p.endsAt ? <LocalTime iso={p.endsAt.toISOString()} /> : "Permanent"}
-                      {(() => { const s = parseSchedule(p.schedule); return s ? <div>{formatSchedule(s)}</div> : null; })()}
-                    </td>
-                    <td className="cell-sub">{p.note ?? "—"}</td>
-                    <td>{canApprove ? <DecisionButtons grantId={p.id} /> : <span className="cell-sub">—</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <h2>Grants</h2>
-      {grants.length === 0 ? (
-        <div className="empty">No grants yet.</div>
-      ) : (
-        <GrantsTable rows={grantRows} canApprove={canApprove} canConfigure={canConfigure} />
-      )}
-
-      {users.length > 0 && sites.length > 0 && <TestAccessWidget users={users} sites={sites} />}
+      <GrantsView
+        head={head}
+        pending={pendingCard || null}
+        rows={rows}
+        users={users}
+        sites={tiles}
+        canApprove={canApprove}
+        canConfigure={canConfigure}
+        maxGrantDays={maxGrantDays}
+        serverNow={now.getTime()}
+        initialFilter={initialFilter}
+        openNew={sp.new === "1"}
+      />
     </main>
   );
 }
@@ -99,4 +88,3 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
 export default async function AdminGrantsPage(...args: Parameters<typeof AdminGrantsPageImpl>) {
   return withRequestTenant(() => AdminGrantsPageImpl(...args));
 }
-

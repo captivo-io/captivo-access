@@ -1,20 +1,7 @@
 import { db } from "@/lib/db";
-import { parseSchedule, isWithinSchedule } from "./schedule";
 
-export type DecisionReason =
-  | "allow" | "user_disabled" | "no_grant"
-  | "revoked" | "denied" | "not_yet" | "off_schedule" | "expired" | "pending_approval";
-
-export interface Decision { allow: boolean; reason: DecisionReason }
-
-interface GrantWindow {
-  status: "ACTIVE" | "REVOKED" | "DENIED";
-  startsAt: Date | null;
-  endsAt: Date | null;
-  requiresApproval: boolean;
-  approvedAt: Date | null;
-  schedule: unknown;
-}
+export { classifyGrant, type DecisionReason, type Decision, type GrantWindow } from "./classify";
+import { classifyGrant, type DecisionReason, type Decision } from "./classify";
 
 // Deny-reason priority when multiple grants all deny: show the most "promising"
 // reason (soonest/most-actionable) → pending_approval > not_yet > off_schedule > expired > revoked/denied.
@@ -22,20 +9,6 @@ interface GrantWindow {
 const DENY_PRIORITY: Record<"pending_approval" | "not_yet" | "off_schedule" | "expired" | "revoked" | "denied", number> = {
   pending_approval: 5, not_yet: 4, off_schedule: 3, expired: 2, revoked: 1, denied: 1,
 };
-
-export function classifyGrant(g: GrantWindow, now: Date): DecisionReason {
-  if (g.status === "REVOKED") return "revoked";
-  if (g.status === "DENIED") return "denied";
-  if (g.startsAt && now < g.startsAt) return "not_yet";
-  if (g.endsAt && now > g.endsAt) return "expired";
-  if (g.requiresApproval && !g.approvedAt) return "pending_approval";
-  if (g.schedule != null) {
-    const s = parseSchedule(g.schedule);
-    // Fail closed: a present-but-unparseable schedule denies, never silently allows.
-    if (s === null || !isWithinSchedule(s, now)) return "off_schedule";
-  }
-  return "allow";
-}
 
 export async function evaluateAccess(userId: string, siteId: string, now: Date): Promise<Decision> {
   const user = await db.user.findUnique({ where: { id: userId }, select: { status: true } });

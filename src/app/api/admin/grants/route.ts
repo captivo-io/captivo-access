@@ -10,6 +10,8 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 
+const MAX_SITES = 50;
+
 function parseDate(value: unknown): { ok: true; value: Date | null } | { ok: false } {
   if (value === undefined || value === null || value === "") return { ok: true, value: null };
   if (typeof value !== "string") return { ok: false };
@@ -29,9 +31,18 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const userId = typeof body.userId === "string" ? body.userId.trim() : "";
-  const siteId = typeof body.siteId === "string" ? body.siteId.trim() : "";
-  if (!userId || !siteId) {
+  // One grant per resource: `siteIds` from the grants dialog, `siteId` from older callers.
+  const siteIds = [...new Set(
+    (Array.isArray(body.siteIds) ? body.siteIds : [body.siteId])
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter(Boolean),
+  )];
+  if (!userId || siteIds.length === 0) {
     return NextResponse.json({ error: "user_site_required" }, { status: 400 });
+  }
+  if (siteIds.length > MAX_SITES) {
+    return NextResponse.json({ error: "too_many_sites" }, { status: 400 });
   }
 
   const startsAt = parseDate(body.startsAt);
@@ -52,36 +63,39 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     schedule = v.schedule;
   }
 
-  const [user, site] = await Promise.all([
+  const [user, siteCount] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { id: true } }),
-    db.site.findUnique({ where: { id: siteId }, select: { id: true } }),
+    db.site.count({ where: { id: { in: siteIds } } }),
   ]);
   if (!user) {
     return NextResponse.json({ error: "invalid_user" }, { status: 400 });
   }
-  if (!site) {
+  if (siteCount !== siteIds.length) {
     return NextResponse.json({ error: "invalid_site" }, { status: 400 });
   }
 
-  const { id } = await createGrant({
-    userId,
-    siteId,
-    startsAt: startsAt.value,
-    endsAt: endsAt.value,
-    note,
-    createdById: admin.id,
-    schedule,
-  });
-
-  await recordAdminAction({
-    actor: { id: admin.id, email: admin.email },
-    action: "grant.create",
-    targetType: "grant", targetId: id,
-    summary: `Created access grant ${id}`,
-    metadata: { userId, siteId },
-    clientIp: clientIp(req.headers) ?? null,
-  });
-  return NextResponse.json({ id }, { status: 201 });
+  const ids: string[] = [];
+  for (const siteId of siteIds) {
+    const { id } = await createGrant({
+      userId,
+      siteId,
+      startsAt: startsAt.value,
+      endsAt: endsAt.value,
+      note,
+      createdById: admin.id,
+      schedule,
+    });
+    ids.push(id);
+    await recordAdminAction({
+      actor: { id: admin.id, email: admin.email },
+      action: "grant.create",
+      targetType: "grant", targetId: id,
+      summary: `Created access grant ${id}`,
+      metadata: { userId, siteId },
+      clientIp: clientIp(req.headers) ?? null,
+    });
+  }
+  return NextResponse.json({ id: ids[0], ids }, { status: 201 });
 });
 
 export const GET = withTenantRoute(async () => {
