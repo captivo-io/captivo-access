@@ -91,3 +91,5 @@
   .em-test{margin:0 16px;}
 }
 @media (prefers-reduced-motion:reduce){.so-spin,.em-spin{animation:none;}}
+.em-notice.warn{color:var(--warn);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.em-turnon{flex-shrink:0;}

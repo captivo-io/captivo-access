@@ -23,7 +23,7 @@ describe("buildNavModel", () => {
     ]));
     expect(m.canSwitchView).toBe(true);
     expect(m.showSearch).toBe(true);
-    expect(m.notificationsBadge).toBe(5);
+    expect(m.notificationsBadge, "5 unread + 3 waiting requests").toBe(8);
   });
   it("OPERATOR: overview and operations, grants badge, no configuration", () => {
     const m = buildNavModel("OPERATOR", { pending: 2, unread: 0 });
@@ -34,7 +34,7 @@ describe("buildNavModel", () => {
   it("AUDITOR: no grants badge", () => {
     const m = buildNavModel("AUDITOR", { pending: 9, unread: 1 });
     expect(m.admin[1].items[0].badge).toBeUndefined();
-    expect(m.notificationsBadge).toBe(1);
+    expect(m.notificationsBadge, "requests are not theirs to decide").toBe(1);
   });
   it("VENDOR: only their own access, no switch", () => {
     const m = buildNavModel("VENDOR", { pending: 0, unread: 0, myPending: 1 });

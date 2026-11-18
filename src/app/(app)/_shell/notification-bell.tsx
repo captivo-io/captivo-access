@@ -4,12 +4,15 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 type Item = { id: string; type: string; siteName: string; detail: string | null; when: string };
+type Req = { id: string; who: string; siteName: string; when: string };
 
 const TITLE: Record<string, string> = { site_down: "Resource down", site_recovered: "Resource recovered" };
 
 export function NotificationBell({ badge, open, onToggle }: { badge: number; open: boolean; onToggle: () => void }) {
   const router = useRouter();
   const [items, setItems] = useState<Item[]>([]);
+  const [requests, setRequests] = useState<Req[]>([]);
+  const [requestCount, setRequestCount] = useState(0);
   const [unread, setUnread] = useState(badge);
   const [loading, setLoading] = useState(false);
 
@@ -18,8 +21,10 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
     try {
       const res = await fetch("/api/admin/notifications", { cache: "no-store" });
       if (!res.ok) return;
-      const body = (await res.json()) as { items: Item[]; unread: number };
+      const body = (await res.json()) as { items: Item[]; unread: number; requests?: Req[]; requestCount?: number };
       setItems(body.items);
+      setRequests(body.requests ?? []);
+      setRequestCount(body.requestCount ?? 0);
       setUnread(body.unread);
     } finally {
       setLoading(false);
@@ -51,11 +56,27 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
               <button className="tn-notif-link" onClick={() => void act("/api/admin/notifications/read", "POST")}>Mark all read</button>
             )}
           </div>
+          {requests.length > 0 && (
+            <div className="tn-notif-list tn-notif-reqs">
+              {requests.map((r) => (
+                <Link key={r.id} href="/admin/grants" className="tn-notif-item tn-notif-req" onClick={onToggle}>
+                  <div className="tn-notif-body">
+                    <div className="tn-notif-title"><span className="req">Access request</span> — {r.who} asks for {r.siteName}</div>
+                    <div className="tn-notif-when">{r.when} · waiting for a decision</div>
+                  </div>
+                  <span className="tn-notif-go" aria-hidden="true">→</span>
+                </Link>
+              ))}
+              {requestCount > requests.length && (
+                <Link href="/admin/grants" className="tn-notif-link tn-notif-reqmore" onClick={onToggle}>and {requestCount - requests.length} more requests →</Link>
+              )}
+            </div>
+          )}
           <div className="tn-notif-list">
-            {loading && items.length === 0 ? (
+            {loading && items.length === 0 && requests.length === 0 ? (
               <div className="tn-notif-empty">Loading…</div>
             ) : items.length === 0 ? (
-              <div className="tn-notif-empty">You&apos;re all caught up.</div>
+              requests.length === 0 && <div className="tn-notif-empty">You&apos;re all caught up.</div>
             ) : (
               items.map((n) => (
                 <div key={n.id} className="tn-notif-item">

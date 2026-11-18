@@ -98,7 +98,8 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
     canSwitchView: read,
     showSearch: read,
     showNotifications: read,
-    notificationsBadge: read ? counts.unread : 0,
+    // Waiting access requests ring the bell too, for those who can decide them.
+    notificationsBadge: read ? counts.unread + (grants ? counts.pending : 0) : 0,
   };
 }
 

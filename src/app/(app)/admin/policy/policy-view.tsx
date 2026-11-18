@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/app/(app)/_shell/modal";
@@ -76,7 +77,7 @@ function errorText(code: string | undefined, invalid?: string[]): string {
   }
 }
 
-export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequireTwoStep, zoneLockedUrl, timeZones, cron }: {
+export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequireTwoStep, zoneLockedUrl, timeZones, cron, mailOff = false }: {
   workspace: string | null;
   initial: PolicyValues;
   fromEnv: PolicyEnv;
@@ -85,6 +86,8 @@ export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequire
   zoneLockedUrl: string | null;
   timeZones: string[];
   cron: { anyRun: boolean; stale: string[] } | null;
+  /** No mail server sends for this workspace: the email switches below do nothing yet. */
+  mailOff?: boolean;
 }) {
   const router = useRouter();
   const [saved, setSaved] = useState(initial);
@@ -341,6 +344,11 @@ export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequire
       </Section>
 
       <Section s={SECTIONS[6]}>
+        {mailOff && (
+          <div className="notice warn pol-mailoff" role="alert">
+            No email can go out from this workspace yet, so the email alerts below stay in the console. <Link href="/admin/email">Turn sending on under Email →</Link>
+          </div>
+        )}
         <div className={["pol-row pol-wide", errKey === "notificationWebhookUrl" ? "err" : ""].join(" ")} id="pol-notificationWebhookUrl">
           {isChanged("notificationWebhookUrl") && <span className="pol-dot" aria-hidden="true" />}
           <div className="pol-label">

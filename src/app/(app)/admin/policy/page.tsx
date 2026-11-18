@@ -13,6 +13,7 @@ import { workspaceView } from "@/lib/mobile/views";
 import { paramsToGuacFields } from "@/lib/gateway/guac-fields";
 import { PolicyView, type PolicyValues, type PolicyEnv } from "./policy-view";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { sendingMode } from "@/lib/email/mailer";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Policy" };
@@ -41,7 +42,7 @@ async function PolicyPageImpl() {
   // Fresh reads (the settings caches are per server module and can be 30 s
   // behind a save); the resolved values below then use this fresh copy.
   const s = await getPlatformSettingsFresh();
-  const [ws, policy, cron, guac, consent, watermark, recordingMode, zoneManaged, sid] = await Promise.all([
+  const [ws, policy, cron, guac, consent, watermark, recordingMode, zoneManaged, sid, mail] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     getSessionPolicyFresh(),
     cronHealth(),
@@ -51,6 +52,7 @@ async function PolicyPageImpl() {
     resolvedRecordingMode(),
     timeZoneManaged(),
     currentSessionId(),
+    sendingMode().catch(() => null),
   ]);
   const own = sid ? await db.session.findUnique({ where: { id: sid }, select: { amr: true } }) : null;
 
@@ -111,6 +113,7 @@ async function PolicyPageImpl() {
         canRequireTwoStep={!!own && hasSecondFactor(own.amr)}
         zoneLockedUrl={zoneManaged ? captivoAccountUrl() : null}
         timeZones={timeZoneList()}
+        mailOff={mail === "none"}
         cron={cron.stale.length > 0 ? { anyRun: cron.anyRun, stale: cron.stale.map((x) => JOB_LABEL[x.job]) } : null}
       />
     </main>
