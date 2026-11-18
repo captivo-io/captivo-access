@@ -20,7 +20,19 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // The live viewer opens inside the console's Sessions page, so it may be
+      // framed by this origin and no other. Listed after the baseline so its
+      // X-Frame-Options replaces DENY for these paths only.
+      {
+        source: "/live/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        ],
+      },
+    ];
   },
 };
 

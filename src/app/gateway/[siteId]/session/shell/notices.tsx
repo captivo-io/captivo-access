@@ -41,6 +41,38 @@ export function MonitorNotice({ watching, controlHeld }: { watching: boolean; co
   );
 }
 
+export interface AdminMessage { id: string; text: string; at: string }
+
+const MESSAGE_SHOWN_MS = 12_000;
+
+/**
+ * An administrator's message, sent from the console's Sessions page while the
+ * session runs. The watch-status poll carries the latest one for a while; each
+ * is shown once, at the top, until read (or 12 s pass).
+ */
+export function AdminMessageBanner({ message }: { message: AdminMessage | null | undefined }) {
+  const [seen, setSeen] = useState<string | null>(null);
+  const [shown, setShown] = useState<AdminMessage | null>(null);
+  useEffect(() => {
+    if (!message || message.id === seen) return;
+    setSeen(message.id);
+    setShown(message);
+  }, [message, seen]);
+  useEffect(() => {
+    if (!shown) return;
+    const t = setTimeout(() => setShown(null), MESSAGE_SHOWN_MS);
+    return () => clearTimeout(t);
+  }, [shown]);
+  if (!shown) return null;
+  return (
+    <div className="ss-admin-msg" role="alert">
+      <span className="ss-admin-tag">ADMIN</span>
+      <span className="ss-admin-text">{shown.text}</span>
+      <button type="button" aria-label="Dismiss" onClick={() => setShown(null)}>×</button>
+    </div>
+  );
+}
+
 export type ToastTone = "info" | "ok" | "warn" | "danger";
 export interface ToastState { text: string; tone?: ToastTone; icon?: ReactNode }
 

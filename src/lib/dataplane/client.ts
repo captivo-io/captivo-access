@@ -26,7 +26,15 @@ export interface ActiveSession {
   startedAt: string;
   viewerCount: number;
   controlOwner: string;
+  /** From dataplanes since 2.28: the user's address, what is captured, input in 5 s buckets over 2 min. */
+  clientIp?: string;
+  recording?: boolean;
+  keystrokes?: boolean;
+  activity?: number[];
 }
+
+export interface LiveFeedEvent { at: string; type: string; text: string }
+export interface LiveMessage { id: string; text: string; at: string }
 
 // The data plane holds every tenant's sessions in one registry. On Cloud an
 // unfiltered list showed one workspace's admin another's live sessions, with
@@ -123,13 +131,47 @@ export async function setSessionControl(
   }
 }
 
-export async function getWatchStatus(userId: string, siteId: string): Promise<{ watching: boolean; controlHeld: boolean; ended?: string }> {
+/**
+ * A live session's recent events (newest first): null when it has ended,
+ * "unavailable" when the data plane did not answer (try again).
+ */
+export async function getSessionFeed(sessionId: string): Promise<LiveFeedEvent[] | null | "unavailable"> {
+  if (!(await findOwnSession(sessionId))) return null;
+  try {
+    const res = await fetchWithTimeout(`${BASE()}/sessions/feed?sessionId=${encodeURIComponent(sessionId)}`, { timeoutMs: DP_TIMEOUT_MS, headers: authHeaders(), cache: "no-store" });
+    if (res.status === 404) return null;
+    if (!res.ok) return "unavailable";
+    const body = (await res.json()) as { events?: LiveFeedEvent[] };
+    return Array.isArray(body.events) ? body.events : [];
+  } catch {
+    return "unavailable";
+  }
+}
+
+/** Show a message on the user's screen in a live session of this workspace. */
+export async function sendSessionMessage(sessionId: string, text: string): Promise<LiveMessage | null> {
+  if (!(await findOwnSession(sessionId))) return null;
+  try {
+    const res = await fetchWithTimeout(`${BASE()}/sessions/message`, {
+      timeoutMs: DP_TIMEOUT_MS, method: "POST", headers: authHeaders(), cache: "no-store",
+      body: JSON.stringify({ sessionId, text }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { ok?: boolean; message?: LiveMessage };
+    return body.ok && body.message ? body.message : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getWatchStatus(userId: string, siteId: string): Promise<{ watching: boolean; controlHeld: boolean; ended?: string; message?: LiveMessage | null }> {
   try {
     const qs = `userId=${encodeURIComponent(userId)}&siteId=${encodeURIComponent(siteId)}`;
     const res = await fetchWithTimeout(`${BASE()}/sessions/watch-status?${qs}`, { timeoutMs: DP_TIMEOUT_MS, headers: authHeaders(), cache: "no-store" });
     if (!res.ok) return { watching: false, controlHeld: false };
-    // ended: why the access recheck closed this vendor's session here (dataplane/recheck.go).
-    return (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string };
+    // ended: why the access recheck closed this vendor's session here (dataplane/recheck.go);
+    // message: an admin's recent message for the session page to show.
+    return (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string; message?: LiveMessage | null };
   } catch {
     return { watching: false, controlHeld: false };
   }
