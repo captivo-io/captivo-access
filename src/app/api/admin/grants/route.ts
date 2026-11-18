@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { createGrant, listGrants, revokeGrant } from "@/lib/access/grants";
 import { validateSchedule, type Schedule } from "@/lib/access/schedule";
 import { grantCapError } from "@/lib/access/grant-edit";
+import { grantCovers, grantIsLive } from "@/lib/access/grant-cover";
 import { resolvedMaxGrantDays } from "@/lib/settings/platform";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
@@ -73,6 +74,19 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (siteCount !== siteIds.length) {
     return NextResponse.json({ error: "invalid_site" }, { status: 400 });
   }
+
+  // A grant the person already has that covers the whole new window makes the
+  // new one pointless; refuse rather than pile up duplicates.
+  const now = Date.now();
+  const proposed = { startsAt: startsAt.value?.getTime() ?? null, endsAt: endsAt.value?.getTime() ?? null, recurring: schedule !== null };
+  const existing = await db.accessGrant.findMany({
+    where: { userId, siteId: { in: siteIds }, status: "ACTIVE" },
+    select: { siteId: true, status: true, startsAt: true, endsAt: true, schedule: true, requiresApproval: true, approvedAt: true },
+  });
+  const covered = [...new Set(existing
+    .filter((g) => grantIsLive(g, now) && grantCovers({ startsAt: g.startsAt?.getTime() ?? null, endsAt: g.endsAt?.getTime() ?? null, recurring: g.schedule !== null }, proposed, now))
+    .map((g) => g.siteId))];
+  if (covered.length) return NextResponse.json({ error: "already_covered", siteIds: covered }, { status: 409 });
 
   const ids: string[] = [];
   for (const siteId of siteIds) {
