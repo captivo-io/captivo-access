@@ -436,10 +436,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <div className="rf-creds">
               <label className="rq-sec"><span className="rq-label"><span>Username</span></span>
                 <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : "Administrator"} /></label>
-              <label className="rq-sec"><span className="rq-label"><span>Password</span><span className="mono t-muted">{vaultKey ? "sealed to the connector" : "stored encrypted"}</span></span>
+              <label className="rq-sec"><span className="rq-label"><span>Password</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>
-              <p className="rf-hint rf-wide">Users never see these; the gateway signs in for them.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}</p>
+              <p className="rf-hint rf-wide">Users never see these; the gateway signs in for them. The password is {vaultKey ? "sealed to the connector" : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}</p>
             </div>
           )}
 
