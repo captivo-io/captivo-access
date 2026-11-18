@@ -8,6 +8,7 @@ import { chainKey, type ChainScope } from "@/lib/audit/chain-key";
 import { resolvedExternalAnchorEnabled } from "@/lib/settings/platform";
 import { workspaceView } from "@/lib/mobile/views";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
 import { AccessLog, type AccessFilters, type AccessRowJSON, type SiteInfo, type UserInfo } from "./audit-table";
 import { AdminLog, type AdminRowJSON } from "./admin-log";
 import { IntegrityCard, type AnchorInfo, type ChainInfo } from "./integrity-card";
@@ -123,7 +124,7 @@ async function AuditPageImpl({ searchParams }: { searchParams: Promise<SP> }) {
   const [users, sites, list, histogram] = await Promise.all([
     db.user.findMany({ select: { id: true, name: true, email: true, company: true, role: true }, orderBy: { name: "asc" } }),
     db.site.findMany({
-      select: { id: true, name: true, accessMode: true, upstreamUrl: true, vaultCredential: { select: { protocol: true } } },
+      select: SITE_TILE_SELECT,
       orderBy: { name: "asc" },
     }),
     listAuditEvents({ ...query, limit: PAGE, offset: 0 }),
@@ -131,11 +132,7 @@ async function AuditPageImpl({ searchParams }: { searchParams: Promise<SP> }) {
   ]);
 
   const userInfo: UserInfo[] = users.map((u) => ({ id: u.id, name: u.name, email: u.email, company: u.company, vendor: u.role === "VENDOR" }));
-  const siteInfo: SiteInfo[] = sites.map((s) => {
-    const remote = s.accessMode === "GATEWAY";
-    const proto = remote ? (s.vaultCredential ? String(s.vaultCredential.protocol).toUpperCase() : "REMOTE") : (s.upstreamUrl ?? "").startsWith("http://") ? "HTTP" : "HTTPS";
-    return { id: s.id, name: s.name, proto, remote };
-  });
+  const siteInfo: SiteInfo[] = sites.map(siteTile);
   const initialRows: AccessRowJSON[] = list.rows.map((r) => ({ ...r, timestamp: r.timestamp.toISOString() }));
 
   return (

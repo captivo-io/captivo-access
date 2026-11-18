@@ -356,6 +356,12 @@ model Site {
   accessMode         SiteAccessMode   @default(TRANSPARENT)
   logo               Bytes?
   logoType           String?
+  // The tile shown for the resource everywhere: a library icon (null = chosen
+  // automatically from the name, lib/site/icons.ts) in one of six colours, or
+  // the uploaded logo on a white / tinted / clear background.
+  iconName           String?
+  iconColor          String?
+  logoBg             String?
   createdAt          DateTime         @default(now())
   grants             AccessGrant[]
   groupMappings      GroupMapping[]

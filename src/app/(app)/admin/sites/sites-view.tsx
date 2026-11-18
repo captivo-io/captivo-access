@@ -5,6 +5,10 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { textMatch } from "@/lib/table/filter";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
+import { Modal } from "@/app/(app)/_shell/modal";
+import { ResourceIcon } from "@/components/resource-icon";
+import { autoIcon, kindOf, resolveIcon } from "@/lib/site/icons";
+import { IconPicker, lookBody, type Look } from "./icon-picker";
 
 export interface SiteRow {
   id: string;
@@ -17,6 +21,9 @@ export interface SiteRow {
   description: string | null;
   accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED";
   hasLogo: boolean;
+  iconName: string | null;
+  iconColor: string | null;
+  logoBg: string | null;
   connectorId: string;
   insecureSkipVerify: boolean;
   recordSessions: boolean;
@@ -115,7 +122,10 @@ export function SitesView({
   };
   const latency = (s: SiteRow) => (live[s.id]?.latencyMs !== undefined ? live[s.id]?.latencyMs : s.probeLatencyMs) ?? null;
   const checked = (s: SiteRow) => (live[s.id]?.at ? "just now" : s.probedAgo);
-  const publicHost = (s: SiteRow) => (!isRemote(s) && s.hostname ? `${s.hostname}${hostSuffix ?? ""}` : null);
+  // The stored hostname is already the full public host (suffix included).
+  const publicHost = (s: SiteRow) => (!isRemote(s) && s.hostname ? s.hostname : null);
+  const [iconFor, setIconFor] = useState<SiteRow | null>(null);
+  const [logoBust, setLogoBust] = useState<Record<string, number>>({});
 
   async function test(s: SiteRow): Promise<boolean | null> {
     setLive((m) => ({ ...m, [s.id]: { ...m[s.id], testing: true } }));
@@ -187,7 +197,7 @@ export function SitesView({
     return textMatch([s.name, publicHost(s), s.connectorName, target(s), s.description, s.protocol], q);
   });
   const avg = counts.avg == null ? "—" : counts.avg < 10 ? counts.avg.toFixed(1) : String(Math.round(counts.avg));
-  const ctx = { health, latency, checked, publicHost, testOne, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
+  const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
 
   return (
     <div className="rs">
@@ -250,6 +260,9 @@ export function SitesView({
           {shown.map((s) => <ResourceRow key={s.id} s={s} c={ctx} />)}
         </div>
       )}
+      <Modal open={iconFor !== null} onClose={() => setIconFor(null)} title="Change icon" subtitle={iconFor ? `${iconFor.name} · shown on cards, in lists and in the user portal.` : undefined} size="lg">
+        {iconFor && <IconDialog s={iconFor} onClose={() => setIconFor(null)} onSaved={(n) => { setLogoBust((b) => ({ ...b, [iconFor.id]: Date.now() })); setIconFor(null); setToast({ msg: `Icon saved for ${n}`, ok: true }); router.refresh(); }} />}
+      </Modal>
       {toast && <div className={toast.ok ? "toast" : "toast warn"} role="status"><span aria-hidden="true">{toast.ok ? "✓" : "!"}</span> {toast.msg}</div>}
     </div>
   );
@@ -261,6 +274,8 @@ type Ctx = {
   checked: (s: SiteRow) => string | null;
   publicHost: (s: SiteRow) => string | null;
   testOne: (s: SiteRow) => Promise<void>;
+  onIcon: (s: SiteRow) => void;
+  logoBust: Record<string, number>;
   onDeleted: (name: string) => void;
 };
 
@@ -359,6 +374,7 @@ function Menu({ s, c }: { s: SiteRow; c: Ctx }) {
       {open && (
         <div className="rs-menu-pop">
           <Link href={`/admin/sites/${s.id}/edit`} className="rs-mi">Edit</Link>
+          <button type="button" className="rs-mi" onClick={() => { setOpen(false); c.onIcon(s); }}>Change icon</button>
           <Link href="/admin/grants?new=1" className="rs-mi">Grant access</Link>
           <hr />
           {confirm ? (
@@ -390,7 +406,7 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
   return (
     <article className="rs-card">
       <div className="rs-head">
-        <span className={isRemote(s) ? "rs-proto remote" : "rs-proto"}>{proto}</span>
+        <button type="button" className="rs-tile" onClick={() => c.onIcon(s)} aria-label={`Change the icon of ${s.name}`} title="Change icon"><Tile s={s} c={c} size={42} /></button>
         <div className="rs-id">
           <div className="rs-name">
             <b title={s.name}>{s.name}</b>
@@ -398,6 +414,7 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
             {s.accessMode === "ISOLATED" && <span className="rs-mode">ISOLATED</span>}
           </div>
           <div className="rs-host">
+            <span className="rs-proto-l">{proto}</span><span className="t-muted"> · </span>
             {pub ? <><span className="mono" title={pub}>{pub}</span><CopyIcon value={pub} label="address" /></> : <span className="t-muted">Only through Captivo</span>}
           </div>
         </div>
@@ -421,10 +438,10 @@ function ResourceRow({ s, c }: { s: SiteRow; c: Ctx }) {
   return (
     <div className="rs-lrow">
       <span className="rs-lres">
-        <span className={isRemote(s) ? "rs-proto sm remote" : "rs-proto sm"}>{protocolOf(s)}</span>
+        <button type="button" className="rs-tile" onClick={() => c.onIcon(s)} aria-label={`Change the icon of ${s.name}`} title="Change icon"><Tile s={s} c={c} size={30} /></button>
         <span className="rs-lres-t">
           <b title={s.name}>{s.name}</b>
-          <span className="mono t-muted">{pub ?? "Only through Captivo"}</span>
+          <span className="mono t-muted"><span className="rs-proto-l">{protocolOf(s)}</span> · {pub ?? "Only through Captivo"}</span>
         </span>
       </span>
       <span className="rs-ltarget mono">{t ? <><span title={t}>{stripScheme(t)}</span><CopyIcon value={t} label="target" /></> : <span className="t-muted">none</span>}</span>
@@ -443,5 +460,51 @@ function RefreshIcon({ spin }: { spin?: boolean }) {
     <svg className={spin ? "rs-rot" : undefined} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M20 12a8 8 0 1 1-2.34-5.66" /><path d="M20 4v5h-5" />
     </svg>
+  );
+}
+
+function siteKind(s: SiteRow) {
+  return kindOf({ accessMode: s.accessMode, protocol: s.protocol });
+}
+
+/** The resource's tile: its picked or automatic icon, or its logo. */
+function Tile({ s, c, size }: { s: SiteRow; c: Ctx; size: number }) {
+  const icon = resolveIcon({ name: s.name, target: target(s), kind: siteKind(s), iconName: s.iconName, iconColor: s.iconColor });
+  const logoUrl = s.hasLogo ? `/api/sites/${s.id}/logo${c.logoBust[s.id] ? `?v=${c.logoBust[s.id]}` : ""}` : null;
+  return <ResourceIcon name={icon.name} color={icon.color} logoUrl={logoUrl} logoBg={s.logoBg} size={size} />;
+}
+
+/** "Change icon" (7.19): the picker on its own, for a saved resource. */
+function IconDialog({ s, onClose, onSaved }: { s: SiteRow; onClose: () => void; onSaved: (name: string) => void }) {
+  const kind = siteKind(s);
+  const auto = autoIcon(`${s.name} ${target(s) ?? ""}`, kind);
+  const initial: Look = { iconName: s.iconName, iconColor: (resolveIcon({ name: s.name, kind, iconName: s.iconName, iconColor: s.iconColor }).color), logoBg: s.logoBg ?? "white", logo: "keep" };
+  const [look, setLook] = useState<Look>(initial);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/admin/sites/${s.id}/icon`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(lookBody(look, initial)) });
+      if (res.ok) { onSaved(s.name); return; }
+      const r = await res.json().catch(() => ({}));
+      setErr(r.error === "logo_too_large" ? "The logo must be 512 KB or smaller." : "Couldn't save the icon. Try again.");
+    } catch {
+      setErr("Couldn't save the icon. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="rq">
+      <IconPicker look={look} onChange={setLook} autoName={auto} storedLogoUrl={s.hasLogo ? `/api/sites/${s.id}/logo` : null} name={s.name} proto={protocolOf(s)} />
+      {err && <p className="notice error" role="alert">{err}</p>}
+      <div className="rq-foot">
+        <span className="rq-status t-muted">The icon only changes how it looks; access and recording stay as they are.</span>
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn primary" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save icon"}</button>
+      </div>
+    </div>
   );
 }

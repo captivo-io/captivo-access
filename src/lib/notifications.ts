@@ -1,3 +1,4 @@
+import { tenantFetch } from "@/lib/net/guarded-fetch";
 import { db } from "@/lib/db";
 import { sendMail, getAdminEmails } from "@/lib/email/mailer";
 import { siteEventEmail } from "@/lib/email/templates";
@@ -81,11 +82,12 @@ async function fireWebhook(input: {
     at: new Date().toISOString(),
   };
   try {
-    await fetch(url, {
+    // The workspace's own URL: guarded on Cloud (lib/net/guarded-fetch).
+    await tenantFetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(5000),
+      timeoutMs: 5000,
     });
   } catch {
     // Best-effort: a failed/slow webhook must never break the cron.

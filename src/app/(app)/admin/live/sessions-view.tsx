@@ -8,6 +8,8 @@ import type { LiveRow } from "@/lib/live/rows";
 import { clockOf, initials, protocolLabel } from "@/lib/recording/format";
 import { recordingType } from "@/lib/recording/filter";
 import { Thumb } from "../recordings/rec-ui";
+import { ResourceIcon } from "@/components/resource-icon";
+import type { SiteTile } from "@/lib/access/grant-rows";
 import { fmt, hm, useZone } from "../audit/audit-zone";
 
 export interface RecentRecording {
@@ -18,6 +20,7 @@ export interface RecentRecording {
   lengthMs: number;
   format: string;
   protocol: string | null;
+  site?: SiteTile;
 }
 
 type FeedEvent = { at: string; type: string; text: string };
@@ -134,8 +137,9 @@ export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, 
           <div className="sv-recent-head"><b>Recently ended</b><Link href="/admin/recordings" className="cn-link">All recordings →</Link></div>
           {recent.map((x) => (
             <Link key={x.id} href={`/admin/recordings/${x.id}`} className="sv-recent-row">
-              <span className={recordingType(x) === "rdp" ? "rs-proto sm remote" : "rs-proto sm"}>{protocolLabel(x)}</span>
-              <span className="sv-recent-t"><b>{x.siteName}</b><span className="cell-sub">{x.userLabel}</span></span>
+              {x.site ? <ResourceIcon name={x.site.icon} color={x.site.color} logoUrl={x.site.logoUrl} logoBg={x.site.logoBg} size={30} />
+                : <ResourceIcon name={recordingType(x) === "rdp" ? "desktop" : recordingType(x) === "ssh" ? "terminal" : "globe"} color={recordingType(x) === "web" ? "blue" : "violet"} size={30} />}
+              <span className="sv-recent-t"><b>{x.siteName}</b><span className="cell-sub"><span className="rs-proto-l">{protocolLabel(x)}</span> · {x.userLabel}</span></span>
               <RecentTime iso={x.startedAt} />
               <span className="mono cell-sub">{clockOf(x.lengthMs)}</span>
               <span className="sv-recent-play" aria-hidden="true">▶</span>
@@ -213,7 +217,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
         <div className="sv-who">
           <span className="au-av" aria-hidden="true">{initials(r.userLabel)}</span>
           <span className="au-stack">
-            <b>{r.userLabel} <span className="sv-arrow">→</span> {r.siteName}</b>
+            <b>{r.userLabel} <span className="sv-arrow">→</span> {r.site && <ResourceIcon name={r.site.icon} color={r.site.color} logoUrl={r.site.logoUrl} logoBg={r.site.logoBg} size={20} className="sv-site-ic" />}{r.siteName}</b>
             <span className="mono cell-sub">{[r.clientIp, hostOf(r)].filter(Boolean).join(" · ") || "—"}</span>
           </span>
         </div>

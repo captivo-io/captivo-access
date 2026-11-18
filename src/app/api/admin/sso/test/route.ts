@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { getOwnOidcConfig } from "@/lib/auth/oidc-config";
 import { discover, IDP_TIMEOUT_MS } from "@/lib/auth/oidc";
-import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+import { tenantFetch } from "@/lib/net/guarded-fetch";
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { verifyResultFields } from "@/lib/admin/verify-result";
@@ -24,7 +24,7 @@ export const POST = withTenantRoute(async () => {
   const result = await runSsoTest(cfg, {
     discover,
     fetchJwks: async (uri) => {
-      const res = await fetchWithTimeout(uri, { timeoutMs: IDP_TIMEOUT_MS, headers: { accept: "application/json" } });
+      const res = await tenantFetch(uri, { timeoutMs: IDP_TIMEOUT_MS, headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     },

@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
+import { tenantFetch } from "@/lib/net/guarded-fetch";
 
 /**
  * Token exchange with the CUSTOMER's identity provider. A sign-in cannot wait
@@ -171,11 +172,14 @@ type Discovery = { issuer: string; authorization_endpoint: string; token_endpoin
 const discoveryCache = new Map<string, { at: number; doc: Discovery }>();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
-export async function discover(issuer: string): Promise<Discovery> {
+/** `trusted`: Captivo ID, the platform's own provider; a workspace's IdP is fetched through the Cloud guard. */
+export async function discover(issuer: string, trusted = false): Promise<Discovery> {
   const norm = normalizeIssuer(issuer);
   const cached = discoveryCache.get(norm);
   if (cached && Date.now() - cached.at < DISCOVERY_TTL_MS) return cached.doc;
-  const res = await fetchWithTimeout(`${norm}/.well-known/openid-configuration`, { timeoutMs: IDP_TIMEOUT_MS, headers: { accept: "application/json" } });
+  const url = `${norm}/.well-known/openid-configuration`;
+  const init = { timeoutMs: IDP_TIMEOUT_MS, headers: { accept: "application/json" } };
+  const res = trusted ? await fetchWithTimeout(url, init) : await tenantFetch(url, init);
   if (!res.ok) throw new Error(`discovery_failed_${res.status}`);
   const doc = (await res.json()) as Discovery;
   // `issuer` is the authoritative value the IdP stamps into every token's `iss`

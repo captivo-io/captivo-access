@@ -20,7 +20,7 @@ export function Modal({
   title: string;
   /** A line under the title. */
   subtitle?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   children: React.ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);

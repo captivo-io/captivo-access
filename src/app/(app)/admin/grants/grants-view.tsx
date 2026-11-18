@@ -8,6 +8,7 @@ import type { GrantRowJSON, SiteTile } from "@/lib/access/grant-rows";
 import { GrantDialogBody, RoleChip, initials, type GrantUser, type ExistingGrant } from "./grant-dialog";
 import { EditGrantBody } from "./edit-grant-dialog";
 import { TestAccessWidget } from "./test-access-widget";
+import { ResourceIcon } from "@/components/resource-icon";
 
 const DAY_MS = 86_400_000;
 const LIMIT_DAYS = 30;
@@ -340,8 +341,8 @@ function Row({ r, c }: { r: GrantRowJSON; c: RowCtx }) {
     <div className={cls}>
       <input type="checkbox" checked={on} onChange={() => c.onSelect(r.id, !on)} aria-label={`Select ${s?.name ?? "grant"}`} />
       <span className="gr-res">
-        <span className={s?.remote ? "rs-proto sm remote" : "rs-proto sm"} aria-hidden="true">{s?.proto ?? "—"}</span>
-        <span className="gr-res-t"><b>{s?.name ?? "Deleted resource"}</b>{s?.host && <span className="mono t-muted">{s.host}</span>}</span>
+        {s ? <ResourceIcon name={s.icon} color={s.color} logoUrl={s.logoUrl} logoBg={s.logoBg} size={34} /> : <ResourceIcon name="server" color="slate" size={34} />}
+        <span className="gr-res-t"><b>{s?.name ?? "Deleted resource"}</b>{s && <span className="mono t-muted"><span className="rs-proto-l">{s.proto}</span>{s.host ? ` · ${s.host}` : ""}</span>}</span>
       </span>
       <Window r={r} zone={c.zone} now={c.now} />
       <span className={r.note ? "gr-note" : "gr-note none"} title={r.note ?? undefined}>{r.note || "—"}</span>

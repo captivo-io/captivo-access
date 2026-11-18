@@ -1,3 +1,4 @@
+import { siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
@@ -20,7 +21,7 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
   const userIds = [...new Set(rows.map((r) => r.userId))];
   const siteIds = [...new Set(rows.map((r) => r.siteId))];
   const users = new Map((await db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } })).map((u) => [u.id, u]));
-  const sites = new Map((await db.site.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } })).map((s) => [s.id, s]));
+  const sites = new Map((await db.site.findMany({ where: { id: { in: siteIds } }, select: SITE_TILE_SELECT })).map((s) => [s.id, s]));
 
   const out = rows.map((r) => ({
     id: r.id,
@@ -34,6 +35,7 @@ export const GET = withTenantRoute(async (req: NextRequest) => {
     userEmail: users.get(r.userId)?.email ?? null,
     siteId: r.siteId,
     siteName: sites.get(r.siteId)?.name ?? null,
+    site: sites.has(r.siteId) ? siteTile(sites.get(r.siteId)!) : null,
     format: r.format,
     protocol: r.protocol,
     truncated: r.truncated,

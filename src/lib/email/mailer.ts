@@ -3,10 +3,11 @@ import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { decrypt } from "@/lib/crypto";
 import { buildTransportOptions } from "./transport";
+import { guardActive, resolvePublic, PrivateAddressError } from "@/lib/net/guarded-fetch";
 import { multiTenantEnabled } from "@/lib/tenant/enabled";
 import { PLATFORM_TENANT_ID } from "@/lib/tenant/constants";
 
-type SmtpLike = { host: string; port: number; secure: boolean; username: string; password: string; fromName: string; fromEmail: string; enabled: boolean };
+type SmtpLike = { host: string; port: number; secure: boolean; username: string; password: string; fromName: string; fromEmail: string; enabled: boolean; platform?: boolean };
 
 // The tenant's own SMTP row (what the Email settings page shows/edits).
 export async function getSmtpConfig() {
@@ -32,7 +33,7 @@ export async function getSendingSmtpConfig(): Promise<SmtpLike | null> {
       const { platformSmtpConfig } = await import("@/lib/platform/sql");
       if ((await getPlatformConfig()).smtpFallback) {
         const p = await platformSmtpConfig();
-        if (p) return { ...p, enabled: true };
+        if (p) return { ...p, enabled: true, platform: true };
       }
     } catch {
       /* fall through to the tenant's own (disabled/missing) config */
@@ -80,8 +81,23 @@ export async function sendMail(msg: MailMessage): Promise<{ sent: boolean; reaso
 
 async function sendWith(cfg: SmtpLike, msg: MailMessage): Promise<{ sent: boolean; reason?: string; response?: string }> {
   try {
+    // A workspace's own mail server is its admin's choice: on Cloud it is
+    // resolved and checked here and connected to by that address, so it can't
+    // point the server at its own network (lib/net/guarded-fetch). The
+    // platform's server (the fallback, or the platform workspace's own) is the
+    // operator's and is trusted.
+    const trusted = cfg.platform === true || currentTenantId() === PLATFORM_TENANT_ID;
+    let address: string | undefined;
+    if (guardActive() && !trusted) {
+      try {
+        address = await resolvePublic(cfg.host);
+      } catch (e) {
+        return { sent: false, reason: e instanceof PrivateAddressError ? "private_address" : e instanceof Error ? e.message : "unresolvable" };
+      }
+    }
     const transport = nodemailer.createTransport(
       buildTransportOptions({
+        address,
         host: cfg.host,
         port: cfg.port,
         secure: cfg.secure,

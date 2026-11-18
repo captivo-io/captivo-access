@@ -1,3 +1,4 @@
+import { siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
@@ -33,11 +34,12 @@ async function AdminLivePageImpl({ searchParams }: { searchParams: Promise<{ wat
   ]);
   const [users, sites] = await Promise.all([
     db.user.findMany({ where: { id: { in: recent.map((r) => r.userId) } }, select: { id: true, name: true, email: true } }),
-    db.site.findMany({ where: { id: { in: recent.map((r) => r.siteId) } }, select: { id: true, name: true } }),
+    db.site.findMany({ where: { id: { in: recent.map((r) => r.siteId) } }, select: SITE_TILE_SELECT }),
   ]);
   const recentRows: RecentRecording[] = recent.map((r) => ({
     id: r.id,
     siteName: sites.find((s) => s.id === r.siteId)?.name ?? r.host,
+    site: (() => { const s = sites.find((x) => x.id === r.siteId); return s ? siteTile(s) : undefined; })(),
     userLabel: users.find((u) => u.id === r.userId)?.name ?? users.find((u) => u.id === r.userId)?.email ?? "Unknown user",
     startedAt: r.startedAt.toISOString(),
     lengthMs: r.durationMs ?? Math.max(0, r.lastEventAt.getTime() - r.startedAt.getTime()),

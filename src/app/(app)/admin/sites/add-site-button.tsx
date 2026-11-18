@@ -1,48 +1,24 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/app/(app)/_shell/modal";
-import { SiteForm } from "./site-form";
-import type { GuacParams } from "@/lib/gateway/guac-params";
-import type { KeystrokeMode } from "@/lib/settings/platform";
+import { ResourceForm, type ResourceContext } from "./resource-form";
 
-export function AddSiteButton({
-  connectors,
-  recordingEnabled,
-  recordingMode,
-  keystrokeMode,
-  guacDefaults,
-  clipboardDefault,
-  watermarkDefault,
-  egressDefault,
-  fileTransferDefault,
-  webFileTransferDefault,
-  nativeGateway,
-  hostSuffix,
-  isolationEnabled,
-}: {
-  connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
-  recordingEnabled: boolean;
-  recordingMode: string;
-  keystrokeMode: KeystrokeMode;
-  guacDefaults: GuacParams;
-  clipboardDefault: string;
-  watermarkDefault: boolean;
-  egressDefault: string;
-  fileTransferDefault: string;
-  webFileTransferDefault: string;
-  nativeGateway: boolean;
-  hostSuffix: string | null;
-  isolationEnabled: boolean;
-}) {
-  const [open, setOpen] = useState(false);
+/** "+ Add resource" and the new-resource dialog (design hand-off 10, 7.20). */
+export function AddSiteButton({ ctx, initialOpen = false }: { ctx: ResourceContext; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
   return (
     <>
-      <button type="button" className="btn primary" onClick={() => setOpen(true)}>
-        + Add resource
-      </button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Add resource" size="lg">
-        <SiteForm connectors={connectors} recordingEnabled={recordingEnabled} recordingMode={recordingMode} keystrokeMode={keystrokeMode} guacDefaults={guacDefaults} clipboardDefault={clipboardDefault} watermarkDefault={watermarkDefault} egressDefault={egressDefault} fileTransferDefault={fileTransferDefault} webFileTransferDefault={webFileTransferDefault} nativeGateway={nativeGateway} isolationEnabled={isolationEnabled} hostSuffix={hostSuffix} onDone={() => setOpen(false)} />
+      <button type="button" className="btn primary" onClick={() => setOpen(true)}>+ Add resource</button>
+      <Modal open={open} onClose={() => setOpen(false)} title="New resource" subtitle="Define the internal upstream reached through a connector." size="xl">
+        {open && <ResourceForm ctx={ctx} onClose={() => setOpen(false)} onSaved={(m) => { setOpen(false); setToast(m); }} />}
       </Modal>
+      {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
     </>
   );
 }

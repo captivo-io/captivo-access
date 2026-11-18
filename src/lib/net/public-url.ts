@@ -1,10 +1,7 @@
-import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-// For a test call to an address an admin typed: on Cloud the server must not
-// be steered at its own network (a workspace admin could otherwise probe it
-// through the answer). Private, loopback, link-local and similar ranges are
-// refused there; a self-hosted install may post anywhere.
+// Addresses a Cloud server must not be steered at on a workspace admin's say-so
+// (see guarded-fetch.ts): private, loopback, link-local, CGNAT, multicast.
 
 function privateV4(ip: string): boolean {
   const [a, b] = ip.split(".").map(Number);
@@ -22,23 +19,4 @@ function privateV6(ip: string): boolean {
 export function isPrivateAddress(ip: string): boolean {
   const fam = isIP(ip);
   return fam === 4 ? privateV4(ip) : fam === 6 ? privateV6(ip) : true;
-}
-
-/** Null when the URL's host resolves only to public addresses; else a reason. */
-export async function publicUrlProblem(url: string): Promise<string | null> {
-  let host: string;
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return "invalid_url";
-    host = u.hostname.replace(/^\[|\]$/g, "");
-  } catch {
-    return "invalid_url";
-  }
-  try {
-    const addrs = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
-    if (addrs.length === 0 || addrs.some((a) => isPrivateAddress(a.address))) return "private_address";
-    return null;
-  } catch {
-    return "unresolvable";
-  }
 }

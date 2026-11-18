@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import { jwtVerify, createRemoteJWKSet, customFetch } from "jose";
+import { tenantFetch } from "@/lib/net/guarded-fetch";
 import { db } from "@/lib/db";
 import { getOidcConfig, getOidcSecret } from "@/lib/auth/oidc-config";
 import { discover, checkClaims, accessGrant, accessGrantFor, accessRoleForGrant, type IdClaims } from "@/lib/auth/oidc";
@@ -54,7 +55,7 @@ async function handler(req: NextRequest) {
 
   let disc;
   try {
-    disc = await discover(cfg.issuer);
+    disc = await discover(cfg.issuer, cfg.isPlatform === true);
   } catch (e) {
     return fail(req, "sso", `discover_failed: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -75,12 +76,15 @@ async function handler(req: NextRequest) {
   try {
     // Bounded: the token endpoint is the customer's IdP. Without a ceiling a
     // sign-in can hang indefinitely on it.
-    const res = await fetchWithTimeout(disc.token_endpoint, {
+    // A workspace's own IdP goes through the Cloud guard (lib/net/guarded-fetch):
+    // its discovery document names these endpoints, so they are its choice too.
+    const tokenInit = {
       timeoutMs: IDP_TIMEOUT_MS,
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body,
-    });
+    };
+    const res = cfg.isPlatform ? await fetchWithTimeout(disc.token_endpoint, tokenInit) : await tenantFetch(disc.token_endpoint, tokenInit);
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       return fail(req, "sso", `token_endpoint_${res.status}: ${detail.slice(0, 300)}`);
@@ -94,7 +98,11 @@ async function handler(req: NextRequest) {
   // Verify the ID token: signature (JWKS) + iss + aud + exp/nbf via jose.
   let claims: IdClaims;
   try {
-    const JWKS = createRemoteJWKSet(new URL(disc.jwks_uri));
+    const JWKS = cfg.isPlatform
+      ? createRemoteJWKSet(new URL(disc.jwks_uri))
+      : createRemoteJWKSet(new URL(disc.jwks_uri), {
+          [customFetch]: (url: string, opts: { headers?: Headers }) => tenantFetch(url, { timeoutMs: IDP_TIMEOUT_MS, headers: Object.fromEntries(new Headers(opts?.headers).entries()) }),
+        });
     const { payload } = await jwtVerify(tokens.id_token, JWKS, {
       // Verify against the issuer the IdP declares in discovery — that is what
       // it stamps into `iss` (Auth0 keeps a trailing slash the config strips).

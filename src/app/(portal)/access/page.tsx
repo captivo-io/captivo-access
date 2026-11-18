@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { listUserGrants } from "@/lib/access/grants";
+import { siteTile } from "@/lib/access/grant-rows";
 import { classifyGrant } from "@/lib/access/evaluate";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { effectiveRecordSessions } from "@/lib/recording/mode";
@@ -58,6 +59,7 @@ async function AccessPageImpl() {
       hostname: g.site.hostname ?? "",
       accessMode: g.site.accessMode,
       hasLogo: g.site.logoType != null,
+      tile: (({ icon, color, logoUrl, logoBg }) => ({ icon, color, logoUrl, logoBg }))(siteTile(g.site)),
       siteId: g.site.id,
       glyph: g.site.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "··",
       status,

@@ -2,11 +2,9 @@ import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { timeAgo } from "@/lib/format";
 import { recordingEnabled } from "@/lib/recording/enabled";
-import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
-import { isolationEnabled } from "@/lib/isolation/enabled";
-import { resolvedKeystrokeLoggingMode, resolvedRecordingMode, resolvedGuacParamDefaults, resolvedClipboardDefault, resolvedWatermarkDefault, resolvedIsolatedEgressDefault, resolvedIsolatedFileTransferDefault, resolvedWebAppFileTransferDefault } from "@/lib/settings/platform";
 import { AddSiteButton } from "./add-site-button";
+import { resourceContext } from "./context";
 import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
 import { SitesView, type SiteRow } from "./sites-view";
@@ -15,7 +13,7 @@ import { withRequestTenant } from "@/lib/tenant/request";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Resources" };
 
-async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?: string; status?: string; new?: string }> }) {
   const sp = await searchParams;
   await requireAdmin();
 
@@ -37,6 +35,9 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
         recordSessions: true,
         clipboardMode: true,
         logoType: true,
+        iconName: true,
+        iconColor: true,
+        logoBg: true,
         connector: { select: { name: true, status: true } },
         vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } },
         _count: { select: { grants: true } },
@@ -60,6 +61,9 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
     gatewayTarget: s.vaultCredential ? `${s.vaultCredential.targetHost}:${s.vaultCredential.targetPort}` : null,
     protocol: s.accessMode === "GATEWAY" && s.vaultCredential ? String(s.vaultCredential.protocol).toUpperCase() : null,
     hasLogo: s.logoType != null,
+    iconName: s.iconName,
+    iconColor: s.iconColor,
+    logoBg: s.logoBg,
     connectorId: s.connectorId,
     insecureSkipVerify: s.insecureSkipVerify,
     recordSessions: s.recordSessions,
@@ -90,7 +94,7 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
           </p>
           <PlanUsageNote usage={siteUsage} noun="resources" />
         </div>
-        <div className="row-actions"><span id="rs-head-actions" className="rs-head-actions" />{connectors.length > 0 && <AddSiteButton connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} guacDefaults={await resolvedGuacParamDefaults()} clipboardDefault={await resolvedClipboardDefault()} watermarkDefault={await resolvedWatermarkDefault()} egressDefault={await resolvedIsolatedEgressDefault()} fileTransferDefault={await resolvedIsolatedFileTransferDefault()} webFileTransferDefault={await resolvedWebAppFileTransferDefault()} nativeGateway={nativeGatewayEnabled()} isolationEnabled={isolationEnabled()} hostSuffix={await siteHostSuffix()} />}</div>
+        <div className="row-actions"><span id="rs-head-actions" className="rs-head-actions" />{connectors.length > 0 && <AddSiteButton ctx={await resourceContext()} initialOpen={sp.new === "1"} />}</div>
       </div>
 
       {sites.length === 0 ? (

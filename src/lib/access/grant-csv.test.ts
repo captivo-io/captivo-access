@@ -15,7 +15,7 @@ describe("grantsToCsv", () => {
     const csv = grantsToCsv(
       [row],
       new Map([["u1", { name: "Demo", email: "d@x.io", role: "VENDOR" }]]),
-      new Map([["s1", { id: "s1", name: "DC-RDP", proto: "RDP", remote: true, host: "10.0.0.2:3389" }]]),
+      new Map([["s1", { id: "s1", name: "DC-RDP", proto: "RDP", remote: true, host: "10.0.0.2:3389", icon: "directory", color: "violet" as const, logoUrl: null, logoBg: null }]]),
       csvEscape,
     );
     const [head, line] = csv.trim().split("\n");

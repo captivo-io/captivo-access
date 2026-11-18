@@ -1,5 +1,7 @@
 "use client";
 
+import { ResourceIcon } from "@/components/resource-icon";
+import type { SiteTile } from "@/lib/access/grant-rows";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
@@ -48,7 +50,8 @@ export type AccessFilters = {
 };
 
 export interface UserInfo { id: string; name: string; email: string; company: string | null; vendor: boolean }
-export interface SiteInfo { id: string; name: string; proto: string; remote: boolean }
+/** A resource as its tile shows it (lib/access/grant-rows siteTile). */
+export type SiteInfo = SiteTile;
 
 const PAGE = 100;
 
@@ -353,8 +356,8 @@ function BurstView({ b, zone, site, user, open, onToggle, selected, onPick, site
           <span className="au-stack"><b>{name}</b><span className="cell-sub">{company}</span></span>
         </span>
         <span className="au-res">
-          <span className={site?.remote ? "rs-proto sm remote" : "rs-proto sm"} aria-hidden="true">{site?.proto ?? "WEB"}</span>
-          <span className="au-stack"><b>{r0.siteName ?? site?.name ?? r0.host}</b><span className="mono cell-sub">{r0.host}</span></span>
+          {site ? <ResourceIcon name={site.icon} color={site.color} logoUrl={site.logoUrl} logoBg={site.logoBg} size={30} /> : <ResourceIcon name="globe" color="slate" size={30} />}
+          <span className="au-stack"><b>{r0.siteName ?? site?.name ?? r0.host}</b><span className="mono cell-sub"><span className="rs-proto-l">{site?.proto ?? "WEB"}</span> · {r0.host}</span></span>
         </span>
         <span className="au-stack au-ip"><span className="mono">{r0.clientIp ?? "—"}</span>{agent && <span className="cell-sub">{agent}</span>}</span>
         <span className="au-bpills">

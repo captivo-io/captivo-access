@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { listActiveSessions, listActiveWebSessions } from "@/lib/dataplane/client";
+import { siteTile, SITE_TILE_SELECT, type SiteTile } from "@/lib/access/grant-rows";
 
 /** What the console's Sessions page adds to every row; optional so older readers (the app) are unaffected. */
 export interface LiveExtra {
@@ -14,6 +15,8 @@ export interface LiveExtra {
   /** The grant the session runs under: no end, an end time, or set hours. */
   grantEndsAt?: string | null;
   grantScheduled?: boolean;
+  /** The resource's tile (icon or logo). */
+  site?: SiteTile;
 }
 
 export type LiveRow =
@@ -33,7 +36,7 @@ export async function liveRows(): Promise<LiveRow[]> {
 
   const [userList, siteList, liveGrants] = await Promise.all([
     userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : Promise.resolve([]),
-    siteIds.length ? db.site.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+    siteIds.length ? db.site.findMany({ where: { id: { in: siteIds } }, select: SITE_TILE_SELECT }) : Promise.resolve([]),
     userIds.length
       ? db.accessGrant.findMany({
           where: { status: "ACTIVE", userId: { in: userIds }, siteId: { in: siteIds } },
@@ -54,6 +57,7 @@ export async function liveRows(): Promise<LiveRow[]> {
       userEmail: users.get(userId)?.email ?? null,
       grantEndsAt: g?.endsAt?.toISOString() ?? null,
       grantScheduled: g?.schedule != null,
+      site: sites.has(siteId) ? siteTile(sites.get(siteId)!) : undefined,
     };
   };
 

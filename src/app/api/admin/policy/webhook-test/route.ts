@@ -3,8 +3,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
-import { multiTenantEnabled } from "@/lib/tenant/enabled";
-import { publicUrlProblem } from "@/lib/net/public-url";
+import { tenantFetch, PrivateAddressError } from "@/lib/net/guarded-fetch";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
@@ -25,23 +24,19 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   } catch {
     return NextResponse.json({ error: "invalid_webhook_url" }, { status: 400 });
   }
-  if (multiTenantEnabled()) {
-    const problem = await publicUrlProblem(url);
-    if (problem) return NextResponse.json({ error: problem === "private_address" ? "private_address" : "unresolvable" }, { status: 400 });
-  }
-
   let status: number | null = null;
   let reason: string | null = null;
   try {
-    const res = await fetch(url, {
+    // Guarded on Cloud: no private or internal addresses, no redirects.
+    const res = await tenantFetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "Test from Captivo Access: notifications reach this webhook.", event: "test", site: "Example resource", at: new Date().toISOString() }),
-      signal: AbortSignal.timeout(5000),
-      redirect: "manual",
+      timeoutMs: 5000,
     });
     status = res.status;
   } catch (e) {
+    if (e instanceof PrivateAddressError) return NextResponse.json({ error: "private_address" }, { status: 400 });
     reason = e instanceof Error && e.name === "TimeoutError" ? "timeout" : "unreachable";
   }
   await recordAdminAction({

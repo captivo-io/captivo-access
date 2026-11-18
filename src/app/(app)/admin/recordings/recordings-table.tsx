@@ -1,5 +1,7 @@
 "use client";
 
+import { ResourceIcon } from "@/components/resource-icon";
+import type { SiteTile } from "@/lib/access/grant-rows";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -25,6 +27,8 @@ export interface RecordingRowJSON {
   userEmail: string | null;
   siteId: string;
   siteName: string | null;
+  /** The resource's tile; null when the resource was deleted. */
+  site?: SiteTile | null;
   format: string;
   protocol: string | null;
   /** Capture stopped at the data plane's size cap while the session continued. */
@@ -311,6 +315,7 @@ function Card({ r, c }: { r: RecordingRowJSON; c: CardCtx }) {
       </div>
       <div className="rc-info">
         <div className="rc-line">
+          {r.site && <ResourceIcon name={r.site.icon} color={r.site.color} logoUrl={r.site.logoUrl} logoBg={r.site.logoBg} size={22} className="rc-site-ic" />}
           <b className="rc-name" title={r.host}>{r.siteName ?? r.host}</b>
           <span className="mono rc-time">{hm(r.startedAt, c.zone)}</span>
           {!r.purgePending && <CardMenu r={r} c={c} />}

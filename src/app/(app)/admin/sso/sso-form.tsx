@@ -27,6 +27,7 @@ const TEST_ERRORS: Record<string, string> = {
   no_issuer: "Save an issuer URL first.",
   unreachable: "Couldn't read the discovery document. Check the issuer URL.",
   jwks_failed: "The provider's signing keys couldn't be read.",
+  private_address: "That address is on a private or internal network; the cloud service can't connect to it.",
   credentials_missing: "Save the client ID and client secret, then test again.",
 };
 
