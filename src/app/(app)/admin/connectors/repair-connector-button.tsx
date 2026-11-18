@@ -7,7 +7,7 @@ import { formatShellCommand } from "@/lib/format/docker-command";
 
 type Repaired = { code: string; reconfigureCommand: string; managerUrlIsLocal: boolean };
 
-export function RepairConnectorButton({ id }: { id: string }) {
+export function RepairConnectorButton({ id, className = "btn sm" }: { id: string; className?: string }) {
   const [open, setOpen] = useState(false);
   const [invalidateNow, setInvalidateNow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,7 +45,7 @@ export function RepairConnectorButton({ id }: { id: string }) {
 
   return (
     <>
-      <button type="button" className="btn sm" onClick={() => setOpen(true)}>Re-pair</button>
+      <button type="button" className={className} onClick={() => setOpen(true)}>Re-pair</button>
       <Modal open={open} onClose={reset} title="Re-pair connector">
         {result ? (
           <div role="status" className="notice">

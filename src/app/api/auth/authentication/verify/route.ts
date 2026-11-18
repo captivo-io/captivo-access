@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { passkeySynced } from "@/lib/auth/passkey-kind";
 import { clientIp } from "@/lib/request-ip";
 import { cookies } from "next/headers";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
@@ -66,7 +67,7 @@ async function handler(req: NextRequest) {
 
   await db.passkey.update({
     where: { id: passkey.id },
-    data: { counter: BigInt(result.authenticationInfo.newCounter), lastUsedAt: new Date() },
+    data: { counter: BigInt(result.authenticationInfo.newCounter), lastUsedAt: new Date(), backedUp: passkeySynced(result.authenticationInfo) },
   });
 
   // The workspace's second-factor requirement. A passkey that verified the

@@ -5,6 +5,7 @@ import { clientIp } from "@/lib/request-ip";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { pushConnectorPolicy } from "@/lib/connector/policy";
+import { parseTargets } from "@/lib/connector/egress-targets";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 
@@ -17,7 +18,11 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
   if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  const egress = typeof body.egressAllowedTargets === "string" ? body.egressAllowedTargets.trim() : "";
+  // The connector splits on commas only and drops a whole update with a bad
+  // entry (see parseTargets), so normalise and validate before saving.
+  const parsed = parseTargets(typeof body.egressAllowedTargets === "string" ? body.egressAllowedTargets : "");
+  if (parsed.invalid.length) return NextResponse.json({ error: "invalid_targets", invalid: parsed.invalid }, { status: 400 });
+  const egress = parsed.normalized;
 
   const updated = await db.connector.updateMany({ where: { id }, data: { egressPolicy: egress || null } });
   if (updated.count === 0) return NextResponse.json({ error: "not_found" }, { status: 404 });

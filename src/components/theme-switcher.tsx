@@ -32,7 +32,7 @@ function getServerSnapshot(): "light" | "dark" {
   return "dark";
 }
 
-function setTheme(t: "light" | "dark") {
+export function setTheme(t: "light" | "dark") {
   document.documentElement.dataset.theme = t;
   const domain = themeCookieDomain(location.hostname);
   document.cookie =
@@ -45,6 +45,11 @@ function setTheme(t: "light" | "dark") {
     /* storage blocked: the cookie is enough */
   }
   listeners.forEach((l) => l());
+}
+
+/** The theme in use, following every change made through setTheme. */
+export function useTheme(): "light" | "dark" {
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 /** One button: the icon shows the theme it switches to. */

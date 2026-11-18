@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { passkeySynced } from "@/lib/auth/passkey-kind";
 import { clientIp } from "@/lib/request-ip";
 import { cookies } from "next/headers";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
@@ -73,6 +74,7 @@ async function handler(req: NextRequest) {
         publicKey: Buffer.from(credential.publicKey),
         counter: BigInt(credential.counter ?? 0),
         transports: credential.transports ?? [],
+        backedUp: passkeySynced(result.registrationInfo),
         label,
       },
     });
@@ -128,6 +130,7 @@ async function handler(req: NextRequest) {
           publicKey: Buffer.from(credential.publicKey),
           counter: BigInt(credential.counter ?? 0),
           transports: credential.transports ?? [],
+          backedUp: passkeySynced(result.registrationInfo),
           label: resetId ? "Passkey" : "Recovery passkey",
         },
       });
@@ -221,6 +224,7 @@ async function handler(req: NextRequest) {
             publicKey: Buffer.from(credential.publicKey),
             counter: BigInt(credential.counter ?? 0),
             transports: credential.transports ?? [],
+            backedUp: passkeySynced(result.registrationInfo),
             label,
           },
         });
@@ -316,6 +320,7 @@ async function handler(req: NextRequest) {
           publicKey: Buffer.from(credential.publicKey),
           counter: BigInt(credential.counter ?? 0),
           transports: credential.transports ?? [],
+          backedUp: passkeySynced(result.registrationInfo),
           label,
         },
       });

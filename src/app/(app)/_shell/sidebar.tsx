@@ -8,6 +8,7 @@ import type { ShellWorkspace } from "@/lib/nav/shell-data";
 import { BrandMark } from "@/components/brand";
 import { NavIcon } from "./nav-icons";
 import { useLiveCount } from "./live-count";
+import type { AccountState } from "@/lib/auth/account-state";
 
 /** Brand names, not copy: never translated, never a message key. */
 const PRODUCT_NAMES: Record<string, string> = {
@@ -23,7 +24,7 @@ export type ShellView = "admin" | "user";
  * both) and the signed-in person. Below 1000px it is a drawer, opened from the
  * header's menu button through <html data-nav-open>.
  */
-export function Sidebar({ model, view, roleLabel, products, workspace, user, accountUrl }: {
+export function Sidebar({ model, view, roleLabel, products, workspace, user, accountUrl, account }: {
   model: NavModel;
   view: ShellView;
   /** The console side of the view switch is named after the person's role (Admin, Operator, Auditor). */
@@ -33,6 +34,7 @@ export function Sidebar({ model, view, roleLabel, products, workspace, user, acc
   user: { name: string; email: string };
   /** The Captivo account page, or null where there is no centre (self-hosted). */
   accountUrl: string | null;
+  account: AccountState;
 }) {
   const pathname = usePathname();
   const [menu, setMenu] = useState<null | "products" | "account">(null);
@@ -142,7 +144,8 @@ export function Sidebar({ model, view, roleLabel, products, workspace, user, acc
           )}
           <button
             type="button"
-            className="sb-user"
+            className={menu === "account" ? "sb-user open" : "sb-user"}
+            aria-haspopup="menu"
             aria-expanded={menu === "account"}
             onClick={() => setMenu((m) => (m === "account" ? null : "account"))}
           >
@@ -151,16 +154,25 @@ export function Sidebar({ model, view, roleLabel, products, workspace, user, acc
               <b>{user.name}</b>
               <span>{user.email}</span>
             </span>
+            <span className="sb-user-chev" aria-hidden="true"><NavIcon name="chev" size={14} /></span>
           </button>
           {menu === "account" && (
-            <div className="sb-pop sb-pop-account">
-              <Link href="/settings/passkeys" className="sb-pop-item"><NavIcon name="key" size={16} /> Passkeys</Link>
-              <Link href={view === "admin" ? "/settings/preferences" : "/preferences"} className="sb-pop-item"><NavIcon name="settings" size={16} /> Preferences</Link>
-              {accountUrl && (
-                <a href={accountUrl} className="sb-pop-item" target="_blank" rel="noopener noreferrer">
-                  <NavIcon name="user" size={16} /> Captivo account <NavIcon name="ext" size={14} />
-                </a>
+            <div className="sb-pop sb-pop-account" role="menu">
+              <Link href="/settings/passkeys" className="sb-pop-item" role="menuitem"><NavIcon name="key" size={16} /> Passkeys</Link>
+              <Link href="/settings/recovery" className="sb-pop-item" role="menuitem">
+                <NavIcon name="shield" size={16} /> Recovery
+                {!account.recoveryOn && <span className="sb-pop-dot" title="Recovery isn't set up" aria-label="not set up" />}
+              </Link>
+              <Link href={view === "admin" ? "/settings/preferences" : "/preferences"} className="sb-pop-item" role="menuitem"><NavIcon name="settings" size={16} /> Preferences</Link>
+              {accountUrl && account.idLinked && (
+                <>
+                  <span className="sb-pop-sep" role="separator" />
+                  <a href={accountUrl} className="sb-pop-item" role="menuitem" target="_blank" rel="noopener noreferrer">
+                    <NavIcon name="users" size={16} /> Captivo account <span className="sb-pop-end"><NavIcon name="ext" size={14} /></span>
+                  </a>
+                </>
               )}
+              <span className="sb-pop-sep" role="separator" />
               <SignOut />
             </div>
           )}
@@ -176,6 +188,7 @@ function SignOut() {
     <button
       type="button"
       className="sb-pop-item danger"
+      role="menuitem"
       disabled={busy}
       onClick={async () => {
         setBusy(true);

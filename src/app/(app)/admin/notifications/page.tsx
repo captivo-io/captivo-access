@@ -1,55 +1,45 @@
 import { requireCapability } from "@/lib/current-user";
+import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
-import { timeAgo } from "@/lib/format";
-import { MarkReadButton } from "./mark-read-button";
-import { NotificationsView, type NotificationRow } from "./notifications-view";
+import { workspaceView } from "@/lib/mobile/views";
+import { siteTile, SITE_TILE_SELECT, type SiteTile } from "@/lib/access/grant-rows";
+import { pairIncidents } from "@/lib/notifications/incidents";
+import { NotificationsView } from "./notifications-view";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notifications" };
 
+// Enough for weeks of a flapping resource; older rows stay in the database.
+const ROWS = 2000;
+
 async function AdminNotificationsPageImpl() {
-  await requireCapability("read_console");
+  const user = await requireCapability("read_console");
 
-  const notifications = await db.notification.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      type: true,
-      siteName: true,
-      detail: true,
-      createdAt: true,
-      readAt: true,
-    },
-  });
-
-  const unread = notifications.filter((n) => !n.readAt).length;
-
-  const rows: NotificationRow[] = notifications.map((n) => ({
-    id: n.id,
-    type: n.type,
-    siteName: n.siteName ?? "—",
-    detail: n.detail,
-    when: timeAgo(n.createdAt),
-    read: Boolean(n.readAt),
-  }));
+  const [rows, unreachable, ws] = await Promise.all([
+    db.notification.findMany({
+      orderBy: { createdAt: "desc" },
+      take: ROWS,
+      select: { id: true, type: true, siteId: true, siteName: true, detail: true, createdAt: true, readAt: true },
+    }),
+    db.site.count({ where: { probeOk: false } }),
+    workspaceView().catch(() => ({ name: "", slug: null as string | null })),
+  ]);
+  const incidents = pairIncidents(rows);
+  const siteIds = [...new Set(incidents.map((i) => i.siteId).filter((x): x is string => !!x))];
+  const sites = siteIds.length ? await db.site.findMany({ where: { id: { in: siteIds } }, select: SITE_TILE_SELECT }) : [];
+  const tiles: Record<string, SiteTile> = Object.fromEntries(sites.map((s) => [s.id, siteTile(s)]));
 
   return (
     <main>
-      <div className="page-head">
-        <div>
-          <div className="page-title-row"><span className="page-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><h1>Notifications</h1></div>
-          <p>Resource down/recovered events from the health probe.</p>
-        </div>
-        {unread > 0 && <MarkReadButton />}
-      </div>
-
-      {notifications.length === 0 ? (
-        <div className="empty">No notifications yet.</div>
-      ) : (
-        <NotificationsView rows={rows} />
-      )}
+      <NotificationsView
+        incidents={incidents}
+        tiles={tiles}
+        unreachable={unreachable}
+        workspace={ws.slug}
+        canTest={can(user.role, "configure")}
+        serverNow={Date.now()}
+      />
     </main>
   );
 }
@@ -57,4 +47,3 @@ async function AdminNotificationsPageImpl() {
 export default async function AdminNotificationsPage(...args: Parameters<typeof AdminNotificationsPageImpl>) {
   return withRequestTenant(() => AdminNotificationsPageImpl(...args));
 }
-
