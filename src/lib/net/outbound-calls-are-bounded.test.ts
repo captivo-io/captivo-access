@@ -157,7 +157,7 @@ describe("the slow-route budget outlasts what those routes wait on", () => {
       "admin/recordings/[id]/events", "admin/recordings/[id]/keyevents",
       "admin/connectors/[id]/repair", "admin/connectors/[id]/log-level",
       "admin/connectors/[id]/egress-policy", "admin/policy/connector-log-level/reset-all",
-      "admin/invites", "admin/invites/[id]/resend", "admin/grants/[id]/decision",
+      "admin/invites", "admin/invites/[id]/resend", "admin/users/[id]/reset-passkeys", "admin/policy/webhook-test", "admin/grants/[id]/decision",
       "access/requests",
     ];
     const missing: string[] = [];

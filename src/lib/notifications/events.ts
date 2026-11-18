@@ -6,8 +6,8 @@
 export type NotifKey = "site_health" | "access_requests" | "access_decisions";
 
 export const NOTIF_EVENTS: { key: NotifKey; label: string; hint: string }[] = [
-  { key: "site_health", label: "Site up / down", hint: "Email admins when a site becomes unreachable or recovers." },
-  { key: "access_requests", label: "New access requests", hint: "Email admins when a vendor requests access to a site." },
+  { key: "site_health", label: "Resource up / down", hint: "Email admins when a resource becomes unreachable or recovers." },
+  { key: "access_requests", label: "New access requests", hint: "Email admins when a vendor requests access to a resource." },
   { key: "access_decisions", label: "Access decisions", hint: "Email the vendor when their access request is approved or denied." },
 ];
 

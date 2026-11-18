@@ -106,6 +106,12 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
   return s;
 }
 
+/** The stored settings straight from the database, for a read-modify-write. */
+export async function getPlatformSettingsFresh(): Promise<PlatformSettings> {
+  cache.delete(currentTenantId());
+  return getPlatformSettings();
+}
+
 export async function savePlatformSettings(input: PlatformSettings): Promise<void> {
   await db.platformSettings.upsert({
     where: { tenantId: currentTenantId() },

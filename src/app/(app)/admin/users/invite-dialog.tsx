@@ -157,8 +157,8 @@ export function InviteDialogBody({ canEmail, vendorOnly, ttlHours, onClose, onCr
 }
 
 /** The invite link, shown once, with Copy. */
-export function OneTimeLink({ link, emailed, email, onClose, onAnother }: {
-  link: string; emailed: boolean | null; email: string; onClose: () => void; onAnother?: () => void;
+export function OneTimeLink({ link, emailed, email, onClose, onAnother, label = "Invite link" }: {
+  link: string; emailed: boolean | null; email: string; onClose: () => void; onAnother?: () => void; label?: string;
 }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
@@ -171,9 +171,9 @@ export function OneTimeLink({ link, emailed, email, onClose, onAnother }: {
   return (
     <>
       <div className="rq-sec">
-        <div className="rq-label"><span>Invite link</span></div>
+        <div className="rq-label"><span>{label}</span></div>
         <div className="iv-link">
-          <input className="mono" readOnly value={link} aria-label="Invite link" onFocus={(e) => e.currentTarget.select()} />
+          <input className="mono" readOnly value={link} aria-label={label} onFocus={(e) => e.currentTarget.select()} />
           <button type="button" className="btn primary sm" onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</button>
         </div>
         <p className="iv-warn"><b>!</b>This link won&apos;t be shown again. Copy it now.</p>

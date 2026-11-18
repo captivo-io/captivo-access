@@ -5,7 +5,7 @@ import { Modal } from "@/app/(app)/_shell/modal";
 import { useZone, fmt, hm, dayKey } from "@/app/(app)/admin/audit/audit-zone";
 import { grantKpis, matchesFilter, limitDays, PERMANENT_HINT_AT, type GrantFilter } from "@/lib/access/grant-view";
 import type { GrantRowJSON, SiteTile } from "@/lib/access/grant-rows";
-import { GrantDialogBody, RoleChip, initials, type GrantUser } from "./grant-dialog";
+import { GrantDialogBody, RoleChip, initials, type GrantUser, type ExistingGrant } from "./grant-dialog";
 import { EditGrantBody } from "./edit-grant-dialog";
 import { TestAccessWidget } from "./test-access-widget";
 
@@ -71,7 +71,11 @@ export function GrantsView({
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
   const siteMap = useMemo(() => new Map(sites.map((s) => [s.id, s])), [sites]);
   const kpis = useMemo(() => grantKpis(rows), [rows]);
-  const has = useMemo(() => new Set(rows.filter((r) => r.state === "active" || r.state === "scheduled").map((r) => `${r.userId} ${r.siteId}`)), [rows]);
+  const existing = useMemo<ExistingGrant[]>(() => rows.filter((r) => r.state === "active" || r.state === "scheduled").map((r) => ({
+    userId: r.userId, siteId: r.siteId,
+    startsAt: r.startsAt ? Date.parse(r.startsAt) : null, endsAt: r.endsAt ? Date.parse(r.endsAt) : null, recurring: r.kind === "recurring",
+    label: r.kind === "recurring" ? `access ${r.days} ${r.hours}` : r.state === "scheduled" && r.startsAt ? `access from ${shortDate(r.startsAt)}` : r.endsAt ? `access until ${shortDate(r.endsAt)}` : "permanent access",
+  })), [rows]);
   const limit = limitDays(LIMIT_DAYS, maxGrantDays);
 
   const visible = useMemo(() => {
@@ -282,7 +286,7 @@ export function GrantsView({
 
       <Modal open={dialog !== null} onClose={() => setDialog(null)} title="New grant" subtitle="The user can reach these resources within this window. Every grant is logged." size="md">
         {dialog && (
-          <GrantDialogBody users={users} sites={sites} has={has} maxGrantDays={maxGrantDays}
+          <GrantDialogBody users={users} sites={sites} existing={existing} maxGrantDays={maxGrantDays}
             initialUserId={dialog.userId} initialSiteIds={dialog.siteIds}
             onClose={() => setDialog(null)}
             onDone={(n, userId) => {
@@ -465,3 +469,5 @@ function RowMenu({ r, c }: { r: GrantRowJSON; c: RowCtx }) {
     </div>
   );
 }
+
+const shortDate = (iso: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));

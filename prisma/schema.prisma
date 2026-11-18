@@ -38,6 +38,7 @@ model Tenant {
   supportHandoffs SupportHandoff[]
   connectorDays   ConnectorDay[]
   connectorEvents ConnectorEvent[]
+  passkeyResets   PasskeyReset[]
 
   users              User[]
   passkeys           Passkey[]
@@ -101,6 +102,8 @@ model User {
   sessions       Session[]
   mobileDevices  MobileDevice[]
   invitesCreated Invite[]       @relation("InviteCreator")
+  passkeyResets  PasskeyReset[] @relation("PasskeyResetFor")
+  resetsIssued   PasskeyReset[] @relation("PasskeyResetBy")
   grantsSubject  AccessGrant[]  @relation("GrantSubject")
   grantsApproved AccessGrant[]  @relation("GrantApprover")
   grantsCreated  AccessGrant[]  @relation("GrantCreator")
@@ -144,6 +147,26 @@ model TotpSecret {
   secret      String // AES-256-GCM encrypted (crypto.ts)
   confirmedAt DateTime? // set once enrollment is verified
 
+  @@index([tenantId])
+}
+
+// A one-time link an admin issues after removing someone's passkeys: the person
+// opens it and registers a new passkey for their existing account. Like an
+// invite, only the argon2 hash of the token is stored.
+model PasskeyReset {
+  id          String    @id @default(cuid())
+  tenantId    String    @default("default")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("PasskeyResetFor", fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String?
+  createdBy   User?     @relation("PasskeyResetBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
   @@index([tenantId])
 }
 

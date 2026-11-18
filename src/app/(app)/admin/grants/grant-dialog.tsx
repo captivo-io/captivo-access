@@ -6,9 +6,12 @@ import { parseDatetimeLocal } from "@/lib/time/datetime-local";
 import type { Schedule } from "@/lib/access/schedule";
 import type { SiteTile } from "@/lib/access/grant-rows";
 import { ROLE_LABELS } from "@/lib/auth/roles";
+import { grantCovers, type CoverWindow } from "@/lib/access/grant-cover";
 import type { Role } from "@/generated/prisma/enums";
 
 export type GrantUser = { id: string; name: string; email: string; role: Role };
+/** A live grant the person already has, described ("access until Nov 20, 18:00", "permanent access"). */
+export type ExistingGrant = CoverWindow & { userId: string; siteId: string; label: string };
 type Duration = "1h" | "4h" | "1d" | "1w" | "perm" | "custom";
 
 const DURATIONS: { key: Duration; label: string; hours?: number }[] = [
@@ -42,6 +45,7 @@ function errorMessage(code: string | undefined): string {
     case "grant_requires_end": return "Policy requires an end date: permanent grants aren't allowed here.";
     case "grant_exceeds_max": return "This grant is longer than the maximum duration the policy allows.";
     case "forbidden": return "You can't grant access.";
+    case "already_covered": return "An existing grant already covers this whole window for one of these resources.";
     default: return "Couldn't grant access. Try again.";
   }
 }
@@ -51,12 +55,12 @@ function errorMessage(code: string | undefined): string {
  * resources, a window and optional recurring hours. One grant per resource.
  */
 export function GrantDialogBody({
-  users, sites, has, maxGrantDays, initialUserId, initialSiteIds, onDone, onClose,
+  users, sites, existing, maxGrantDays, initialUserId, initialSiteIds, onDone, onClose,
 }: {
   users: GrantUser[];
   sites: SiteTile[];
-  /** "userId siteId" pairs that already have a live grant. */
-  has: Set<string>;
+  /** The live grants people already have. */
+  existing: ExistingGrant[];
   maxGrantDays: number;
   initialUserId?: string | null;
   initialSiteIds?: string[];
@@ -90,8 +94,23 @@ export function GrantDialogBody({
   const allowed = (d: (typeof DURATIONS)[number]) =>
     maxGrantDays <= 0 || d.key === "custom" || (d.hours !== undefined && d.hours <= maxGrantDays * 24);
   const durLabel = duration === "custom" ? "until the end you pick" : DURATIONS.find((d) => d.key === duration)!.label;
-  const ready = !!user && siteIds.length > 0;
-  const summary = ready
+  // The window this dialog would grant, to compare with what the person has.
+  const [openedAt] = useState(() => Date.now());
+  const proposed: CoverWindow = useMemo(() => {
+    const start = later ? parseDatetimeLocal(from, tz)?.getTime() ?? null : null;
+    const base = start ?? openedAt;
+    const end = duration === "perm" ? null
+      : duration === "custom" ? parseDatetimeLocal(until, tz)?.getTime() ?? null
+        : base + DURATIONS.find((d) => d.key === duration)!.hours! * 3_600_000;
+    return { startsAt: start, endsAt: end, recurring };
+  }, [later, from, duration, until, recurring, tz, openedAt]);
+  const mine = (siteId: string) => existing.filter((g) => g.userId === userId && g.siteId === siteId);
+  const coveredBy = (siteId: string) => mine(siteId).find((g) => grantCovers(g, proposed, openedAt));
+  const coveredPicks = siteIds.filter((id) => coveredBy(id));
+  const ready = !!user && siteIds.length > 0 && coveredPicks.length === 0;
+  const summary = coveredPicks.length
+    ? `${coveredPicks.map((id) => sites.find((x) => x.id === id)?.name).join(", ")}: already covered by an existing grant. Untick it, or change the window.`
+    : ready
     ? `${user!.name || user!.email} · ${siteIds.length} ${siteIds.length === 1 ? "resource" : "resources"} · ${durLabel} · ${later ? "starts later" : "starts now"}`
     : "Pick a user and at least one resource.";
 
@@ -159,12 +178,18 @@ export function GrantDialogBody({
           {shown.length === 0 && <div className="rq-empty">No resource matches.</div>}
           {shown.map((s) => {
             const on = siteIds.includes(s.id);
+            const cover = userId ? coveredBy(s.id) : undefined;
+            const had = userId ? mine(s.id) : [];
             return (
-              <label key={s.id} className={on ? "gd-res-row on" : "gd-res-row"}>
-                <input type="checkbox" checked={on} onChange={() => setSiteIds((v) => (on ? v.filter((x) => x !== s.id) : [...v, s.id]))} />
+              <label key={s.id} className={["gd-res-row", on && "on", cover && "covered"].filter(Boolean).join(" ")}>
+                <input type="checkbox" checked={on} disabled={!!cover && !on} onChange={() => setSiteIds((v) => (on ? v.filter((x) => x !== s.id) : [...v, s.id]))} />
                 <span className={s.remote ? "rs-proto sm remote" : "rs-proto sm"} aria-hidden="true">{s.proto}</span>
                 <span className="rq-opt-main"><b>{s.name}</b>{s.host && <span className="mono t-muted">{s.host}</span>}</span>
-                {userId && has.has(`${userId} ${s.id}`) && <span className="cell-sub">already has access</span>}
+                {cover ? (
+                  <span className={on ? "gd-has t-bad" : "gd-has"}>has {cover.label} · nothing to add</span>
+                ) : had.length > 0 ? (
+                  <span className="gd-has">has {had.map((g) => g.label).join(" + ")}</span>
+                ) : null}
               </label>
             );
           })}

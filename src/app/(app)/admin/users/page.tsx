@@ -70,6 +70,7 @@ async function PeoplePageImpl({ searchParams }: { searchParams: Promise<{ q?: st
         roles: centre ? consoleRolesFor(centerRoleOf(u.centerRole)) : ASSIGNABLE_ROLES,
         canToggle: !isSelf && !centre,
         canDelete: !isSelf && !centre && u.role !== "ADMIN",
+        canReset: !isSelf && !centre && u.status === "ACTIVE",
       };
     });
 

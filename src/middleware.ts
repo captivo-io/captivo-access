@@ -9,7 +9,7 @@ const SESSION_COOKIE = "ca_session";
 const SUPPORT_COOKIE = "ca_support"; // platform support session on a tenant host (see lib/support/session.ts)
 
 const PROTECTED = ["/settings", "/admin"]; // under (app)
-const PUBLIC = ["/login", "/recover", "/setup", "/invite", "/api/auth", "/api/health"];
+const PUBLIC = ["/login", "/recover", "/setup", "/invite", "/reset", "/api/auth", "/api/health"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

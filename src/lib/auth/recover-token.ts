@@ -14,8 +14,9 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-export async function setRecoverToken(userId: string): Promise<void> {
-  const jwt = await new SignJWT({ userId, purpose: "recover" })
+/** `resetId` binds the cookie to an admin-issued reset link, consumed when the new passkey is saved. */
+export async function setRecoverToken(userId: string, resetId?: string): Promise<void> {
+  const jwt = await new SignJWT({ userId, purpose: "recover", ...(resetId ? { resetId } : {}) })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("10m")
     .sign(secret());
@@ -23,12 +24,16 @@ export async function setRecoverToken(userId: string): Promise<void> {
 }
 
 export async function readRecoverToken(): Promise<string | null> {
+  return (await readRecoverClaims())?.userId ?? null;
+}
+
+export async function readRecoverClaims(): Promise<{ userId: string; resetId: string | null } | null> {
   const c = (await cookies()).get(COOKIE)?.value;
   if (!c) return null;
   try {
     const { payload } = await jwtVerify(c, secret());
     if (payload.purpose !== "recover" || typeof payload.userId !== "string") return null;
-    return payload.userId;
+    return { userId: payload.userId, resetId: typeof payload.resetId === "string" ? payload.resetId : null };
   } catch {
     return null;
   }
