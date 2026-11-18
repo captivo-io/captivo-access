@@ -36,7 +36,8 @@ export async function getActivityFeed(limit = 8): Promise<ActivityItem[]> {
       // reason is one proxied HTTP request (Proxmox polls many per second). These
       // stay in the audit log for compliance, but the feed shows the one
       // session_open ("connected") the proxy now emits per web session instead.
-      where: { NOT: { AND: [{ decision: "ALLOW" }, { OR: [{ reason: null }, { reason: "" }] }] } },
+      // A recording replay's asset loads are the same kind of noise.
+      where: { NOT: { AND: [{ decision: "ALLOW" }, { OR: [{ reason: null }, { reason: "" }, { reason: "replay" }] }] } },
       orderBy: { timestamp: "desc" }, take: limit,
       select: { id: true, timestamp: true, decision: true, userEmail: true, siteName: true, host: true, reason: true },
     }),
