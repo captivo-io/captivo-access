@@ -163,7 +163,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [secret, setSecret] = useState("");
   // Session rules.
   const [record, setRecord] = useState(site?.recordSessions ?? false);
-  const [keystrokes, setKeystrokes] = useState(site?.keystrokeLogging ?? false);
+  // A new remote desktop or SSH resource logs keystrokes with its recording
+  // unless the admin turns it off (null = not chosen yet); a saved one keeps its own.
+  const [keystrokeChoice, setKeystrokeChoice] = useState<boolean | null>(site ? site.keystrokeLogging : null);
   const [clipboard, setClipboard] = useState(site?.clipboardMode ?? "inherit");
   const [ftWeb, setFtWeb] = useState(site && site.accessMode !== "GATEWAY" ? site.fileTransferMode ?? "inherit" : "inherit");
   const [guac, setGuac] = useState<GuacFields>(paramsToGuacFields(parseGuacParams(vault?.guacParams)));
@@ -268,6 +270,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const recordLock = recordToggleLock(ctx.recordingMode);
   const effRecord = recordLock.locked ? !!recordLock.forcedValue : record;
   const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off";
+  const keystrokes = keystrokeChoice ?? remote;
+  const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -319,6 +323,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
   const chips: { text: string; tone: string }[] = [];
   if (effRecord && ctx.recordingEnabled) chips.push({ text: "Recording on", tone: "bad" });
+  if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
   if (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault)) chips.push({ text: "Watermark", tone: "violet" });
   if (clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
@@ -446,9 +451,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             </Row>
           )}
           {showKeystrokes && (
-            <Row title="Keystroke log" custom={keystrokes && ctx.keystrokeMode !== "required"} desc={ctx.keystrokeMode === "required" ? "Required by the Policy page." : "Typed text, searchable later; password prompts stay hidden."}>
+            <Row title="Keystroke log" custom={ctx.keystrokeMode !== "required" && keystrokes !== remote} desc={ctx.keystrokeMode === "required" ? "Required by the Policy page." : "Typed text, searchable later; password prompts stay hidden."}>
               <button type="button" role="switch" aria-checked={ctx.keystrokeMode === "required" || keystrokes} aria-label="Keystroke log" disabled={ctx.keystrokeMode === "required"}
-                className={ctx.keystrokeMode === "required" || keystrokes ? "toggle on" : "toggle"} onClick={() => setKeystrokes(!keystrokes)}><span /></button>
+                className={ctx.keystrokeMode === "required" || keystrokes ? "toggle on" : "toggle"} onClick={() => setKeystrokeChoice(!keystrokes)}><span /></button>
             </Row>
           )}
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>

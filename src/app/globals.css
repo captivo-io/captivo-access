@@ -1980,3 +1980,11 @@ button.rs-cell{cursor:pointer;}
 .gd-has{font-size:11.5px;color:var(--muted);white-space:nowrap;text-align:right;}
 .gd-has.t-bad{color:var(--bad);}
 .gd-res-row.covered:not(.on){opacity:.55;cursor:not-allowed;}
+.gd-ufind{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.gd-ufind .ma-search{flex:1 1 220px;}
+.gd-ucount{font-size:12px;}
+.gd-user.hi{border-color:rgba(var(--p-rgb),.6);}
+.gd-users.compact{grid-template-columns:1fr;gap:4px;max-height:280px;}
+.gd-users.compact .gd-user{padding:6px 10px;border-radius:9px;}
+.gd-users.compact .gd-user-t{flex-direction:row;align-items:center;justify-content:space-between;gap:12px;}
+.gd-users.compact .gr-av.sm{width:26px;height:26px;font-size:10.5px;}

@@ -27,6 +27,7 @@ export interface SiteRow {
   connectorId: string;
   insecureSkipVerify: boolean;
   recordSessions: boolean;
+  keystrokeLogging: boolean;
   clipboardMode: string | null;
   connectorName: string;
   connectorOnline: boolean;
@@ -70,15 +71,20 @@ function targetHost(s: SiteRow): string | null {
  */
 export function SitesView({
   sites,
-  hostSuffix,
+  recordingEnabled,
+  recordingMode = "per_resource",
+  keystrokeMode = "per_resource",
   initialQuery = "",
   initialStatus = "all",
 }: {
   sites: SiteRow[];
   connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
   recordingEnabled: boolean;
+  /** Policy: off / per_resource / required, for the "keystrokes off" note on a card. */
+  recordingMode?: string;
+  keystrokeMode?: string;
   /** ".acme.cloud.captivo.io": a web resource's public address is its label plus this. */
-  hostSuffix: string | null;
+  hostSuffix?: string | null;
   /** From the address: Connectors links here with ?q=<connector> or ?status=down. */
   initialQuery?: string;
   initialStatus?: Status;
@@ -197,7 +203,10 @@ export function SitesView({
     return textMatch([s.name, publicHost(s), s.connectorName, target(s), s.description, s.protocol], q);
   });
   const avg = counts.avg == null ? "—" : counts.avg < 10 ? counts.avg.toFixed(1) : String(Math.round(counts.avg));
-  const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
+  // Recorded, but typed keys not logged: easy to miss when the resource was set up.
+  const keysOff = (s: SiteRow) => recordingEnabled && keystrokeMode === "per_resource"
+    && (recordingMode === "required" || (recordingMode !== "off" && s.recordSessions)) && !s.keystrokeLogging;
+  const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, keysOff, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
 
   return (
     <div className="rs">
@@ -276,6 +285,7 @@ type Ctx = {
   testOne: (s: SiteRow) => Promise<void>;
   onIcon: (s: SiteRow) => void;
   logoBust: Record<string, number>;
+  keysOff: (s: SiteRow) => boolean;
   onDeleted: (name: string) => void;
 };
 
@@ -423,7 +433,8 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
       <Route s={s} h={h} />
       {h === "down" && s.probeDetail && <p className="rs-why">{s.probeDetail}</p>}
       <div className="rs-foot">
-        <span className="rs-meta"><NavIcon name="users" size={14} /> {s.grantCount} user{s.grantCount === 1 ? "" : "s"}{c.checked(s) ? ` · ${c.checked(s)}` : ""}</span>
+        <span className="rs-meta"><NavIcon name="users" size={14} /> {s.grantCount} user{s.grantCount === 1 ? "" : "s"}{c.checked(s) ? ` · ${c.checked(s)}` : ""}
+          {c.keysOff(s) && <span className="rs-keysoff" title="Sessions are recorded, but typed keys aren't logged. Turn on the keystroke log under Edit.">· keystrokes off</span>}</span>
         <TestButton s={s} c={c} />
         <Menu s={s} c={c} />
       </div>

@@ -167,3 +167,4 @@
 .sv-site-ic{vertical-align:-5px;margin-right:6px;}
 .rc-line > .rc-site-ic{margin-right:2px;}
 .au-res > .ri,.gr-res > .ri,.sv-recent-row > .ri{flex:none;}
+.rs-keysoff{color:var(--warn);margin-left:4px;}

@@ -25,7 +25,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
   const [ws, users, sites, rows, pending, maxGrantDays] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findMany({
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, company: true, status: true },
       orderBy: [{ role: "desc" }, { name: "asc" }], // connect-only roles (Vendor/Staff) first, Admin last
     }),
     db.site.findMany({ select: SITE_TILE_SELECT, orderBy: { name: "asc" } }),
