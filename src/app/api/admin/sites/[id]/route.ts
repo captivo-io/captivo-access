@@ -102,11 +102,11 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   }
   await db.$transaction(async (tx) => {
     await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, accessMode: "GATEWAY", ...logoData } });
-    await tx.vaultCredential.upsert({
-      where: { siteId: id },
-      create: { siteId: id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...(secretUpdate as StoredSecret), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
-      update: { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...secretUpdate, guacParams: v.guacParams as Prisma.InputJsonValue },
-    });
+    // Not an upsert: Prisma validates the create branch even when the row
+    // exists, and a kept secret leaves it without the required `secret`.
+    const fields = { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, guacParams: v.guacParams as Prisma.InputJsonValue };
+    if (hadVault) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate } });
+    else await tx.vaultCredential.create({ data: { siteId: id, ...fields, ...(secretUpdate as StoredSecret), secretKind: "PASSWORD" } });
   });
   // A kept legacy secret is sealed for the (possibly new) target right away.
   await sealLegacyCredentials({ siteId: id });
