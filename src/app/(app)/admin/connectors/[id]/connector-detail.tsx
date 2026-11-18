@@ -1,4 +1,5 @@
 "use client";
+import { CleanupHostButton } from "../cleanup-host";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
@@ -137,7 +138,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
           <UpdateConnectorButton command={updateCommand} managerUrlIsLocal={managerUrlIsLocal} label="Update now" className="btn sm ink" />
         </div>
       )}
-      {revoked && <div className="cn-band bad"><span className="cn-band-t">This connector was revoked. Its tunnels are closed and it can&apos;t be re-paired; add a new connector instead.</span></div>}
+      {revoked && <div className="cn-band bad"><span className="cn-band-t">This connector was revoked. Its tunnels are closed and it can&apos;t be re-paired; add a new connector instead.</span><CleanupHostButton /></div>}
 
       <div className="cd-tabs" role="tablist" aria-label="Connector">
         {(Object.keys(TAB_LABEL) as Tab[]).map((k) => {

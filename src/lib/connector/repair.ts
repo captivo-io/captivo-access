@@ -127,3 +127,25 @@ export function buildReconfigureCommand(code: string, managerUrl: string, tunnel
 export function buildConnectorUpdateCommand(managerUrl: string, tunnelUrl: string): string {
   return runCommand(managerUrl, tunnelUrl);
 }
+
+// Everything runCommand leaves on a host, for taking a connector off it for
+// good. Keep in step with runCommand when a container, volume or network is added.
+const HOST_CONTAINERS = ["access-connector", "captivo-guacd", "captivo-kasm"];
+const HOST_VOLUMES = [CONNECTOR_DATA_VOLUME, "captivo_guacd_recordings", "captivo_guacd_logs", "captivo_guacd_drive", "captivo_kasm_logs", "captivo_kasm_secret"];
+const HOST_NETWORKS = [GATEWAY_NETWORK, ISOLATED_NETWORK];
+
+/**
+ * Removes a connector from its host: containers, volumes (token, recordings,
+ * recording and vault keys), networks and images. One command per line, so a
+ * name the host lacks (an older install) fails on its own and the rest still run.
+ */
+export function buildConnectorCleanupCommand(): string {
+  const images = (["connector", "guacd", "kasm-browser"] as const).map((n) => accessImage(n));
+  return [
+    `docker rm -f ${HOST_CONTAINERS.join(" ")}`,
+    `docker volume rm ${HOST_VOLUMES.join(" ")}`,
+    `docker network rm ${HOST_NETWORKS.join(" ")}`,
+    `docker image rm ${images.join(" ")}`,
+    `docker image prune -f --filter ${PRUNE_LABEL_FILTER}`,
+  ].join("\n");
+}

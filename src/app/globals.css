@@ -1368,6 +1368,7 @@ button.rs-cell{cursor:pointer;}
 .cn-band.warn{background:rgba(var(--warn-rgb),.09);border:1px solid rgba(var(--warn-rgb),.3);}
 .cn-band.bad{background:rgba(var(--bad-rgb),.07);border:1px solid rgba(var(--bad-rgb),.3);justify-content:space-between;}
 .cn-band-t{flex:1;min-width:220px;}
+.cn-band-acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .cn-chip{padding:3px 8px;border-radius:6px;background:rgba(var(--warn-rgb),.16);color:var(--warn);font-size:12px;font-weight:600;white-space:nowrap;}
 .cn-notes{font-size:13px;color:var(--fg);text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(var(--ink-rgb),.3);}
 .cn-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:rgba(var(--ink-rgb),.07);border:1px solid rgba(var(--ink-rgb),.07);border-radius:12px;overflow:hidden;}
