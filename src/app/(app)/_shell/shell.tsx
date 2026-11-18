@@ -7,6 +7,7 @@ import { PlatformAnnouncement } from "@/components/platform-announcement";
 import { ROLE_LABELS } from "@/lib/auth/roles";
 import { Sidebar, type ShellView } from "./sidebar";
 import { AppHeader } from "./app-header";
+import type { AccountState } from "@/lib/auth/account-state";
 
 /**
  * The one app shell of the design hand-off, for the console and for a person's
@@ -22,6 +23,7 @@ export function Shell(props: {
   workspace: ShellWorkspace;
   user: { name: string; email: string };
   accountUrl: string | null;
+  account: AccountState;
   banners?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -35,6 +37,7 @@ export function Shell(props: {
         workspace={props.workspace}
         user={props.user}
         accountUrl={props.accountUrl}
+        account={props.account}
       />
       <div className="shell-main">
         <AppHeader model={props.model} records={props.records} role={props.role} workspace={props.workspace.name} />

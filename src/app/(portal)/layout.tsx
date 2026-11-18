@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/roles";
 import { getSearchRecords } from "@/lib/search";
 import { buildNavModel } from "@/lib/nav/model";
 import { getShellData } from "@/lib/nav/shell-data";
+import { accountState } from "@/lib/auth/account-state";
 import { getProductMenu } from "@/lib/products/switcher-data";
 import { resolvedDisplayTimezone } from "@/lib/settings/timezone";
 import { TimezoneProvider } from "@/app/(app)/_shell/timezone-context";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 async function PortalLayoutImpl({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   const tz = await resolvedDisplayTimezone(user.id);
-  const { counts, workspace } = await getShellData(user);
+  const [{ counts, workspace }, account] = await Promise.all([getShellData(user), accountState(user.id)]);
   const model = buildNavModel(user.role, counts);
   const records = can(user.role, "read_console") ? await getSearchRecords() : [];
   const products = await getProductMenu();
@@ -33,6 +34,7 @@ async function PortalLayoutImpl({ children }: { children: React.ReactNode }) {
         workspace={workspace}
         user={{ name: user.name, email: user.email }}
         accountUrl={captivoAccountUrl()}
+        account={account}
       >
         {children}
       </Shell>

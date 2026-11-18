@@ -48,6 +48,8 @@ describe("buildNavModel", () => {
     const m = buildNavModel("ADMIN", { pending: 0, unread: 0 });
     expect(navLabel(m, "/")).toBe("Console");
     expect(navLabel(m, "/admin/recordings/abc")).toBe("Recordings");
+    expect(navLabel(m, "/admin/notifications")).toBe("Notifications");
+    expect(navLabel(m, "/settings/recovery")).toBe("My account");
     expect(navLabel(m, "/access")).toBe("My access");
     expect(navLabel(m, "/nowhere")).toBeNull();
   });

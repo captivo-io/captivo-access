@@ -112,5 +112,13 @@ export function navLabel(model: NavModel, pathname: string): string | null {
       if (hit && (!best || it.href.length > best.href.length)) best = it;
     }
   }
-  return best?.label ?? null;
+  if (best) return best.label;
+  // Pages reached from the header and the account menu rather than the sidebar.
+  const off = OFF_NAV.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return off?.[1] ?? null;
 }
+
+const OFF_NAV: [string, string][] = [
+  ["/admin/notifications", "Notifications"],
+  ["/settings", "My account"],
+];
