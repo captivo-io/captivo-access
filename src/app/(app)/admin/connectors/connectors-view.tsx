@@ -6,7 +6,7 @@ import { textMatch } from "@/lib/table/filter";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { UpdateConnectorButton } from "./update-connector-button";
 import { RepairConnectorButton } from "./repair-connector-button";
-import { DeleteConnectorButton } from "./delete-connector-button";
+import { DeleteConnectorButton, DeleteWithResourcesButton } from "./delete-connector-button";
 import { CleanupHostButton } from "./cleanup-host";
 import type { DayState, EventLevel } from "@/lib/connector/history";
 
@@ -209,7 +209,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
           <span>This connector&apos;s access is revoked; it can no longer connect.</span>
           <span className="cn-band-acts">
             <CleanupHostButton />
-            {c.resources === 0 ? <DeleteConnectorButton id={c.id} name={c.name} /> : <span className="t-muted">Remove its {c.resources} resource{c.resources === 1 ? "" : "s"} under Resources to delete it.</span>}
+            {c.resources === 0 ? <DeleteConnectorButton id={c.id} name={c.name} /> : <DeleteWithResourcesButton id={c.id} name={c.name} resources={c.resources} />}
           </span>
         </div>
       ) : (

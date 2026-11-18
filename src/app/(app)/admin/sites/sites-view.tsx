@@ -25,6 +25,8 @@ export interface SiteRow {
   iconColor: string | null;
   logoBg: string | null;
   connectorId: string;
+  /** A remote-desktop password sealed to its connector: it opens only there, so a bulk move leaves it. */
+  sealed: boolean;
   insecureSkipVerify: boolean;
   recordSessions: boolean;
   keystrokeLogging: boolean;
@@ -71,6 +73,7 @@ function targetHost(s: SiteRow): string | null {
  */
 export function SitesView({
   sites,
+  connectors,
   recordingEnabled,
   recordingMode = "per_resource",
   keystrokeMode = "per_resource",
@@ -131,6 +134,11 @@ export function SitesView({
   // The stored hostname is already the full public host (suffix included).
   const publicHost = (s: SiteRow) => (!isRemote(s) && s.hostname ? s.hostname : null);
   const [iconFor, setIconFor] = useState<SiteRow | null>(null);
+  // Bulk selection: ids, read through `sites` so a deleted resource drops out.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulk, setBulk] = useState<"delete" | "move" | null>(null);
+  const picked = sites.filter((s) => selected.has(s.id));
+  const select = (id: string, on: boolean) => setSelected((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
   const [logoBust, setLogoBust] = useState<Record<string, number>>({});
 
   async function test(s: SiteRow): Promise<boolean | null> {
@@ -206,7 +214,14 @@ export function SitesView({
   // Recorded, but typed keys not logged: easy to miss when the resource was set up.
   const keysOff = (s: SiteRow) => recordingEnabled && keystrokeMode === "per_resource"
     && (recordingMode === "required" || (recordingMode !== "off" && s.recordSessions)) && !s.keystrokeLogging;
-  const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, keysOff, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
+  const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, keysOff, selected, onSelect: select, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
+  const allShown = shown.length > 0 && shown.every((s) => selected.has(s.id));
+  function bulkDone(msg: string) {
+    setBulk(null);
+    setSelected(new Set());
+    setToast({ msg, ok: true });
+    router.refresh();
+  }
 
   return (
     <div className="rs">
@@ -233,6 +248,10 @@ export function SitesView({
       )}
 
       <div className="rs-tools">
+        <label className="rs-selall">
+          <input type="checkbox" checked={allShown} disabled={shown.length === 0} onChange={() => setSelected((cur) => { const n = new Set(cur); for (const s of shown) { if (allShown) n.delete(s.id); else n.add(s.id); } return n; })} aria-label="Select all shown resources" />
+          <span>Select all</span>
+        </label>
         <label className="ma-search rs-search">
           <NavIcon name="search" size={16} />
           <input type="search" placeholder="Search name, address, connector or target…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search resources" />
@@ -272,6 +291,20 @@ export function SitesView({
       <Modal open={iconFor !== null} onClose={() => setIconFor(null)} title="Change icon" subtitle={iconFor ? `${iconFor.name} · shown on cards, in lists and in the user portal.` : undefined} size="lg">
         {iconFor && <IconDialog s={iconFor} onClose={() => setIconFor(null)} onSaved={(n) => { setLogoBust((b) => ({ ...b, [iconFor.id]: Date.now() })); setIconFor(null); setToast({ msg: `Icon saved for ${n}`, ok: true }); router.refresh(); }} />}
       </Modal>
+      {picked.length > 0 && (
+        <div className="gr-bulk" role="region" aria-label="Selected resources">
+          <span className="gr-bulk-n">{picked.length} {picked.length === 1 ? "resource" : "resources"} selected</span>
+          <button type="button" className="gr-bulk-b" onClick={() => setBulk("move")}>Move to connector…</button>
+          <button type="button" className="gr-bulk-b danger" onClick={() => setBulk("delete")}>Delete</button>
+          <button type="button" className="gr-bulk-x" aria-label="Clear selection" onClick={() => setSelected(new Set())}>×</button>
+        </div>
+      )}
+      <Modal open={bulk === "delete"} onClose={() => setBulk(null)} title={`Delete ${plural(picked.length, "resource")}?`} size="md">
+        {bulk === "delete" && <BulkDelete sites={picked} onCancel={() => setBulk(null)} onDone={(n) => bulkDone(`${plural(n, "resource")} deleted`)} />}
+      </Modal>
+      <Modal open={bulk === "move"} onClose={() => setBulk(null)} title="Move to another connector" size="md">
+        {bulk === "move" && <BulkMove sites={picked} connectors={connectors} onCancel={() => setBulk(null)} onDone={bulkDone} />}
+      </Modal>
       {toast && <div className={toast.ok ? "toast" : "toast warn"} role="status"><span aria-hidden="true">{toast.ok ? "✓" : "!"}</span> {toast.msg}</div>}
     </div>
   );
@@ -286,8 +319,117 @@ type Ctx = {
   onIcon: (s: SiteRow) => void;
   logoBust: Record<string, number>;
   keysOff: (s: SiteRow) => boolean;
+  selected: Set<string>;
+  onSelect: (id: string, on: boolean) => void;
   onDeleted: (name: string) => void;
 };
+
+function Pick({ s, c }: { s: SiteRow; c: Ctx }) {
+  const on = c.selected.has(s.id);
+  return <input type="checkbox" className="rs-pick" checked={on} onChange={() => c.onSelect(s.id, !on)} aria-label={`Select ${s.name}`} />;
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** Names the first few, then a count: the list is what the person is about to change. */
+function NameList({ sites }: { sites: SiteRow[] }) {
+  const head = sites.slice(0, 8);
+  return (
+    <ul className="rs-bulk-list">
+      {head.map((s) => <li key={s.id}><b>{s.name}</b> <span className="t-muted">· {s.connectorName}</span></li>)}
+      {sites.length > head.length && <li className="t-muted">and {sites.length - head.length} more</li>}
+    </ul>
+  );
+}
+
+function BulkDelete({ sites, onCancel, onDone }: { sites: SiteRow[]; onCancel: () => void; onDone: (n: number) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const grants = sites.reduce((n, s) => n + s.grantCount, 0);
+  async function go() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/sites/bulk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "delete", ids: sites.map((s) => s.id) }) });
+      const r = (await res.json().catch(() => ({}))) as { ok?: boolean; deleted?: number };
+      if (res.ok && r.ok) { onDone(r.deleted ?? sites.length); return; }
+      setErr("Couldn't delete the resources. Try again.");
+    } catch {
+      setErr("Couldn't delete the resources. Try again.");
+    }
+    setBusy(false);
+  }
+  return (
+    <div className="rq">
+      <p className="cell-sub" style={{ marginTop: 0 }}>
+        {grants > 0 ? <>Their <b>{plural(grants, "grant")}</b> go with them, and people lose access at once.</> : "None of them has a grant."} Recordings of past sessions stay.
+      </p>
+      <NameList sites={sites} />
+      {err && <p className="notice error" role="alert">{err}</p>}
+      <div className="rq-foot">
+        <span className="rq-status" />
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn danger" disabled={busy} onClick={() => void go()}>{busy ? "Deleting…" : `Delete ${plural(sites.length, "resource")}`}</button>
+      </div>
+    </div>
+  );
+}
+
+function BulkMove({ sites, connectors, onCancel, onDone }: { sites: SiteRow[]; connectors: { id: string; name: string }[]; onCancel: () => void; onDone: (msg: string) => void }) {
+  const from = new Set(sites.map((s) => s.connectorId));
+  // Moving everything onto the connector they already share would do nothing.
+  const options = connectors.filter((c) => !(from.size === 1 && from.has(c.id)));
+  const [to, setTo] = useState(options[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const sealed = sites.filter((s) => s.accessMode === "GATEWAY" && s.sealed && s.connectorId !== to);
+  const movable = sites.filter((s) => s.connectorId !== to && !sealed.includes(s));
+  async function go() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/sites/bulk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "move", ids: movable.map((s) => s.id), connectorId: to }) });
+      const r = (await res.json().catch(() => ({}))) as { ok?: boolean; moved?: number };
+      if (res.ok && r.ok) {
+        const name = connectors.find((c) => c.id === to)?.name ?? "the connector";
+        onDone(`${plural(r.moved ?? movable.length, "resource")} moved to ${name}`);
+        return;
+      }
+      setErr("Couldn't move the resources. Try again.");
+    } catch {
+      setErr("Couldn't move the resources. Try again.");
+    }
+    setBusy(false);
+  }
+  return (
+    <div className="rq">
+      {options.length === 0 ? (
+        <p className="cell-sub" style={{ marginTop: 0 }}>There is no other connector to move them to. Add one under Connectors first.</p>
+      ) : (
+        <>
+          <label className="rs-bulk-to">
+            <span>Move to</span>
+            <select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
+              {options.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          {movable.length > 0 && <><p className="cell-sub">{plural(movable.length, "resource")} will be served by the new connector, which must be able to reach their addresses.</p><NameList sites={movable} /></>}
+          {sealed.length > 0 && (
+            <p className="notice warn">
+              {sealed.length === 1 ? "1 remote-desktop resource keeps its" : `${sealed.length} remote-desktop resources keep their`} password sealed to {sealed.length === 1 ? "its" : "their"} connector; edit each one to move it and type the password again.
+            </p>
+          )}
+        </>
+      )}
+      {err && <p className="notice error" role="alert">{err}</p>}
+      <div className="rq-foot">
+        <span className="rq-status" />
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn primary" disabled={busy || movable.length === 0 || !to} onClick={() => void go()}>{busy ? "Moving…" : `Move ${plural(movable.length, "resource")}`}</button>
+      </div>
+    </div>
+  );
+}
 
 function SumCell({ dot, label, value, unit, sub, on, onClick }: { dot: string; label: string; value: string; unit?: string; sub: string; on: boolean; onClick?: () => void }) {
   const inner = (
@@ -414,8 +556,9 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
   const pub = c.publicHost(s);
   const proto = protocolOf(s);
   return (
-    <article className="rs-card">
+    <article className={c.selected.has(s.id) ? "rs-card sel" : "rs-card"}>
       <div className="rs-head">
+        <Pick s={s} c={c} />
         <button type="button" className="rs-tile" onClick={() => c.onIcon(s)} aria-label={`Change the icon of ${s.name}`} title="Change icon"><Tile s={s} c={c} size={42} /></button>
         <div className="rs-id">
           <div className="rs-name">
@@ -447,8 +590,9 @@ function ResourceRow({ s, c }: { s: SiteRow; c: Ctx }) {
   const pub = c.publicHost(s);
   const t = target(s);
   return (
-    <div className="rs-lrow">
+    <div className={c.selected.has(s.id) ? "rs-lrow sel" : "rs-lrow"}>
       <span className="rs-lres">
+        <Pick s={s} c={c} />
         <button type="button" className="rs-tile" onClick={() => c.onIcon(s)} aria-label={`Change the icon of ${s.name}`} title="Change icon"><Tile s={s} c={c} size={30} /></button>
         <span className="rs-lres-t">
           <b title={s.name}>{s.name}</b>
