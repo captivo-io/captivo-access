@@ -176,6 +176,22 @@ func main() {
 		}
 		writeJSON(w, http.StatusOK, ResolveUser(reg.Get(body.ConnectorID), body.LdapConfig, body.Email))
 	})
+	in.HandleFunc("/ldap-groups", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			ConnectorID string `json:"connectorId"`
+			Query       string `json:"query"`
+			LdapConfig
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
+			return
+		}
+		writeJSON(w, http.StatusOK, SearchGroups(reg.Get(body.ConnectorID), body.LdapConfig, body.Query))
+	})
 	in.HandleFunc("/connector-telemetry", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {
 			http.Error(w, "forbidden", http.StatusForbidden)

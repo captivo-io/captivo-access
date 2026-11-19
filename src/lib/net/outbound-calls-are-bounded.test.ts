@@ -149,7 +149,7 @@ describe("the slow-route budget outlasts what those routes wait on", () => {
     // The list is the audit's result. A new route that reaches a customer's network
     // must join it deliberately, not by being forgotten.
     const SLOW = [
-      "admin/directory/test", "admin/directory/resolve-preview",
+      "admin/directory/test", "admin/directory/resolve-preview", "admin/directory/groups",
       "admin/sites/[id]/test", "admin/sites/[id]/verify-domain",
       "admin/smtp/test", "admin/sso/test", "admin/domain/verify", "admin/updates/check",
       "auth/oidc/callback", "isolated/files/download", "isolated/files/upload",

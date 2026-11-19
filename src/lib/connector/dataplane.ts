@@ -137,6 +137,39 @@ export async function resolveDirectoryUser(input: {
   return res.json();
 }
 
+export interface DirectoryGroup { name: string; dn: string; description?: string }
+
+// searchDirectoryGroups asks the data-plane for directory groups whose name
+// contains `query` (at most 25), for the Group mappings picker. Same channel and
+// timeout as resolveDirectoryUser; any failure is { error } so the admin can
+// still type the group by hand.
+export async function searchDirectoryGroups(input: {
+  connectorId: string;
+  host: string;
+  port: number;
+  security: "PLAIN" | "STARTTLS" | "LDAPS";
+  insecureSkipVerify: boolean;
+  caCertPem: string;
+  baseDN: string;
+  bindDN: string;
+  bindPassword: string;
+  query: string;
+}): Promise<{ groups: DirectoryGroup[]; truncated?: boolean; error?: string }> {
+  const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
+  const secret = process.env.DATAPLANE_SECRET || "";
+  const res = await fetch(`${base}/ldap-groups`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-dataplane-secret": secret },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(directoryResolveTimeoutMs()),
+  }).catch(() => null);
+  if (!res) return { groups: [], error: "The directory did not answer in time." };
+  if (!res.ok) return { groups: [], error: "The directory search is not available." };
+  const body = (await res.json().catch(() => null)) as { groups?: DirectoryGroup[]; truncated?: boolean; error?: string } | null;
+  if (!body) return { groups: [], error: "The directory search is not available." };
+  return { groups: body.groups ?? [], truncated: body.truncated, error: body.error || undefined };
+}
+
 // kickConnector tells the data-plane to close a connector's live yamux
 // session immediately (used on revoke, so a currently-connected connector
 // doesn't stay proxyable until its next keepalive timeout). Best-effort:
