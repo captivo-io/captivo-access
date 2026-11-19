@@ -1150,6 +1150,7 @@ a.hb-row:hover .hb-l{color:var(--p);}
 .ma-search{flex:1 1 260px;display:flex;align-items:center;gap:10px;height:42px;padding:0 14px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--field);color:var(--muted);}
 .ma-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--fg);font:inherit;font-size:14px;outline:none;}
 .ma-search:focus-within{border-color:var(--p);box-shadow:0 0 0 3px rgba(var(--p-rgb),.18);}
+.ma-search input:focus-visible{box-shadow:none;}
 .ma-tools .seg{flex:none;}
 .ma-table{overflow:hidden;}
 .ma-row{display:grid;grid-template-columns:minmax(0,1fr) 180px 96px;gap:16px;align-items:center;padding:12px 18px;border-top:1px solid var(--line-soft);}
@@ -1224,10 +1225,6 @@ a.hb-row:hover .hb-l{color:var(--p);}
 .rq-status{flex:1;font-size:13px;min-width:160px;}
 input[type="datetime-local"].input,input[type="time"].input{color-scheme:inherit;}
 .rqt-res{display:flex;flex-direction:column;gap:2px;}
-.hist-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line-soft);font-size:13.5px;}
-.hist-row:first-child{border-top:0;padding-top:0;}
-.hist-meta{font-size:12px;white-space:nowrap;}
-.hist-more{margin-top:12px;}
 .rq-label-plain .cell-sub{font-weight:400;}
 .authx-body .authx-help{margin:18px 0 0;}
 /* The design hand-off titles pages without an icon tile. */
