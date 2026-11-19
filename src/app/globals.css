@@ -1170,11 +1170,13 @@ a.hb-row:hover .hb-l{color:var(--p);}
 .ma-bar{height:4px;border-radius:99px;background:rgba(var(--ink-rgb),.08);overflow:hidden;}
 .ma-bar span{display:block;height:100%;border-radius:99px;background:var(--p);}
 .ma-bar span.warn{background:var(--warn);}
-.ma-act{text-align:right;}
+.ma-act{display:flex;justify-content:flex-end;gap:6px;}
+/* A resource that also offers an .rdp file needs room for the second button. */
+.ma-wide .ma-row{grid-template-columns:minmax(0,1fr) 180px 172px;}
 .ma-act .btn[aria-disabled]{opacity:.45;cursor:default;}
 .ma-empty{padding:28px 18px;color:var(--muted);font-size:13.5px;}
 .ma-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px;}
-@media (max-width:640px){.ma-row{grid-template-columns:minmax(0,1fr) auto;}.ma-win{grid-column:1 / -1;order:3;}.ma-th{display:none;}}
+@media (max-width:640px){.ma-row,.ma-wide .ma-row{grid-template-columns:minmax(0,1fr) auto;}.ma-row.has-rdp .ma-act{grid-column:1 / -1;order:4;}.ma-win{grid-column:1 / -1;order:3;}.ma-th{display:none;}}
 .ma-rail{display:flex;flex-direction:column;}
 .ma-status{display:flex;flex-direction:column;gap:12px;}
 .ma-status-row{display:flex;align-items:center;gap:10px;font-size:13.5px;}

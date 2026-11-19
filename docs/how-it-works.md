@@ -211,6 +211,52 @@ flowchart TD
   (Resources page + dashboard), and guacd's own logs surface on the connector's
   detail page ("Gateway logs") for troubleshooting.
 
+### Native RDP clients (RD Gateway)
+
+An RDP Resource can also allow **Native RDP client**: the user downloads an
+`.rdp` file from **My access** and connects with their own Remote Desktop app
+(Windows `mstsc`, the Windows App on macOS, FreeRDP 3). The file points the
+client at Captivo's **RD Gateway** (`/remoteDesktopGateway/` on the workspace's
+own host) with a signed ticket as the gateway access token. The client speaks
+the Terminal Services Gateway protocol over HTTPS (WebSocket transport); the
+data-plane checks the ticket, the grant and the IP allowlist, and carries the
+RDP bytes through the connector's outbound tunnel to the server. Nothing opens
+inbound on the customer's network.
+
+```mermaid
+flowchart LR
+    F["My access<br/>.rdp file (ticket, 2 min)"] --> M["User's Remote Desktop app"]
+    M -->|"HTTPS · WebSocket<br/>/remoteDesktopGateway/"| D["Data-plane RD Gateway<br/>ticket · grant · allowlist"]
+    D -->|outbound tunnel| CN["Connector<br/>egress boundary"]
+    CN -->|"TCP 3389"| S["RDP server"]
+```
+
+What this trades away, and why the option is off by default:
+
+- **The RDP stream is end-to-end** (TLS and CredSSP/NLA between the app and the
+  server). Captivo sees no screen and no keys: these sessions are **never
+  recorded**, keystrokes are not logged, and an admin can't watch or take control.
+  A resource whose sessions are recorded (its own toggle or the Policy page) does
+  not offer native clients at all.
+- **The user signs in to the server themselves** with their own account; the
+  vault credential is used only by browser sessions and never leaves for a native one.
+- **What stays the same:** the grant, its schedule and expiry, the user's status
+  and the vendor IP allowlist are checked when the tunnel opens and every minute
+  after; the session is listed on the Sessions page (as `RDP · NATIVE`), an admin
+  can end it, and its start, end and refusals are in the audit log.
+- **The ticket only starts a session.** It is signed with a key derived from
+  `DATAPLANE_SECRET`, names the user, the resource and the workspace, and expires
+  two minutes after the download; each click makes a new one.
+- **Clipboard, drives and printers** follow the resource's rules, sent to the app
+  as gateway redirection flags and written into the file. A one-way rule (paste
+  only, upload only) turns the whole channel off, ports and plug-and-play devices
+  are always off, and these are applied by the app, so they hold for standard
+  clients, not against a modified one.
+- **Requirements:** a connector on 2.39.0 or later (older ones don't relay the
+  stream), and, if the connector's `ALLOWED_TARGETS` is set, the RDP server's
+  `host:3389` in it. Clients that can't use an RD Gateway with an access token
+  (MobaXterm, for example) can't connect this way; the browser session still works.
+
 ## The isolated-browser path (isolated)
 
 An **Isolated browser** Resource passes the same first two gates, but its tail

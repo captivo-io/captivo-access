@@ -39,6 +39,7 @@ export type SiteValidation =
       watermark: boolean | null; // null = inherit the Policy default
       clipboardMode: string | null; // read by the gateway descriptor (guacd disable-copy/paste)
       guacParams: GuacParams;
+      nativeRdp: boolean; // RDP only: also open in the user's own client (lib/gateway/native-rdp.ts)
     }
   | {
       ok: true;
@@ -132,6 +133,7 @@ export function validateSiteInput(
       watermark: watermarkFrom(body),
       clipboardMode: CLIP.includes(str(body.clipboardMode)) ? str(body.clipboardMode) : null,
       guacParams: parseGuacParams(body.guacParams),
+      nativeRdp: protocol === "RDP" && body.nativeRdp === true,
     };
   }
 

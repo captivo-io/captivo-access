@@ -76,7 +76,7 @@ func (h *SessionHub) recheckTargets() []recheckTarget {
 	out := make([]recheckTarget, 0, len(h.m))
 	for _, ls := range h.m {
 		ls.mu.Lock()
-		if ls.authToken != "" {
+		if ls.authToken != "" || ls.native {
 			out = append(out, recheckTarget{ls.id, ls.userID, ls.siteID, ls.authToken, ls.clientIP})
 		}
 		ls.mu.Unlock()
@@ -119,14 +119,18 @@ func watchWebSocket(w *watchedWS) (forget func()) {
 }
 
 // accessReason is "" while access holds, else why not; ok=false when the
-// control plane could not answer (nothing is ended on an outage).
+// control plane could not answer (nothing is ended on an outage). A native RDP
+// session has no sign-in token (the .rdp file carries a short-lived ticket, not
+// the browser session), so only the grant, the user and the allowlist apply.
 func accessReason(ctrl accessChecker, userID, siteID, token, clientIP string) (reason string, ok bool) {
-	uid, _, err := ctrl.ResolveSession(token)
-	if err != nil {
-		return "", false
-	}
-	if uid == "" || uid != userID {
-		return "signed_out", true
+	if token != "" {
+		uid, _, err := ctrl.ResolveSession(token)
+		if err != nil {
+			return "", false
+		}
+		if uid == "" || uid != userID {
+			return "signed_out", true
+		}
 	}
 	allow, why, err := ctrl.CheckAccess(userID, siteID, clientIP)
 	if err != nil {

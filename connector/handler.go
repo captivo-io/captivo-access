@@ -98,6 +98,8 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleWS(cst, allow, reqBytes)
 	case "ldap":
 		handleLdap(cst, allow, reqBytes)
+	case "rdp":
+		handleRdp(cst, allow, reqBytes)
 	case "guacd":
 		handleGuacd(cst, allow, reqBytes)
 	case "recwrite":
@@ -237,6 +239,46 @@ func handleLdap(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 	<-done
 }
 
+// handleRdp services a raw relay to a resource's RDP server for a native
+// Remote Desktop client (the data-plane's RD Gateway) — a clone of the LDAP
+// relay. The client and the server negotiate TLS/CredSSP end-to-end; the
+// connector only checks the egress boundary and moves bytes.
+func handleRdp(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
+	var rr tunnel.RdpDialRequest
+	if json.Unmarshal(reqBytes, &rr) != nil {
+		return
+	}
+	host, port, err := net.SplitHostPort(rr.Target)
+	if err != nil || host == "" || port == "" {
+		writeRdpErr(st, "bad target")
+		return
+	}
+	if !egressAllowed(allow, rr.Target) {
+		denied()
+		logDenied("rdp", rr.Target)
+		writeRdpErr(st, "target not allowed") // egress boundary — fail closed
+		return
+	}
+	upstream, err := net.DialTimeout("tcp", rr.Target, 10*time.Second)
+	if err != nil {
+		logUpstreamErr("rdp", rr.Target, err.Error())
+		writeRdpErr(st, "server unreachable")
+		return
+	}
+	defer upstream.Close()
+	if b, mErr := json.Marshal(tunnel.RdpDialResponse{}); mErr == nil {
+		if tunnel.WriteFrame(st, b) != nil {
+			return
+		}
+	} else {
+		return
+	}
+	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(st, upstream); done <- struct{}{} }() // server -> tunnel
+	go func() { _, _ = io.Copy(upstream, st); done <- struct{}{} }() // tunnel -> server
+	<-done
+}
+
 // handleGuacd services a raw relay to guacd — a byte-for-byte clone of the LDAP
 // relay. The first frame is a tunnel.GuacdDialRequest carrying guacd's "host:port";
 // it validates against the egress boundary, plain-TCP-dials guacd, and relays the
@@ -297,6 +339,12 @@ func handleGuacd(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 
 func writeGuacdErr(st io.Writer, msg string) {
 	if b, err := json.Marshal(tunnel.GuacdDialResponse{Error: msg}); err == nil {
+		_ = tunnel.WriteFrame(st, b)
+	}
+}
+
+func writeRdpErr(st io.Writer, msg string) {
+	if b, err := json.Marshal(tunnel.RdpDialResponse{Error: msg}); err == nil {
 		_ = tunnel.WriteFrame(st, b)
 	}
 }

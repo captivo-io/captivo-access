@@ -109,7 +109,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   }
   const id = await db.$transaction(async (tx) => {
     const site = await tx.site.create({
-      data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, accessMode: "GATEWAY", ...logoData },
+      data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, accessMode: "GATEWAY", ...logoData },
       select: { id: true },
     });
     await tx.vaultCredential.create({

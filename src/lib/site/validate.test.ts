@@ -78,6 +78,12 @@ describe("validateSiteInput", () => {
     const r = validateSiteInput({ accessMode: "GATEWAY", connectorId: "c", name: "n", protocol: "rdp", targetHost: "10.0.0.5", targetPort: 3389, username: "adm", secret: "pw" }, base);
     expect(r).toMatchObject({ ok: true, mode: "GATEWAY", protocol: "RDP", targetHost: "10.0.0.5", targetPort: 3389, username: "adm", secret: { secret: "pw" } });
   });
+  it("keeps native RDP for RDP resources only", () => {
+    const rd = { accessMode: "GATEWAY", connectorId: "c", name: "n", targetHost: "10.0.0.5", targetPort: 3389, username: "u", secret: "pw", nativeRdp: true };
+    expect(validateSiteInput({ ...rd, protocol: "RDP" }, base)).toMatchObject({ ok: true, nativeRdp: true });
+    expect(validateSiteInput({ ...rd, protocol: "VNC" }, base)).toMatchObject({ ok: true, nativeRdp: false });
+    expect(validateSiteInput({ ...rd, protocol: "RDP", nativeRdp: "yes" }, base)).toMatchObject({ ok: true, nativeRdp: false });
+  });
   it("remote desktop takes a password sealed in the browser instead", () => {
     const r = validateSiteInput({ accessMode: "GATEWAY", connectorId: "c", name: "n", protocol: "rdp", targetHost: "h", targetPort: 3389, username: "u", sealedSecret: "cv1:x", sealedTo: "k" }, base);
     expect(r).toMatchObject({ ok: true, secret: { sealedSecret: "cv1:x", sealedTo: "k" } });

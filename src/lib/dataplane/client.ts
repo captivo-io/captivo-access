@@ -31,6 +31,8 @@ export interface ActiveSession {
   recording?: boolean;
   keystrokes?: boolean;
   activity?: number[];
+  /** A native RDP client on the RD Gateway (2.39+): nothing to watch or record, only to end. */
+  native?: boolean;
 }
 
 export interface LiveFeedEvent { at: string; type: string; text: string }

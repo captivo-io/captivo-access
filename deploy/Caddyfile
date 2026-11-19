@@ -25,9 +25,9 @@
 # --- Manager console: works out of the box via HTTP-01 (no DNS plugin needed) ---
 manager.{$ACCESS_DOMAIN} {
 	# Native gateway WebSocket endpoints (RDP/SSH/VNC live session + admin live
-	# view) are served on the manager hostname but must reach the data-plane, not
-	# the Next.js manager. Caddy proxies the WebSocket upgrade transparently.
-	@guac path /guac-tunnel /guac-view /kasm-tunnel /kasm-tunnel/* /kasm-view /kasm-view/* /web-view
+	# view, and the RD Gateway for native RDP clients) are served on the manager
+	# hostname but must reach the data-plane, not the Next.js manager. Caddy proxies the WebSocket upgrade transparently.
+	@guac path /guac-tunnel /guac-view /kasm-tunnel /kasm-tunnel/* /kasm-view /kasm-view/* /web-view /remoteDesktopGateway /remoteDesktopGateway/*
 	reverse_proxy @guac access-dataplane:3103
 	reverse_proxy access-manager:3100
 }

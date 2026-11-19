@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -394,6 +395,15 @@ func main() {
 	mux.HandleFunc("/kasm-view", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveKasmView(hub, ctrl, reg, w, r) }))
 	mux.HandleFunc("/kasm-view/", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveKasmView(hub, ctrl, reg, w, r) }))
 	mux.HandleFunc("/web-view", rlGuard(func(w http.ResponseWriter, r *http.Request) { serveWebView(live, ctrl, w, r) }))
+	// RD Gateway for native Remote Desktop clients (rdpgw.go); the front proxy
+	// forwards /remoteDesktopGateway/ on the console host here.
+	rdpgw := rdpgwDeps{
+		secret: ctrl.Secret, ctrl: ctrl, hub: hub, audit: audit, now: time.Now,
+		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
+	}
+	rdpgwHandler := rlGuard(func(w http.ResponseWriter, r *http.Request) { serveRdpGateway(rdpgw, w, r) })
+	mux.HandleFunc(rdpgwPath, rdpgwHandler)
+	mux.HandleFunc(strings.TrimSuffix(rdpgwPath, "/"), rdpgwHandler)
 	mux.Handle("/", proxy)
 	log.Fatal(http.ListenAndServe(env("PROXY_ADDR", ":3103"), mux))
 }

@@ -46,7 +46,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
         </div>
       </div>
 
-      <div className="table-wrap ma-table">
+      <div className={cards.some((c) => c.rdpHref) ? "table-wrap ma-table ma-wide" : "table-wrap ma-table"}>
         <div className="ma-row ma-th" aria-hidden="true"><span>Resource</span><span>Access window</span><span /></div>
         {filtered.length === 0 ? (
           <div className="ma-empty">
@@ -58,7 +58,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
           const timed = c.time.tone !== "schedule" && c.time.text !== "Permanent";
           const low = c.time.pct < 20;
           return (
-            <div key={c.id} className="ma-row">
+            <div key={c.id} className={c.status === "active" && c.rdpHref ? "ma-row has-rdp" : "ma-row"}>
               <span className="ma-res">
                 <ResourceIcon name={c.tile.icon} color={c.tile.color} logoUrl={c.tile.logoUrl} logoBg={c.tile.logoBg} size={40} />
                 <span className="ma-res-main">
@@ -78,6 +78,9 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                   )}
               </span>
               <span className="ma-act">
+                {c.status === "active" && c.rdpHref && (
+                  <a className="btn sm" href={c.rdpHref} download title="Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.">.rdp file</a>
+                )}
                 {c.status === "active"
                   ? <a className="btn ink sm" href={c.href} target="_blank" rel="noopener noreferrer">Open ↗</a>
                   : <span className="btn sm" aria-disabled="true">Open</span>}

@@ -27,6 +27,9 @@ type SessionInfo struct {
 	ClientIP     string    `json:"clientIp"`
 	Recording    bool      `json:"recording"`
 	Keystrokes   bool      `json:"keystrokes"`
+	// A native RDP client on the RD Gateway: no screen passes through Captivo,
+	// so it can't be watched or recorded, only ended.
+	Native bool `json:"native,omitempty"`
 	// Input over the last two minutes, in 5-second buckets, oldest first.
 	Activity []int `json:"activity"`
 }
@@ -44,6 +47,7 @@ type liveSession struct {
 	brokerSID, kasmControlAddr, ftMode string
 	vncAuth                            string // the session's VNC websocket password (isolated)
 	authToken, clientIP                string // for the periodic access recheck (recheck.go)
+	native                             bool   // RD Gateway session: rechecked without a sign-in token
 
 	mu           sync.Mutex
 	controlOwner string       // userID holding control, or "" for the vendor
@@ -143,6 +147,20 @@ func (h *SessionHub) Register(sessionID, siteID, userID, protocol, host string, 
 	return ls
 }
 
+// RegisterNative adds a native RDP session (rdpgw.go). It has no guacd connID,
+// so nothing can join it; the console lists it and Terminate closes its tunnel.
+func (h *SessionHub) RegisterNative(sessionID, siteID, userID, host string, startedAt time.Time, connectorID, clientIP string) *liveSession {
+	ls := &liveSession{
+		id: sessionID, siteID: siteID, userID: userID, protocol: "rdp", host: host,
+		kind:      "gateway",
+		startedAt: startedAt, connectorID: connectorID, clientIP: clientIP, native: true,
+	}
+	h.mu.Lock()
+	h.m[sessionID] = ls
+	h.mu.Unlock()
+	return ls
+}
+
 // RegisterIsolated adds an ISOLATED (KasmVNC) session. It has no guacd
 // connID/guacdAddr — viewers attach to the per-session Xvnc instead (Slice 2) — so
 // only the fields the console list + terminate need are set.
@@ -197,6 +215,7 @@ func (h *SessionHub) List() []SessionInfo {
 			SessionID: ls.id, SiteID: ls.siteID, UserID: ls.userID, Kind: ls.kind, Protocol: ls.protocol,
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
 			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
+			Native: ls.native,
 		})
 		ls.mu.Unlock()
 	}

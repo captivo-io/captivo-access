@@ -9,6 +9,8 @@ import { paramsToGuacFields, guacFieldsToParams, type GuacFields } from "@/lib/g
 import { ResourceIcon } from "@/components/resource-icon";
 import { autoIcon, defaultColor, protoLabel, slugFromName, type IconColor, type ResourceKind } from "@/lib/site/icons";
 import { recordToggleLock } from "@/lib/recording/mode";
+import { compareSemver } from "@/lib/updates/semver";
+import { NATIVE_RDP_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { IconPicker, lookBody, type Look } from "./icon-picker";
@@ -17,7 +19,7 @@ type Kind = "web" | "isolated" | "remote" | "ssh";
 type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: string };
 
 export interface ResourceContext {
-  connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null }[];
+  connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null; version?: string | null }[];
   recordingEnabled: boolean;
   recordingMode: string;
   keystrokeMode: KeystrokeMode;
@@ -45,6 +47,7 @@ export interface ResourceInitial {
   insecureSkipVerify: boolean;
   recordSessions: boolean;
   keystrokeLogging: boolean;
+  nativeRdp: boolean;
   clipboardMode: string | null;
   watermark: boolean | null;
   fileTransferMode: string | null;
@@ -166,6 +169,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   // A new remote desktop or SSH resource logs keystrokes with its recording
   // unless the admin turns it off (null = not chosen yet); a saved one keeps its own.
   const [keystrokeChoice, setKeystrokeChoice] = useState<boolean | null>(site ? site.keystrokeLogging : null);
+  const [nativeRdp, setNativeRdp] = useState(site?.nativeRdp ?? false);
   const [clipboard, setClipboard] = useState(site?.clipboardMode ?? "inherit");
   const [ftWeb, setFtWeb] = useState(site && site.accessMode !== "GATEWAY" ? site.fileTransferMode ?? "inherit" : "inherit");
   const [guac, setGuac] = useState<GuacFields>(paramsToGuacFields(parseGuacParams(vault?.guacParams)));
@@ -272,6 +276,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off";
   const keystrokes = keystrokeChoice ?? remote;
   const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
+  // Native RDP: a session in the user's own client can't be recorded, so a recorded resource doesn't offer it.
+  const nativeRdpShown = kind === "remote" && protocol === "RDP";
+  const nativeRdpLocked = ctx.recordingEnabled && effRecord;
+  const nativeRdpOn = nativeRdpShown && nativeRdp && !nativeRdpLocked;
+  const nativeRdpOldConnector = nativeRdpOn && compareSemver(connector?.version, NATIVE_RDP_MIN_CONNECTOR) === -1;
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -298,6 +307,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         description: description.trim() || undefined,
         insecureSkipVerify: https && insecure,
         recordSessions: record, keystrokeLogging: keystrokes,
+        nativeRdp: nativeRdpOn,
         clipboardMode: clipboard,
         watermark: watermark === "inherit" ? null : watermark === "on",
         fileTransferMode: remote ? undefined : ftWeb,
@@ -324,6 +334,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const chips: { text: string; tone: string }[] = [];
   if (effRecord && ctx.recordingEnabled) chips.push({ text: "Recording on", tone: "bad" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
+  if (nativeRdpOn) chips.push({ text: "Native RDP client", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
   if (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault)) chips.push({ text: "Watermark", tone: "violet" });
   if (clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
@@ -456,6 +467,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 className={ctx.keystrokeMode === "required" || keystrokes ? "toggle on" : "toggle"} onClick={() => setKeystrokeChoice(!keystrokes)}><span /></button>
             </Row>
           )}
+          {nativeRdpShown && (
+            <Row title="Native RDP client" custom={nativeRdpOn} desc={nativeRdpLocked
+              ? "Not available while sessions are recorded: a session in the user's own Remote Desktop app can't be recorded."
+              : "Users can also download an .rdp file and connect with their own Remote Desktop app. Those sessions aren't recorded or watchable, and users sign in to the server with their own account."}>
+              <button type="button" role="switch" aria-checked={nativeRdpOn} aria-label="Native RDP client" disabled={nativeRdpLocked} className={nativeRdpOn ? "toggle on" : "toggle"} onClick={() => setNativeRdp(!nativeRdp)}><span /></button>
+            </Row>
+          )}
+          {nativeRdpOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native RDP needs {NATIVE_RDP_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
             <Pills value={clipboard} onChange={setClipboard} options={[["inherit", `Policy (${CLIP.find(([v]) => v === ctx.clipboardDefault)?.[1] ?? ctx.clipboardDefault})`], ...CLIP]} label="Clipboard" />
           </Row>

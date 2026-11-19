@@ -50,7 +50,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
     }
     try {
-      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, accessMode: "TRANSPARENT", ...logoData } });
+      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, nativeRdp: false, accessMode: "TRANSPARENT", ...logoData } });
     } catch (e) {
       if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2002") {
         return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
@@ -69,7 +69,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   if (v.mode === "ISOLATED") {
     // Isolated browser: URL-only site, no credential. Drop any stale vault from a GATEWAY→ISOLATED switch.
     await db.$transaction(async (tx) => {
-      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, ...(v.egressMode !== undefined ? { egressMode: v.egressMode } : {}), ...(v.egressHosts !== undefined ? { egressHosts: v.egressHosts } : {}), accessMode: "ISOLATED", ...logoData } });
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, ...(v.egressMode !== undefined ? { egressMode: v.egressMode } : {}), ...(v.egressHosts !== undefined ? { egressHosts: v.egressHosts } : {}), nativeRdp: false, accessMode: "ISOLATED", ...logoData } });
       await tx.vaultCredential.deleteMany({ where: { siteId: id } });
     });
     await recordAdminAction({
@@ -101,7 +101,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     }
   }
   await db.$transaction(async (tx) => {
-    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, accessMode: "GATEWAY", ...logoData } });
+    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, accessMode: "GATEWAY", ...logoData } });
     // Not an upsert: Prisma validates the create branch even when the row
     // exists, and a kept secret leaves it without the required `secret`.
     const fields = { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, guacParams: v.guacParams as Prisma.InputJsonValue };

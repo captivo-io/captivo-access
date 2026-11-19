@@ -588,3 +588,77 @@ func TestHandleWSRejectsHeaderInjection(t *testing.T) {
 		t.Fatalf("expected header injection rejection, got %+v", resp)
 	}
 }
+
+func TestHandleRdpRejectsOutOfBoundaryTarget(t *testing.T) {
+	dataplane, connector := pairedSessions(t)
+	allow, err := ParseAllowedTargets("dc.internal:3389")
+	if err != nil {
+		t.Fatalf("ParseAllowedTargets: %v", err)
+	}
+	go serveStreams(connector, allow, testStore(t))
+
+	st, err := dataplane.Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+
+	reqBytes, _ := json.Marshal(tunnel.RdpDialRequest{Kind: "rdp", Target: "other.internal:3389"})
+	if err := tunnel.WriteFrame(st, reqBytes); err != nil {
+		t.Fatalf("WriteFrame: %v", err)
+	}
+	respBytes, err := tunnel.ReadFrame(st)
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	var resp tunnel.RdpDialResponse
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if resp.Error != "target not allowed" {
+		t.Fatalf("expected target not allowed, got %+v", resp)
+	}
+}
+
+func TestHandleRdpRelaysBytes(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_, _ = io.Copy(c, c) // echo
+	}()
+
+	dataplane, connector := pairedSessions(t)
+	go serveStreams(connector, openMatcher(t), testStore(t))
+	st, err := dataplane.Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+	reqBytes, _ := json.Marshal(tunnel.RdpDialRequest{Kind: "rdp", Target: ln.Addr().String()})
+	if err := tunnel.WriteFrame(st, reqBytes); err != nil {
+		t.Fatalf("WriteFrame: %v", err)
+	}
+	respBytes, err := tunnel.ReadFrame(st)
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	var resp tunnel.RdpDialResponse
+	if err := json.Unmarshal(respBytes, &resp); err != nil || resp.Error != "" {
+		t.Fatalf("dial failed: %+v %v", resp, err)
+	}
+	if _, err := st.Write([]byte("\x03\x00\x00\x13")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(st, got); err != nil || string(got) != "\x03\x00\x00\x13" {
+		t.Fatalf("echo = %q, %v", got, err)
+	}
+}
