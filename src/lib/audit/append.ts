@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
-import { computeHash, AUDIT_CHAIN_LOCK_KEY } from "@/lib/audit/chain";
-import { chainKey } from "@/lib/audit/chain-key";
+import { computeHash } from "@/lib/audit/chain";
+import { chainKey, lockChain } from "@/lib/audit/chain-key";
 import { currentTenantId } from "@/lib/tenant/context";
 
 export interface AuditInput {
@@ -91,7 +91,7 @@ export async function appendAuditEvents(events: AuditInput[]): Promise<number> {
   const normalized = events.map((e) => normalizeAuditInput(e, lookups));
 
   return db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${AUDIT_CHAIN_LOCK_KEY})`;
+    await lockChain(tx, "access");
     const head = await tx.auditChainState.upsert({
       where: chainKey("access"),
       create: { tenantId: currentTenantId(), scope: "access" },

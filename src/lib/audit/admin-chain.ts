@@ -1,7 +1,7 @@
 import { chainHash, GENESIS_PREV_HASH } from "./chain";
 import type { ChainVerifyResult, ChainHead } from "./verify";
 
-// Distinct 64-bit advisory-lock key for the admin chain (≠ AUDIT_CHAIN_LOCK_KEY),
+// Distinct 64-bit advisory-lock seed for the admin chain (≠ AUDIT_CHAIN_LOCK_KEY),
 // so admin appends serialize on their own lock and never block access appends.
 export const ADMIN_AUDIT_CHAIN_LOCK_KEY = 6011971385529861011n;
 export const ADMIN_CHAIN_ID = "admin-singleton";
