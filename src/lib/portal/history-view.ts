@@ -11,8 +11,8 @@ export interface HistoryRowJSON {
   kind: HistoryKind;
   /** HTTPS / HTTP / RDP / SSH / VNC. */
   proto: string;
-  /** How the session reached the resource, when it went through Captivo's own client. */
-  via: "isolated" | "gateway" | null;
+  /** How the session reached the resource: Captivo's isolated browser or gateway, or the user's own RDP app. */
+  via: "isolated" | "gateway" | "native" | null;
   startedAt: string;
   endedAt: string;
   durationMs: number;

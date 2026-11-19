@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/current-user";
 import { historyWindow } from "@/lib/portal/history";
-import { resolvedRecordingRetentionDays } from "@/lib/settings/platform";
+import { resolvedAuditRetentionDays } from "@/lib/settings/platform";
 import { workspaceView } from "@/lib/mobile/views";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { HistoryView } from "./history-view";
@@ -16,7 +16,7 @@ export default async function HistoryPage() {
     const now = new Date();
     const [week, retentionDays, ws] = await Promise.all([
       historyWindow(user.id, now),
-      resolvedRecordingRetentionDays(),
+      resolvedAuditRetentionDays(),
       workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     ]);
     return (
