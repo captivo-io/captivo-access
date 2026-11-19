@@ -24,7 +24,7 @@ export interface ConsoleKpis {
   sessions7d: number;
 }
 export type LiveCard =
-  | { kind: "gateway"; sessionId: string; protocol: string; host: string; siteName: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
+  | { kind: "gateway"; sessionId: string; protocol: string; host: string; siteName: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null; native?: boolean }
   | { kind: "isolated"; sessionId: string; host: string; siteName: string; userLabel: string; startedAt: string; recorded: boolean; viewerCount: number; grantId: string | null }
   | { kind: "web"; userLabel: string; siteName: string; host: string; startedAt: string; lastSeen: string; grantId: string | null; liveKey: string | null; viewerCount: number };
 export interface PendingCard { id: string; userLabel: string; siteName: string; detail: string }
@@ -96,8 +96,9 @@ export async function getConsoleData(): Promise<ConsoleData> {
     kind: "gateway" as const,
     sessionId: s.sessionId, protocol: s.protocol, host: s.host, siteName: siteNameMap.get(s.siteId) ?? s.host,
     userLabel: userMap.get(s.userId) ?? "unknown", startedAt: s.startedAt,
-    recorded: recEnabled && (recMap.get(s.siteId) ?? false), viewerCount: s.viewerCount,
+    recorded: !s.native && recEnabled && (recMap.get(s.siteId) ?? false), viewerCount: s.viewerCount,
     grantId: grantMap.get(s.userId + "\x1f" + s.siteId) ?? null,
+    native: !!s.native,
   }));
   const isolatedCards: LiveCard[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({
     kind: "isolated" as const,

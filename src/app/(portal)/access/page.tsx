@@ -9,6 +9,7 @@ import { listRecordings } from "@/lib/recording/query";
 import { remaining } from "@/lib/portal/time-remaining";
 import { securityStatus } from "@/lib/portal/security-status";
 import { launchHref } from "@/lib/portal/launch-href";
+import { nativeRdpBlock } from "@/lib/gateway/native-rdp";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
 import { PortalHome, type CardVM, type RecentVM } from "./portal-home";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -34,6 +35,9 @@ async function AccessPageImpl() {
   const upcoming: CardVM[] = [];
   const siteName = new Map<string, string>();
   let anyRecorded = false;
+  // "All sessions are recorded" only while it is true: an unrecorded resource,
+  // or one that also opens in the user's own app (never recorded), makes it "some".
+  let allRecorded = true;
 
   for (const g of grants) {
     const reason = classifyGrant(g, now);
@@ -50,6 +54,7 @@ async function AccessPageImpl() {
     siteName.set(g.site.id, g.site.name);
     const recorded = recEnabled && effectiveRecordSessions(recMode, g.site.recordSessions);
     if (recorded) anyRecorded = true;
+    else allRecorded = false;
 
     const startISO = g.startsAt ? g.startsAt.toISOString() : null;
     const endISO = g.endsAt ? g.endsAt.toISOString() : null;
@@ -64,6 +69,8 @@ async function AccessPageImpl() {
       glyph: g.site.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "··",
       status,
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
+      rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: g.site.connector.version }) === null
+        ? `/api/portal/rdp/${g.site.id}` : null,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
     };
     if (status === "upcoming") {
@@ -89,6 +96,7 @@ async function AccessPageImpl() {
       firstName={(user.name ?? "").split(" ")[0] || "there"}
       activeCount={activeCount}
       anyRecorded={anyRecorded}
+      allRecorded={allRecorded && !cards.some((c) => c.rdpHref)}
       cards={cards}
       upcoming={upcoming}
       recent={recent}

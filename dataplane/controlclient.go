@@ -154,6 +154,32 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 	}, out.GuacdAddress, out.ConnectorID, out.TenantID, out.Record, out.KeystrokeLogging, nil
 }
 
+// rdpTarget is where a native RDP tunnel goes, and the device redirection the
+// gateway tells the user's client to switch off (MS-TSGU redirection flags).
+type rdpTarget struct {
+	Host, Port, ConnectorID, TenantID, SiteName string
+	RedirectFlags                               uint32
+}
+
+// NativeRdpTarget authorizes (userID, siteID) for a native RDP client and
+// returns the resource's RDP server. The manager refuses (an HTTP status,
+// surfaced here as an error) when the grant does not hold, the resource does
+// not allow native clients, or its sessions must be recorded.
+func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error) {
+	var out struct {
+		TargetHost    string `json:"targetHost"`
+		TargetPort    int    `json:"targetPort"`
+		ConnectorID   string `json:"connectorId"`
+		TenantID      string `json:"tenantId"`
+		SiteName      string `json:"siteName"`
+		RedirectFlags uint32 `json:"redirectFlags"`
+	}
+	if err := c.post("/api/internal/gateway/native-rdp", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
+		return rdpTarget{}, err
+	}
+	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, RedirectFlags: out.RedirectFlags}, nil
+}
+
 // SiteByHost resolves a browser-facing hostname to the site/connector it's
 // routed to. If the control plane has no site for host, it returns
 // ErrNoSite. recordSessions reports whether session recording is enabled for

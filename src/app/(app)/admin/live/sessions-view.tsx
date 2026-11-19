@@ -28,9 +28,9 @@ type FeedEvent = { at: string; type: string; text: string };
 const TERMINAL = ["ssh", "telnet"];
 const keyOf = (r: LiveRow) => (r.kind === "web" ? `web:${r.liveKey ?? `${r.userId}:${r.siteId}`}` : r.sessionId);
 const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" => (r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
-const labelOf = (r: LiveRow) => (r.kind === "gateway" ? r.protocol.toUpperCase() : r.kind === "isolated" ? "BROWSER" : "WEB");
+const labelOf = (r: LiveRow) => (r.kind === "gateway" ? (r.native ? "RDP · NATIVE" : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
-const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : `/live/${r.sessionId}`);
+const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);
 
 /** Seconds ticking on the client only, so the server render and the first client render agree. */
@@ -202,7 +202,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
   const src = watchSrc(r);
   return (
     <article className={watching ? "sv-card on" : "sv-card"}>
-      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : "This web app does not record, so it can't be watched"}>
+      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.native ? "A native Remote Desktop session can't be watched" : "This web app does not record, so it can't be watched"}>
         {tail.length ? (
           <span className="rc-art ssh sv-term" aria-hidden="true">
             {tail.map((t, i) => <span key={i} className="mono">$ {t}</span>)}
@@ -223,7 +223,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
         </div>
         <div className="sv-line">
           <span className="cell-sub">Started {hm(r.startedAt, zone)}</span>
-          {r.kind !== "web" ? <Sparkline values={r.activity} /> : null}
+          {r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native ? <span className="cell-sub">Own Remote Desktop app · not recorded</span> : null}
         </div>
         <Actions r={r} canTerminate={canTerminate} onWatch={src ? onWatch : undefined} onEnded={onEnded} />
       </div>

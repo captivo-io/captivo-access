@@ -189,12 +189,13 @@ function OutdatedAlert({ names, version }: { names: string[]; version: string })
 }
 
 function LiveRow({ s, onDone }: { s: LiveCard; onDone: (msg: string) => void }) {
-  const kind = s.kind === "gateway" ? s.protocol.toUpperCase() : s.kind === "isolated" ? "ISOLATED" : "WEB";
+  const kind = s.kind === "gateway" ? (s.native ? "RDP · NATIVE" : s.protocol.toUpperCase()) : s.kind === "isolated" ? "ISOLATED" : "WEB";
   const name = s.siteName;
   const recorded = s.kind !== "web" && s.recorded;
   // The Sessions page's watch window, with the session's activity and actions beside it.
   const watch = s.kind === "web"
     ? (s.liveKey ? `/admin/live?watch=${encodeURIComponent(`web:${s.liveKey}`)}` : null)
+    : s.kind === "gateway" && s.native ? null
     : `/admin/live?watch=${encodeURIComponent(s.sessionId)}`;
   return (
     <div className="cx-live-row">

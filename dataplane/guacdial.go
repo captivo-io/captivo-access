@@ -58,6 +58,45 @@ func dialGuacdReq(s *Session, req tunnel.GuacdDialRequest) (net.Conn, error) {
 	return st, nil // yamux.Stream satisfies net.Conn
 }
 
+var errConnectorNoNativeRdp = errors.New("connector does not support native RDP")
+
+// dialRdp opens a raw relay stream to a resource's RDP server through the
+// connector, for a native Remote Desktop client on the RD Gateway (rdpgw.go).
+func dialRdp(s *Session, target string) (net.Conn, error) {
+	if s == nil || s.mux == nil {
+		return nil, errors.New("connector offline")
+	}
+	st, err := s.mux.Open()
+	if err != nil {
+		return nil, err
+	}
+	reqBytes, _ := json.Marshal(tunnel.RdpDialRequest{Kind: "rdp", Target: target})
+	if err := tunnel.WriteFrame(st, reqBytes); err != nil {
+		st.Close()
+		return nil, err
+	}
+	respBytes, err := tunnel.ReadFrame(st)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	var resp tunnel.RdpDialResponse
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		st.Close()
+		return nil, err
+	}
+	if resp.Error != "" {
+		st.Close()
+		// A connector older than 2.39.0 takes the unknown kind for a proxied
+		// HTTP request without a URL.
+		if resp.Error == "bad upstream url" {
+			return nil, errConnectorNoNativeRdp
+		}
+		return nil, errors.New(resp.Error)
+	}
+	return st, nil
+}
+
 // vaultPlaceholder is a random stand-in for a sealed secret in the guacd
 // handshake; it cannot collide with a real value.
 func vaultPlaceholder() string {

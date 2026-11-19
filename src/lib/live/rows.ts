@@ -17,6 +17,8 @@ export interface LiveExtra {
   grantScheduled?: boolean;
   /** The resource's tile (icon or logo). */
   site?: SiteTile;
+  /** A native RDP client on the RD Gateway: it can be ended, not watched. */
+  native?: boolean;
 }
 
 export type LiveRow =
@@ -73,6 +75,7 @@ export async function liveRows(): Promise<LiveRow[]> {
     grantId: grant(s.userId, s.siteId),
     ...extra(s.userId, s.siteId),
     clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
+    native: !!s.native,
   }));
   const isolatedRows: LiveRow[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({
     kind: "isolated" as const,

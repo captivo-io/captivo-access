@@ -19,6 +19,8 @@ export interface CardVM {
   glyph: string;
   status: "active" | "upcoming" | "off_hours" | "pending";
   href: string;
+  /** The .rdp download when the resource also opens in the user's own Remote Desktop app. */
+  rdpHref: string | null;
   time: Remaining;
   whenIso?: string | null; // upcoming cards only: start instant (rendered in the display timezone); null = "Scheduled"
 }
@@ -33,16 +35,16 @@ const STATUS_ICON: Record<StatusLine["tone"], { icon: "key" | "video" | "shield"
 /** My access, as the design hand-off lays it out: the person's resources on the
  *  left, security status, scheduled access and recent sessions on the right. */
 export function PortalHome(props: {
-  firstName: string; activeCount: number; anyRecorded: boolean;
+  firstName: string; activeCount: number; anyRecorded: boolean; allRecorded: boolean;
   cards: CardVM[]; upcoming: CardVM[]; recent: RecentVM[]; security: StatusLine[];
   requireJustification: boolean;
 }) {
-  const { firstName, activeCount, anyRecorded, cards, upcoming, recent, security, requireJustification } = props;
+  const { firstName, activeCount, anyRecorded, allRecorded, cards, upcoming, recent, security, requireJustification } = props;
   return (
     <>
       <div className="page-head">
         <div>
-          {anyRecorded && <div className="eyebrow"><span className="rec-dot" aria-hidden="true" /> All sessions in this workspace are recorded</div>}
+          {anyRecorded && <div className="eyebrow"><span className="rec-dot" aria-hidden="true" /> {allRecorded ? "All sessions in this workspace are recorded" : "Some of your sessions are recorded"}</div>}
           <h1>Welcome back, {firstName}</h1>
           <p>{activeCount} active grant{activeCount === 1 ? "" : "s"} · in the browser, no VPN</p>
         </div>

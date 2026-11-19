@@ -155,7 +155,9 @@ remote-session logins), `ISOLATED_ENABLED` (Pro isolated browser — gates the
 "Isolated browser" Resource type; the `captivo-kasm` (KasmVNC) container is bundled
 with every gateway connector and reverse-proxied at `/kasm-tunnel`, so host-nginx
 deployments must route `/kasm-tunnel` (and `/kasm-tunnel/`) and `/kasm-view` (and
-`/kasm-view/`, the admin live-watch relay) to the data-plane like `/guac-tunnel`,
+`/kasm-view/`, the admin live-watch relay) to the data-plane like `/guac-tunnel`
+(and `/remoteDesktopGateway/`, the RD Gateway for native RDP clients, with WebSocket
+upgrades and a long read timeout),
 and if you set the connector's `ALLOWED_TARGETS` it must include
 `captivo-kasm:6901` and `captivo-kasm:7900`, like `captivo-guacd:4822`),
 `CONNECTOR_TUNNEL_URL` (overrides the default
