@@ -38,10 +38,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   const summary = `Closed workspace ${slug}; restorable until ${until.toISOString().slice(0, 10)}`;
 
   // Both chains before anything is gone: the platform's, where operators look
-  // when a customer asks for it back, and the workspace's own. Platform first:
-  // an append holds the chain's advisory lock until its transaction commits,
-  // and this request's own append only commits with the request, so the
-  // platform write (its own transaction) would wait on it until both expired.
+  // when a customer asks for it back, and the workspace's own. Platform first,
+  // in its own transaction, so it is on record even if the request fails later.
   await withTenant(PLATFORM_TENANT_ID, () =>
     recordAdminAction({
       actor: { id: user.id, email: user.email },

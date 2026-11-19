@@ -24,10 +24,9 @@ const US = "\x1f";
 
 export const GENESIS_PREV_HASH = "";
 
-// Fixed, application-chosen 64-bit key for pg_advisory_xact_lock. Its only
-// requirement is to be a stable constant unique to the audit-chain lock so all
-// audit writers (ingest + backfill) serialize on the same lock. The exact value
-// is arbitrary and must never change once in use.
+// Fixed, application-chosen 64-bit seed for the access chain's advisory lock;
+// lockChain (chain-key.ts) hashes it with the tenant id, so each tenant's chain
+// has its own lock. The exact value is arbitrary.
 export const AUDIT_CHAIN_LOCK_KEY = 6011971385529861010n;
 
 export function canonicalize(e: ChainableEvent): string {

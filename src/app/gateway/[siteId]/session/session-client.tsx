@@ -8,8 +8,9 @@ import { setupGatewayTouch, type TouchController } from "./shell/gateway-touch";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
-import { RecordingNotice, MonitorNotice, AdminMessageBanner, type AdminMessage, SessionToast, DropOverlay, FirstTips, SessionEnded, type ToastState } from "./shell/notices";
+import { RecordingNotice, MonitorNotice, AdminMessageBanner, type AdminMessage, SessionToast, DropOverlay, FirstTips, SessionEnded, SessionFailed, type ToastState } from "./shell/notices";
 import { sessionEndMessage } from "@/lib/session/end-reason";
+import { sessionFailure, type SessionFailure } from "@/lib/gateway/connect-error";
 import { SessionWatermark } from "./shell/watermark";
 
 // Fullscreen HTML5 session: embeds guacamole-common-js and points it at the
@@ -18,7 +19,7 @@ import { SessionWatermark } from "./shell/watermark";
 export function GatewaySession({ siteId, siteName, recorded, clipboardMode, protocol = "RDP", watermarkText = null }: { siteId: string; siteName: string; recorded: boolean; clipboardMode: string; protocol?: GatewayProtocol; watermarkText?: string | null }) {
   const caps = clipboardCaps(clipboardMode);
   const ref = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SessionFailure | null>(null);
   const [ready, setReady] = useState(false);
   const [watching, setWatching] = useState(false);
   const [adminMessage, setAdminMessage] = useState<AdminMessage | null>(null);
@@ -229,7 +230,9 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       const tunnel = new Guacamole.WebSocketTunnel(`${proto}://${window.location.host}/guac-tunnel`);
       client = new Guacamole.Client(tunnel);
       clientRef.current = client;
-      const fail = () => setError("The session ended or could not start.");
+      // The first status wins: guacd's error instruction carries the reason, and
+      // the tunnel closing right after it must not replace it with a vaguer one.
+      const fail = (status?: { code?: number; message?: string }) => setError((prev) => prev ?? sessionFailure(status));
       tunnel.onerror = fail;
       client.onerror = fail;
       // Dismiss the connect splash once guacd reaches CONNECTED (state 3).
@@ -377,7 +380,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       document.addEventListener("paste", onPaste);
       fit();
       clipRef.current?.syncFromBrowser();
-    })().catch(() => setError("Couldn't start the session."));
+    })().catch(() => setError({ title: "Couldn't start the session", hint: "Reload the page to try again.", detail: null }));
 
     return () => {
       disposed = true;
@@ -519,9 +522,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
           </div>
         </div>
       )}
-      {error && !endedMessage && (
-        <div style={{ color: "#fff", padding: "1.25rem", fontFamily: "sans-serif" }}>{error}</div>
-      )}
+      {!endedMessage && <SessionFailed failure={error} />}
       <SessionWatermark text={watermarkText} />
       <SessionEnded message={endedMessage} />
     </div>

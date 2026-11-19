@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
-import { computeAdminHash, ADMIN_AUDIT_CHAIN_LOCK_KEY } from "@/lib/audit/admin-chain";
-import { chainKey } from "@/lib/audit/chain-key";
+import { computeAdminHash } from "@/lib/audit/admin-chain";
+import { chainKey, lockChain } from "@/lib/audit/chain-key";
 import { currentTenantId } from "@/lib/tenant/context";
 
 export interface AdminActor { id: string; email: string | null }
@@ -11,8 +11,8 @@ export interface AdminActor { id: string; email: string | null }
 // thrown, so it can never break the action. A missed row is a coverage gap,
 // not a chain break — the surviving rows still verify against each other.
 //
-// The append is serialized on a dedicated advisory lock (distinct from the
-// access chain's) so concurrent admin actions never race the chain head.
+// The append is serialized on the tenant's admin-chain lock (lockChain) so
+// concurrent admin actions never race the chain head.
 export async function recordAdminAction(input: {
   actor: AdminActor;
   action: string;
@@ -26,7 +26,7 @@ export async function recordAdminAction(input: {
     const timestamp = new Date();
     const metadata = input.metadata ?? null;
     await db.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMIN_AUDIT_CHAIN_LOCK_KEY})`;
+      await lockChain(tx, "admin");
       const head = await tx.auditChainState.upsert({
         where: chainKey("admin"),
         create: { tenantId: currentTenantId(), scope: "admin" },

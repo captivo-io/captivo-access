@@ -1,13 +1,13 @@
 import { db } from "@/lib/db";
-import { computeAdminHash, ADMIN_AUDIT_CHAIN_LOCK_KEY } from "./admin-chain";
-import { chainKey } from "@/lib/audit/chain-key";
+import { computeAdminHash } from "./admin-chain";
+import { chainKey, lockChain } from "@/lib/audit/chain-key";
 import { currentTenantId } from "@/lib/tenant/context";
 
 // One-time, idempotent: chains every AdminAuditEvent row that has no seq yet,
 // in insertion order, continuing from the current admin head. No-op if none.
 export async function backfillAdminChain(): Promise<{ backfilled: number }> {
   return db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADMIN_AUDIT_CHAIN_LOCK_KEY})`;
+    await lockChain(tx, "admin");
     const pending = await tx.adminAuditEvent.findMany({
       where: { seq: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],

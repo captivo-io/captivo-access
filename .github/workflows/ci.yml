@@ -60,6 +60,7 @@ jobs:
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/tenant/rls.withtenant.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/tenant/resolve.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/tenant/platform.integration.test.ts
+      - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/platform/audit.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/tenant/resolvers.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/tenant/autoscope.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/tenant/internal.integration.test.ts
