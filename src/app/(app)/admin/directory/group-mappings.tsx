@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GroupMappingRow } from "@/lib/directory/mappings";
+import { filterMappings } from "@/lib/directory/group-pick";
+import { GroupPicker } from "./group-picker";
 
 type SiteOption = { id: string; name: string };
 type MappableRole = "ADMIN" | "OPERATOR" | "AUDITOR";
@@ -15,6 +17,9 @@ const ROLES: { key: MappableRole; label: string }[] = [
 ];
 const roleLabel = (r: string | null) => ROLES.find((x) => x.key === r)?.label ?? r ?? "—";
 
+// A filter box appears once the list is long enough to need one.
+const FILTER_FROM = 7;
+
 // The API answers with a sentence ("That group is already mapped to this target.").
 const addError = (msg: string | undefined) => msg || "Couldn't add the mapping.";
 
@@ -26,12 +31,17 @@ export function GroupMappings({ mappings, sites }: { mappings: GroupMappingRow[]
   const [role, setRole] = useState<MappableRole>("OPERATOR");
   const [siteId, setSiteId] = useState(sites[0]?.id ?? "");
   const [siteQ, setSiteQ] = useState("");
+  const [mapQ, setMapQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const shownSites = useMemo(() => {
     const t = siteQ.trim().toLowerCase();
     return t ? sites.filter((s) => s.name.toLowerCase().includes(t)) : sites;
   }, [siteQ, sites]);
+  const shownMappings = useMemo(
+    () => filterMappings(mappings.map((m) => ({ ...m, target: m.kind === "ROLE" ? roleLabel(m.role) : m.siteName ?? "" })), mapQ),
+    [mappings, mapQ],
+  );
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -83,8 +93,13 @@ export function GroupMappings({ mappings, sites }: { mappings: GroupMappingRow[]
             <span><b>No mappings yet</b><span>Without a mapping, directory users can&apos;t sign in. Link at least one group to a role.</span></span>
           </div>
         ) : (
+          <>
+          {mappings.length >= FILTER_FROM && (
+            <input className="input dr-maps-q" value={mapQ} onChange={(e) => setMapQ(e.target.value)} placeholder="Filter mappings…" aria-label="Filter mappings" />
+          )}
           <div className="dr-maps">
-            {mappings.map((m) => (
+            {shownMappings.length === 0 && <div className="dr-map"><span className="dr-hint">No mapping matches “{mapQ.trim()}”.</span></div>}
+            {shownMappings.map((m) => (
               <div key={m.id} className={m.enabled ? "dr-map" : "dr-map off"}>
                 <span className="dr-map-g">
                   <span className="dr-map-ic" aria-hidden="true">
@@ -106,13 +121,13 @@ export function GroupMappings({ mappings, sites }: { mappings: GroupMappingRow[]
               </div>
             ))}
           </div>
+          </>
         )}
 
         <form className="dr-add" onSubmit={add}>
-          <label className="dr-field"><span className="dr-label">Group name or DN</span>
-            <input className="input mono" value={groupDN} onChange={(e) => setGroupDN(e.target.value)} spellCheck={false}
-              placeholder="Captivo-Admins  ·  CN=Captivo-Admins,OU=Groups,DC=corp,DC=local" />
-          </label>
+          <div className="dr-field"><span className="dr-label" id="dr-group-label">Group name or DN</span>
+            <GroupPicker value={groupDN} onChange={setGroupDN} mapped={mappings.map((m) => m.groupDN)} labelledBy="dr-group-label" />
+          </div>
           <div className="dr-add-row">
             <div className="dr-field">
               <span className="dr-label">Grants</span>

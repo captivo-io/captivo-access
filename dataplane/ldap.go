@@ -217,3 +217,75 @@ func ResolveUser(s *Session, cfg LdapConfig, email string) LdapResolveResult {
 	}
 	return entryToResolve(res.Entries[0])
 }
+
+// Directory groups the console offers when an admin types into "Group name or
+// DN" (Directory → Group mappings), so nobody has to copy a DN out of ADUC.
+const groupSearchLimit = 25
+
+type LdapGroup struct {
+	Name        string `json:"name"`
+	DN          string `json:"dn"`
+	Description string `json:"description,omitempty"`
+}
+
+type LdapGroupSearchResult struct {
+	Groups    []LdapGroup `json:"groups"`
+	Truncated bool        `json:"truncated,omitempty"` // more matched than groupSearchLimit
+	Error     string      `json:"error,omitempty"`
+}
+
+// groupSearchFilter matches AD groups and the common OpenLDAP group classes
+// whose cn (or AD sAMAccountName) contains q. q is escaped, never raw.
+func groupSearchFilter(q string) string {
+	e := ldap.EscapeFilter(q)
+	return fmt.Sprintf("(&(|(objectClass=group)(objectClass=groupOfNames)(objectClass=groupOfUniqueNames)(objectClass=posixGroup))(|(cn=*%s*)(sAMAccountName=*%s*)))", e, e)
+}
+
+func entriesToGroups(entries []*ldap.Entry) []LdapGroup {
+	out := make([]LdapGroup, 0, len(entries))
+	for _, e := range entries {
+		name := e.GetAttributeValue("cn")
+		if name == "" {
+			name = e.GetAttributeValue("sAMAccountName")
+		}
+		if name == "" || e.DN == "" {
+			continue
+		}
+		out = append(out, LdapGroup{Name: name, DN: e.DN, Description: e.GetAttributeValue("description")})
+	}
+	return out
+}
+
+// SearchGroups binds and subtree-searches baseDN for groups whose name contains
+// q, at most groupSearchLimit of them. A directory that stops at the size limit
+// still returns what it found, marked truncated.
+func SearchGroups(s *Session, cfg LdapConfig, q string) LdapGroupSearchResult {
+	q = strings.TrimSpace(q)
+	if len(q) < 2 {
+		return LdapGroupSearchResult{Groups: []LdapGroup{}}
+	}
+	conn, raw, err := connectAndBind(s, cfg)
+	if err != nil {
+		return LdapGroupSearchResult{Error: err.Error()}
+	}
+	defer conn.Close()
+	defer raw.Close()
+
+	req := ldap.NewSearchRequest(
+		cfg.BaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, groupSearchLimit+1, 12, false,
+		groupSearchFilter(q), []string{"cn", "sAMAccountName", "description"}, nil,
+	)
+	res, err := conn.Search(req)
+	truncated := false
+	if err != nil {
+		if !ldap.IsErrorWithCode(err, ldap.LDAPResultSizeLimitExceeded) || res == nil {
+			return LdapGroupSearchResult{Error: "search failed: " + err.Error()}
+		}
+		truncated = true
+	}
+	groups := entriesToGroups(res.Entries)
+	if len(groups) > groupSearchLimit {
+		groups, truncated = groups[:groupSearchLimit], true
+	}
+	return LdapGroupSearchResult{Groups: groups, Truncated: truncated}
+}
