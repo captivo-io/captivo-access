@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BrandMark } from "@/components/brand";
 import { Icon } from "./icons";
+import type { SessionFailure } from "@/lib/gateway/connect-error";
 
 // Recording notice, one look in every session mode: a branded card for the
 // first seconds (like the PAM products vendors already know), then it folds
@@ -137,6 +138,26 @@ export function SessionEnded({ message }: { message: string | null }) {
         <div className="ss-drop-title">Your session was ended</div>
         <div className="ss-drop-sub">{message}</div>
         <a className="ss-ended-back" href="/access">Back to My access</a>
+      </div>
+    </div>
+  );
+}
+
+// Shown when guacd or the tunnel stopped the session: what went wrong, in words
+// a vendor can pass on, with guacd's own text underneath.
+export function SessionFailed({ failure }: { failure: SessionFailure | null }) {
+  if (!failure) return null;
+  return (
+    <div className="ss-drop blocked ss-ended" role="alertdialog" aria-label={failure.title}>
+      <div className="ss-drop-box">
+        {Icon.block(34)}
+        <div className="ss-drop-title">{failure.title}</div>
+        <div className="ss-drop-sub">{failure.hint}</div>
+        {failure.detail && <div className="ss-failed-detail">Details: {failure.detail}</div>}
+        <div className="ss-failed-acts">
+          <button type="button" className="ss-ended-back" onClick={() => window.location.reload()}>Try again</button>
+          <a className="ss-ended-back" href="/access">Back to My access</a>
+        </div>
       </div>
     </div>
   );

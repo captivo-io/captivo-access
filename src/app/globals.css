@@ -862,6 +862,9 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .ss-ended .ss-drop-box { border-style: solid; text-align: center; max-width: min(460px, calc(100vw - 32px)); }
 .ss-ended-back { margin-top: 10px; color: #fff; background: rgba(255,255,255,.12); border-radius: 8px; padding: 8px 16px; text-decoration: none; font-weight: 600; }
 .ss-ended-back:hover { background: rgba(255,255,255,.2); }
+button.ss-ended-back { border: 0; font: inherit; font-weight: 600; cursor: pointer; }
+.ss-failed-detail { font: 400 11.5px/1.35 var(--mono, ui-monospace, monospace); color: #6f819c; margin-top: 4px; }
+.ss-failed-acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .ss-drop-title { font: 640 16px/1.2 var(--display); color: #fff; margin-top: 6px; }
 .ss-drop-sub { font: 400 12.5px/1.3 var(--sans); color: #8ea0ba; }
 @keyframes ss-fade { from { opacity: 0; } to { opacity: 1; } }
