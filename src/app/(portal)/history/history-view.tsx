@@ -8,7 +8,7 @@ import { dayKey, dayLabel, hm, useZone } from "@/app/(app)/admin/audit/audit-zon
 
 type Kind = "all" | HistoryKind;
 
-const VIA = { isolated: "Isolated browser", gateway: "Gateway" } as const;
+const VIA = { isolated: "Isolated browser", gateway: "Gateway", native: "Own RDP app" } as const;
 
 /**
  * Session history as the design hand-off (README 7.21) lays it out: a week of
@@ -16,7 +16,7 @@ const VIA = { isolated: "Isolated browser", gateway: "Gateway" } as const;
  */
 export function HistoryView({ initial, retentionDays, workspace, serverNow }: {
   initial: HistoryWindow;
-  /** 0 = recordings are kept until an admin deletes them. */
+  /** How long the access audit log, which every session is rebuilt from, is kept. */
   retentionDays: number;
   workspace: string | null;
   /** Day labels are relative to this, so the server and client renders agree. */
@@ -70,7 +70,7 @@ export function HistoryView({ initial, retentionDays, workspace, serverNow }: {
   const range = (r: HistoryRowJSON) => `${hm(r.startedAt, zone)}–${hm(r.endedAt, zone)}`;
   const keep = retentionDays > 0
     ? `History is kept for ${retentionDays} days.`
-    : "History is kept until an admin deletes the session's recording.";
+    : "History is kept as long as the workspace's audit log.";
 
   return (
     <div className="hs">
@@ -165,7 +165,7 @@ export function HistoryView({ initial, retentionDays, workspace, serverNow }: {
         </div>
       )}
 
-      <p className="nf-note">{keep} Sessions on resources that aren&apos;t recorded don&apos;t appear here. Only admins can watch session recordings.</p>
+      <p className="nf-note">{keep} Remote desktop sessions show here once they have ended. Only admins can watch session recordings.</p>
     </div>
   );
 }
