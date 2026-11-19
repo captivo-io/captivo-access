@@ -1,7 +1,9 @@
 import { requireUser } from "@/lib/current-user";
-import { historyPage, HISTORY_PAGE_SIZE } from "@/lib/portal/history";
+import { historyWindow } from "@/lib/portal/history";
+import { resolvedRecordingRetentionDays } from "@/lib/settings/platform";
+import { workspaceView } from "@/lib/mobile/views";
 import { withRequestTenant } from "@/lib/tenant/request";
-import { HistoryList } from "./history-list";
+import { HistoryView } from "./history-view";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "History" };
@@ -11,17 +13,16 @@ export const metadata = { title: "History" };
 export default async function HistoryPage() {
   return withRequestTenant(async () => {
     const user = await requireUser();
-    const initial = await historyPage(user.id, 0);
+    const now = new Date();
+    const [week, retentionDays, ws] = await Promise.all([
+      historyWindow(user.id, now),
+      resolvedRecordingRetentionDays(),
+      workspaceView().catch(() => ({ name: "", slug: null as string | null })),
+    ]);
     return (
-      <div>
-        <div className="page-head">
-          <div>
-            <h1>Session history</h1>
-            <p>Your past remote sessions.</p>
-          </div>
-        </div>
-        <HistoryList initial={initial} pageSize={HISTORY_PAGE_SIZE} />
-      </div>
+      <main>
+        <HistoryView initial={week} retentionDays={retentionDays} workspace={ws.slug} serverNow={now.getTime()} />
+      </main>
     );
   });
 }

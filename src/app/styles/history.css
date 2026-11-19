@@ -1,0 +1,35 @@
+/* ---- Session history (design hand-off README 7.21) ---- */
+.hs{display:flex;flex-direction:column;gap:18px;}
+.hs .page-head{margin-bottom:0;}
+.hs-kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:0;}
+.hs-kpis .kcell-v{font-size:28px;}
+.hs-kpis .kcell-row{flex-wrap:wrap;row-gap:4px;}
+.hs-kpis .kcell-v.hs-top{font-size:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+
+.hs-row{display:grid;grid-template-columns:96px minmax(0,1fr) minmax(80px,180px) 64px 92px;gap:14px;align-items:center;padding:10px 18px;border-bottom:1px solid rgba(var(--ink-rgb),.06);}
+.hs-row:last-child{border-bottom:0;}
+.hs-row:hover{background:rgba(var(--ink-rgb),.025);}
+.hs-time{font-family:var(--mono);font-size:12.5px;color:var(--muted);white-space:nowrap;}
+.hs-main{display:flex;align-items:center;gap:11px;min-width:0;}
+.hs-txt{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.hs-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hs-sub{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;}
+.hs-sub b{font-family:var(--mono);font-size:10px;font-weight:600;}
+.hs-bar{height:6px;border-radius:3px;background:rgba(var(--ink-rgb),.07);overflow:hidden;}
+.hs-bar span{display:block;height:100%;min-width:4px;border-radius:3px;}
+.hs-bar .web{background:rgba(var(--p-rgb),.75);}
+.hs-bar .remote{background:rgba(var(--a-rgb),.75);}
+.hs-dur{font-family:var(--mono);font-size:12.5px;text-align:right;white-space:nowrap;}
+.hs-dur.short{color:var(--muted);}
+.hs-act{justify-self:end;}
+.hs-act .btn{height:30px;padding:0 10px;font-size:12.5px;white-space:nowrap;}
+.hs-more{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+
+@media (max-width:760px){
+  .hs-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"main dur" "time act";row-gap:6px;}
+  .hs-main{grid-area:main;}
+  .hs-dur{grid-area:dur;}
+  .hs-time{grid-area:time;}
+  .hs-act{grid-area:act;}
+  .hs-bar{display:none;}
+}
