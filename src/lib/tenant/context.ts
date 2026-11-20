@@ -32,3 +32,10 @@ export function currentTenantId(): string {
 export function currentTx(): unknown | null {
   return als.getStore()?.tx ?? null;
 }
+
+// Runs fn with no scope at all: for work started from inside a request that
+// must outlive it (a timer would otherwise inherit the request's transaction,
+// which is closed by the time the timer fires).
+export function outsideScope<T>(fn: () => T): T {
+  return als.exit(fn);
+}

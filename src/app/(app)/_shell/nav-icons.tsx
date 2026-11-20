@@ -20,6 +20,7 @@ const PATHS: Record<NavIconKey | "search" | "bell" | "menu" | "ext" | "chev" | "
   monitor: (<><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>),
   mail: (<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></>),
   download: (<path d="M12 3v12M7 10l5 5 5-5M4 21h16" />),
+  send: (<><path d="M4 6h10M4 12h7M4 18h10" /><path d="M16 9l4 3-4 3" /><path d="M13 12h7" /></>),
   grid: (<><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>),
   inbox: (<><path d="M3 13h5l2 3h4l2-3h5" /><path d="M5 5h14l2 8v6H3v-6z" /></>),
   clock: (<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>),

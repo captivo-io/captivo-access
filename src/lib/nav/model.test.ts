@@ -19,7 +19,7 @@ describe("buildNavModel", () => {
       "/", "/admin/insights", "/admin/grants", "/admin/live", "/admin/recordings", "/admin/audit",
       "/admin/connectors", "/admin/sites", "/admin/policy",
       "/admin/users", "/admin/directory", "/admin/sso",
-      "/admin/email", "/admin/updates",
+      "/admin/email", "/admin/log-forwarding", "/admin/updates",
     ]));
     expect(m.canSwitchView).toBe(true);
     expect(m.showSearch).toBe(true);

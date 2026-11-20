@@ -4,6 +4,7 @@ import "./globals.css";
 import "./styles/people.css";
 import "./styles/directory.css";
 import "./styles/sso-email.css";
+import "./styles/log-forwarding.css";
 import "./styles/updates.css";
 import "./styles/policy.css";
 import "./styles/resources.css";
