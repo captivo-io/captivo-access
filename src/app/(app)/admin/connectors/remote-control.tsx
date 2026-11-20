@@ -142,6 +142,33 @@ export function UpdateConnectorButton({
   );
 }
 
+/**
+ * An up-to-date connector the console still can't update: no updater beside it
+ * (installed or last updated with a command from before 2.41.0, or with the
+ * updater turned off), or one that can't reach Docker. Without this band such a
+ * connector shows no way to get the command at all until the next release.
+ */
+export function NoUpdaterBand({ connectorId, commands, managerUrlIsLocal, remote, version }: {
+  connectorId: string;
+  commands: UpdateCommands;
+  managerUrlIsLocal: boolean;
+  remote: RemoteControl;
+  version: string | null;
+}) {
+  if (remote.ok || remote.reason === "offline") return null;
+  return (
+    <div className="cn-band info">
+      <span className="cn-band-t">
+        {remote.reason === "no_docker"
+          ? "Updates from the console are off: the updater on this host can't reach Docker."
+          : "Updates from the console are off: this connector has no updater. Run the update command on its host once to add it."}
+      </span>
+      <UpdateConnectorButton connectorId={connectorId} commands={commands} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={null}
+        from={version} openTunnels={0} label="Show command" className="btn sm" />
+    </div>
+  );
+}
+
 const STATE_TEXT: Record<string, (v: string, s: HostActionStatus) => string> = {
   waiting_idle: (v) => `Update to ${v} waits until nobody is connected.`,
   preparing: (v) => `Updating to ${v}: downloading.`,

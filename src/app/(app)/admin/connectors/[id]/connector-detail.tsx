@@ -11,7 +11,7 @@ import { logRows, parseLogLine, type LevelFilter } from "@/lib/connector/log-lin
 import { parseTargets, type TargetKind } from "@/lib/connector/egress-targets";
 import { fmt, hm, useZone } from "@/app/(app)/admin/audit/audit-zone";
 import { ago, duration, latency } from "../connectors-view";
-import { HostActionBand, RemoveFromHostButton, UpdateConnectorButton, type UpdateCommands } from "../remote-control";
+import { HostActionBand, NoUpdaterBand, RemoveFromHostButton, UpdateConnectorButton, type UpdateCommands } from "../remote-control";
 import { remoteControl, updateTarget, type StoredHostAction } from "@/lib/connector/host-action";
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { RepairConnectorButton } from "../repair-connector-button";
@@ -149,6 +149,9 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
           <UpdateConnectorButton connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={updateTarget(version, c.mgr)}
             from={version} openTunnels={online ? (t?.activeConnections ?? 0) : 0} label={remote.ok ? "Update now" : "How to update"} className="btn sm ink" />
         </div>
+      )}
+      {!outdated && !revoked && !updating && (
+        <NoUpdaterBand connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={remote} version={version} />
       )}
       {revoked && (
         <div className="cn-band bad">
