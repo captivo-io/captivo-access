@@ -291,6 +291,8 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		}
 	})
+	// Audit records for the SIEM on a connector's network, as syslog messages.
+	in.HandleFunc("/connector-logforward", serveLogForward(reg, secret))
 	in.HandleFunc("/sessions", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {
 			http.Error(w, "forbidden", http.StatusForbidden)

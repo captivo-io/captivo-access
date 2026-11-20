@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { computeHash } from "@/lib/audit/chain";
 import { chainKey, lockChain } from "@/lib/audit/chain-key";
 import { currentTenantId } from "@/lib/tenant/context";
+import { kickLogForwarding } from "@/lib/logforward/pump";
 
 export interface AuditInput {
   timestamp?: string;
@@ -90,7 +91,7 @@ export async function appendAuditEvents(events: AuditInput[]): Promise<number> {
 
   const normalized = events.map((e) => normalizeAuditInput(e, lookups));
 
-  return db.$transaction(async (tx) => {
+  const inserted = await db.$transaction(async (tx) => {
     await lockChain(tx, "access");
     const head = await tx.auditChainState.upsert({
       where: chainKey("access"),
@@ -112,4 +113,6 @@ export async function appendAuditEvents(events: AuditInput[]): Promise<number> {
     await tx.auditChainState.update({ where: chainKey("access"), data: { lastSeq, lastHash } });
     return rows.length;
   });
+  kickLogForwarding();
+  return inserted;
 }

@@ -39,6 +39,7 @@ model Tenant {
   connectorDays   ConnectorDay[]
   connectorEvents ConnectorEvent[]
   passkeyResets   PasskeyReset[]
+  logDestinations LogDestination[]
 
   users              User[]
   passkeys           Passkey[]
@@ -858,5 +859,55 @@ model SupportHandoff {
   createdAt  DateTime  @default(now())
 
   @@unique([tenantId, tokenHash])
+  @@index([tenantId])
+}
+
+// A SIEM the workspace's audit records are forwarded to. Syslog destinations
+// are on the customer's network and are reached through one of their
+// connectors (connectorId, then fallbackConnectorId); the cloud kinds
+// (splunk_hec, datadog, https) are called from the manager directly.
+//
+// The records are never copied: each destination keeps a cursor into the two
+// hash-chained logs (AuditEvent.seq, AdminAuditEvent.seq) and moves it only
+// after a batch was delivered, so an outage resends instead of losing.
+model LogDestination {
+  id                  String    @id @default(cuid())
+  tenantId            String    @default("default")
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                String
+  enabled             Boolean   @default(true)
+  kind                String // syslog | splunk_hec | datadog | https
+  // syslog
+  transport           String? // udp | tcp | tls
+  host                String?
+  port                Int?
+  framing             String? // newline | octet
+  format              String    @default("cef") // syslog: cef | json
+  facility            Int       @default(16) // local0
+  caPem               String?
+  connectorId         String?
+  fallbackConnectorId String?
+  // cloud
+  url                 String?
+  secret              String? // encrypted: HEC token, Datadog API key or the header's value
+  headerName          String?
+  // what is sent
+  sendSessions        Boolean   @default(true)
+  sendFiles           Boolean   @default(true)
+  sendDenied          Boolean   @default(true)
+  sendAdmin           Boolean   @default(true)
+  sendRequests        Boolean   @default(false)
+  // progress
+  accessCursor        BigInt    @default(0)
+  adminCursor         BigInt    @default(0)
+  sentTotal           BigInt    @default(0)
+  lastSentAt          DateTime?
+  lastError           String?
+  lastErrorAt         DateTime?
+  failures            Int       @default(0)
+  nextAttemptAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
   @@index([tenantId])
 }

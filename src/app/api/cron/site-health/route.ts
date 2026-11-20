@@ -8,6 +8,7 @@ import { forEachTenantId, inTenant } from "@/lib/cron/for-each-tenant";
 import { reconcilePendingErasures } from "@/lib/connector/policy";
 import { notifyPlatformAlerts } from "@/lib/platform/alert-push";
 import { probeConnectors, recordConnectorEvent, writeConnectorSamples } from "@/lib/connector/history";
+import { pumpTenant } from "@/lib/logforward/pump";
 
 function cronAuthorized(req: NextRequest): boolean {
   const s = process.env.CRON_SECRET;
@@ -153,6 +154,11 @@ export async function POST(req: NextRequest) {
     } catch {
       /* best-effort */
     }
+
+    // 6. LOG FORWARDING -- whatever a restart or a failed delivery left behind
+    // (new records start their own pump). Not awaited: a slow SIEM must not hold
+    // the health pass.
+    void pumpTenant(tenantId).catch((e) => console.error("log forwarding: catch-up failed", e));
 
     return {
       checked: toProbe.length + gwToProbe.length,

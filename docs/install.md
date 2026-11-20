@@ -536,4 +536,6 @@ shows *The updater can't reach Docker*; use the command there too.
   RDP/SSH/VNC access.
 - [`docs/how-it-works.md`](how-it-works.md) — the journey of a single request, in
   plain terms.
+- [`docs/log-forwarding.md`](log-forwarding.md) — sending the audit log to a SIEM
+  over syslog (through a connector) or HTTPS.
 - [`docs/quickstart.md`](quickstart.md) — a zero-DNS local demo in ~5 minutes.

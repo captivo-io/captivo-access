@@ -87,6 +87,10 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleEgress(st, reqBytes)
 		return
 	}
+	if peek.Kind == "logforward" {
+		handleLogForward(st, allow, reqBytes)
+		return
+	}
 	// Relay stream: count it, and wrap st so bytes are tallied for every kind.
 	connOpen()
 	defer connClose()

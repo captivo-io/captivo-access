@@ -19,6 +19,7 @@ const PAGES: { label: string; href: string; cap: Capability | null }[] = [
   { label: "Invites", href: "/admin/users?tab=invites", cap: "configure" },
   { label: "Console sessions", href: "/admin/users?tab=sessions", cap: "configure" },
   { label: "Audit log", href: "/admin/audit", cap: "read_console" },
+  { label: "Log forwarding", href: "/admin/log-forwarding", cap: "configure" },
   { label: "Settings", href: "/settings/passkeys", cap: null },
 ];
 const GROUP_FOR: Record<SearchRecord["type"], CommandItem["group"]> = {
@@ -42,6 +43,7 @@ const CMD_ICONS: Record<string, string[]> = {
   "/admin/users?tab=invites": ["M4 6h16v12H4z", "M4 7l8 6 8-6"],
   "/admin/users?tab=sessions": ["M4 5h16v11H4z", "M9 20h6M12 16v4"],
   "/admin/audit": ["M6 3h9l4 4v14H6z", "M9 12h6M9 16h6M9 8h3"],
+  "/admin/log-forwarding": ["M4 6h10M4 12h7M4 18h10", "M16 9l4 3-4 3", "M13 12h7"],
   "/settings/passkeys": ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z", "M12 4v2M12 18v2M5 8l1.7 1M17.3 15L19 16M5 16l1.7-1M17.3 9L19 8"],
 };
 const GROUP_ICON: Record<string, string> = { Resources: "/admin/sites", Connectors: "/admin/connectors", Users: "/admin/users" };

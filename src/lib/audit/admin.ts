@@ -3,6 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { computeAdminHash } from "@/lib/audit/admin-chain";
 import { chainKey, lockChain } from "@/lib/audit/chain-key";
 import { currentTenantId } from "@/lib/tenant/context";
+import { kickLogForwarding } from "@/lib/logforward/pump";
 
 export interface AdminActor { id: string; email: string | null }
 
@@ -65,6 +66,7 @@ export async function recordAdminAction(input: {
       });
       await tx.auditChainState.update({ where: chainKey("admin"), data: { lastSeq: seq, lastHash: hash } });
     });
+    kickLogForwarding();
   } catch (e) {
     console.error("recordAdminAction failed:", input.action, e);
   }
