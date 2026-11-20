@@ -106,7 +106,7 @@ func TestSSHJumpRelaysToTheResource(t *testing.T) {
 		t.Fatal("session still listed after close")
 	}
 	evs := audit.drain(10)
-	if len(evs) != 2 || evs[0].Reason != "session_open native_ssh" || !strings.HasPrefix(evs[1].Reason, "session_close ") || evs[0].Method != "SSH" || evs[0].ClientIP != "127.0.0.1" {
+	if len(evs) != 2 || evs[0].Reason != "session_open native_ssh" || !strings.HasPrefix(evs[1].Reason, "session_close ") || evs[0].Method != "SSH" || evs[0].ClientIP != "127.0.0.1" || evs[1].BytesOut != 14 {
 		t.Fatalf("audit %+v", evs)
 	}
 }

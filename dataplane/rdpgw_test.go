@@ -89,6 +89,7 @@ func (m rdgMethod) RoundTrip(r *http.Request) (*http.Response, error) {
 type gwHarness struct {
 	srv    *httptest.Server
 	hub    *SessionHub
+	audit  *AuditQueue
 	dialed chan string
 }
 
@@ -108,9 +109,9 @@ func newGwHarness(t *testing.T, auth *fakeRdpAuth) *gwHarness {
 			go func() { defer c.Close(); _, _ = io.Copy(c, c) }()
 		}
 	}()
-	h := &gwHarness{hub: NewSessionHub(), dialed: make(chan string, 4)}
+	h := &gwHarness{hub: NewSessionHub(), audit: NewAuditQueue(100), dialed: make(chan string, 4)}
 	deps := rdpgwDeps{
-		secret: "s3cret", ctrl: auth, hub: h.hub, now: time.Now,
+		secret: "s3cret", ctrl: auth, hub: h.hub, audit: h.audit, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) {
 			h.dialed <- connectorID + " " + target
 			if connectorID == "offline" {
@@ -205,6 +206,18 @@ func TestRdpGatewayTunnelEndToEnd(t *testing.T) {
 	_, _ = conn.Write(tsgPacket(tsgCloseChannel, le32(0)))
 	expect(t, conn, tsgCloseChannelResponse)
 	waitFor(t, func() bool { return len(h.hub.List()) == 0 })
+	var closed *AuditEvent
+	waitFor(t, func() bool {
+		for _, e := range h.audit.drain(10) {
+			if strings.HasPrefix(e.Reason, "session_close ") {
+				closed = &e
+			}
+		}
+		return closed != nil
+	})
+	if closed.BytesOut != 4 { // server→client payload, not the TSG framing
+		t.Fatalf("close audit bytesOut = %d", closed.BytesOut)
+	}
 }
 
 func TestRdpGatewayTerminateEndsTunnel(t *testing.T) {

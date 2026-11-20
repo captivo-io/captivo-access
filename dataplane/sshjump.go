@@ -270,16 +270,20 @@ func (j *sshJumpConn) relay(ch ssh.Channel, remote net.Conn, target rdpTarget) {
 	}
 	j.auditEvent("ALLOW", "session_open native_ssh", target.Host)
 	log.Printf("ssh jump: site=%s user=%s live session id=%s target=%s:%s", tk.SiteID, tk.UserID, sessionID, target.Host, target.Port)
+	// Count both ways; the close audit carries server→client as bytesOut, the
+	// same direction the browser sessions record.
+	var down, up int64
 	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(ch, remote); _ = ch.CloseWrite(); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(remote, ch); done <- struct{}{} }()
+	go func() { down, _ = io.Copy(ch, remote); _ = ch.CloseWrite(); done <- struct{}{} }()
+	go func() { up, _ = io.Copy(remote, ch); done <- struct{}{} }()
 	<-done
 	closeAll()
+	<-done
 	if j.d.hub != nil {
 		j.d.hub.Remove(sessionID)
 	}
-	j.auditEvent("ALLOW", "session_close "+compactDur(j.d.now().Sub(start)), target.Host)
-	log.Printf("ssh jump: site=%s user=%s session %s closed after %s", tk.SiteID, tk.UserID, sessionID, compactDur(j.d.now().Sub(start)))
+	j.auditClose(compactDur(j.d.now().Sub(start)), target.Host, down)
+	log.Printf("ssh jump: site=%s user=%s session %s closed after %s (down %d B, up %d B)", tk.SiteID, tk.UserID, sessionID, compactDur(j.d.now().Sub(start)), down, up)
 }
 
 // explain answers someone who signed in to the jump host itself instead of
@@ -311,6 +315,14 @@ func (j *sshJumpConn) auditDeny(reason string) {
 }
 
 func (j *sshJumpConn) auditEvent(decision, reason, host string) {
+	j.enqueue(decision, reason, host, 0)
+}
+
+func (j *sshJumpConn) auditClose(dur, host string, bytesOut int64) {
+	j.enqueue("ALLOW", "session_close "+dur, host, bytesOut)
+}
+
+func (j *sshJumpConn) enqueue(decision, reason, host string, bytesOut int64) {
 	if j.d.audit == nil {
 		return
 	}
@@ -320,7 +332,7 @@ func (j *sshJumpConn) auditEvent(decision, reason, host string) {
 	}
 	j.d.audit.Enqueue(AuditEvent{
 		Timestamp: time.Now(), UserID: j.tk.UserID, SiteID: j.tk.SiteID, Host: host,
-		Method: "SSH", Path: "/", Status: status, Decision: decision, Reason: reason,
+		Method: "SSH", Path: "/", Status: status, BytesOut: bytesOut, Decision: decision, Reason: reason,
 		ClientIP: j.clientIP, UserAgent: j.client,
 	})
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 
@@ -450,11 +451,13 @@ func (t *rdpgwTunnel) open() func() {
 		t.d.audit.Enqueue(auditEvent("ALLOW", "session_open native_rdp", tk.UserID, tk.SiteID, host, t.r, http.StatusSwitchingProtocols, 0))
 	}
 	log.Printf("rdpgw: site=%s user=%s live session id=%s target=%s:%s", tk.SiteID, tk.UserID, sessionID, host, t.target.Port)
+	var down atomic.Int64 // server→client, the close audit's bytesOut
 	go func() {
 		buf := make([]byte, tsgDataChunk)
 		for {
 			n, err := t.remote.Read(buf)
 			if n > 0 {
+				down.Add(int64(n))
 				if t.write(dataPacket(buf[:n])) != nil {
 					break
 				}
@@ -471,8 +474,8 @@ func (t *rdpgwTunnel) open() func() {
 			t.d.hub.Remove(sessionID)
 		}
 		if t.d.audit != nil {
-			t.d.audit.Enqueue(auditEvent("ALLOW", "session_close "+compactDur(t.d.now().Sub(start)), tk.UserID, tk.SiteID, host, t.r, http.StatusSwitchingProtocols, 0))
+			t.d.audit.Enqueue(auditEvent("ALLOW", "session_close "+compactDur(t.d.now().Sub(start)), tk.UserID, tk.SiteID, host, t.r, http.StatusSwitchingProtocols, down.Load()))
 		}
-		log.Printf("rdpgw: site=%s user=%s session %s closed after %s", tk.SiteID, tk.UserID, sessionID, compactDur(t.d.now().Sub(start)))
+		log.Printf("rdpgw: site=%s user=%s session %s closed after %s (down %d B)", tk.SiteID, tk.UserID, sessionID, compactDur(t.d.now().Sub(start)), down.Load())
 	}
 }
