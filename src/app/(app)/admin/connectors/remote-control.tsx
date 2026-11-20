@@ -183,13 +183,17 @@ const STATE_TEXT: Record<string, (v: string, s: HostActionStatus) => string> = {
 const SHOW_FINISHED_MS = 30 * 60_000;
 
 /** Progress of an update asked from the console, as the connector reports it. */
-export function HostActionBand({ connectorId, status, now }: { connectorId: string; status: HostActionStatus | null | undefined; now: number }) {
+export function HostActionBand({ connectorId, status, now, outdated = false }: { connectorId: string; status: HostActionStatus | null | undefined; now: number; outdated?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!status || status.action !== "update" || !STATE_TEXT[status.state]) return null;
   const finished = status.state === "done" || status.state === "rolled_back" || status.state === "failed";
   if (finished && status.at && now - Date.parse(status.at) > SHOW_FINISHED_MS) return null;
+  // "Updated to X" next to "a new version is ready" says two things at once;
+  // once a newer release is out, the success is old news. A rollback or a
+  // failure still matters then, so those stay.
+  if (status.state === "done" && outdated) return null;
   const tone = status.state === "done" ? "ok" : status.state === "failed" ? "bad" : status.state === "rolled_back" ? "warn" : "info";
 
   async function cancel() {

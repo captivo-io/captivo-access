@@ -237,7 +237,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
         </div>
       ) : (
         <>
-          <HostActionBand connectorId={c.id} status={c.hostAction} now={Date.now()} />
+          <HostActionBand connectorId={c.id} status={c.hostAction} now={Date.now()} outdated={c.outdated} />
           {c.outdated && !busy && (
             <div className="cn-band warn">
               <span className="cn-chip mono">{c.version ?? "?"} → {mgr}</span>

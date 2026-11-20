@@ -140,7 +140,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
         </div>
       </div>
 
-      {!revoked && <HostActionBand connectorId={c.id} status={report} now={now} />}
+      {!revoked && <HostActionBand connectorId={c.id} status={report} now={now} outdated={outdated} />}
       {outdated && !revoked && !updating && (
         <div className="cn-band warn">
           <span className="cn-chip mono">{version ?? "?"} → {c.mgr}</span>
