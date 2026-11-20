@@ -25,6 +25,10 @@ async function handler(req: NextRequest) {
   const connectorId = typeof body.connectorId === "string" ? body.connectorId : "";
   const status = body.status === "ONLINE" || body.status === "OFFLINE" ? body.status : null;
   if (!connectorId || !status) return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  // The data-plane reports a dropped tunnel without a version. An empty one is
+  // "not said", never a version: stored, it blanked the card and turned the
+  // next update's event into "Updated 2.35.1 → ".
+  const version = typeof body.version === "string" && body.version.trim() ? body.version.trim() : null;
   // Never resurrect a REVOKED connector: the data-plane's automatic ONLINE/OFFLINE
   // reports must not overwrite an admin revocation (otherwise an OFFLINE report on
   // session teardown would clear REVOKED and let the connector re-authenticate).
@@ -36,7 +40,7 @@ async function handler(req: NextRequest) {
       status,
       lastSeenAt: new Date(),
       ...(typeof body.remoteAddr === "string" ? { remoteAddr: body.remoteAddr } : {}),
-      ...(typeof body.version === "string" ? { version: body.version } : {}),
+      ...(version ? { version } : {}),
       // The connector's vault key: a changed one means its /data was lost, and
       // secrets sealed to the old key need entering again (shown on the resource).
       ...(isVaultPublicKey(body.vaultPublicKey) ? { vaultPublicKey: body.vaultPublicKey } : {}),
@@ -49,8 +53,8 @@ async function handler(req: NextRequest) {
     } else if (status === "OFFLINE" && before.status === "ONLINE") {
       await recordConnectorEvent(connectorId, "bad", "Tunnel dropped");
     }
-    if (typeof body.version === "string" && before.version && body.version !== before.version) {
-      await recordConnectorEvent(connectorId, "info", `Updated ${before.version} → ${body.version}`);
+    if (version && before.version && version !== before.version) {
+      await recordConnectorEvent(connectorId, "info", `Updated ${before.version} → ${version}`);
     }
   }
   // Seal what the cloud still holds in a form it can open, now that this

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { textMatch } from "@/lib/table/filter";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
-import { HostActionBand, RemoveFromHostModal, UpdateConnectorButton, type UpdateCommands } from "./remote-control";
+import { HostActionBand, NoUpdaterBand, RemoveFromHostModal, UpdateConnectorButton, type UpdateCommands } from "./remote-control";
 import { RepairConnectorButton } from "./repair-connector-button";
 import { DeleteConnectorButton, DeleteWithResourcesButton } from "./delete-connector-button";
 import { CleanupHostButton } from "./cleanup-host";
@@ -238,6 +238,8 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
                 from={c.version} openTunnels={on ? (c.activeTunnels ?? 0) : 0} label={c.remote.ok && c.target ? "Update now" : "How to update"} className="btn sm ink" />
             </div>
           )}
+
+          {!c.outdated && !busy && <NoUpdaterBand connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={c.remote} version={c.version} />}
 
           <div className="cn-metrics">
             <div>
