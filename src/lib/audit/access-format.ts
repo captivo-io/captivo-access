@@ -46,10 +46,22 @@ const REASONS: Record<string, string> = {
   ip_not_allowed: "Network not on the IP allowlist",
 };
 
+// Words after the code that are themselves codes (dataplane/rdpgw.go writes
+// "session_open native_rdp").
+const REASON_DETAILS: Record<string, string> = {
+  native_rdp: "own RDP app",
+};
+
 export function accessReasonLabel(reason: string | null): string | null {
   if (!reason) return null;
   const [code, ...rest] = reason.trim().split(/\s+/);
   const label = REASONS[code];
   if (!label) return reason;
-  return rest.length ? `${label} · ${rest.join(" ")}` : label;
+  return rest.length ? `${label} · ${rest.map((w) => REASON_DETAILS[w] ?? w).join(" ")}` : label;
+}
+
+// A native RDP client's session (dataplane/rdpgw.go) is stored under the RD
+// Gateway request that carried it, not an HTTP verb a reader would know.
+export function isNativeRdpMethod(method: string): boolean {
+  return method === "RDG_OUT_DATA" || method === "RDG_IN_DATA";
 }

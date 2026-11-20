@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transferBadge, TRANSFER_VERBS, accessReasonLabel } from "./access-format";
+import { transferBadge, TRANSFER_VERBS, accessReasonLabel, isNativeRdpMethod } from "./access-format";
 
 describe("transferBadge", () => {
   it("maps DOWNLOAD", () => {
@@ -37,5 +37,16 @@ describe("accessReasonLabel", () => {
     expect(accessReasonLabel("something_new")).toBe("something_new");
     expect(accessReasonLabel(null)).toBeNull();
     expect(accessReasonLabel("")).toBeNull();
+  });
+});
+
+describe("native RDP sessions", () => {
+  it("name the user's own app instead of a code", () => {
+    expect(accessReasonLabel("session_open native_rdp")).toBe("Session opened · own RDP app");
+    expect(accessReasonLabel("session_close 21s")).toBe("Session closed · 21s");
+  });
+  it("recognise the RD Gateway request they are stored under", () => {
+    expect(isNativeRdpMethod("RDG_OUT_DATA")).toBe(true);
+    expect(isNativeRdpMethod("GET")).toBe(false);
   });
 });

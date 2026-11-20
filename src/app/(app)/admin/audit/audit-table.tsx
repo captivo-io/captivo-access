@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { parseDatetimeLocal, formatDatetimeLocal } from "@/lib/time/datetime-local";
-import { accessReasonLabel, transferBadge } from "@/lib/audit/access-format";
+import { accessReasonLabel, isNativeRdpMethod, transferBadge } from "@/lib/audit/access-format";
 import { groupBursts, describeAgent, type Burst } from "@/lib/audit/grouping";
 import type { Histogram } from "@/lib/audit/histogram";
 import { AuditDrawer, DetailList } from "./audit-drawer";
@@ -67,7 +67,7 @@ export function formatBytes(raw: string): string {
 const initials = (s: string) => (s.split(/[\s@.]+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("") || "?").toUpperCase();
 // A remote session's open / close marker (the reason carries which), not an HTTP request.
 const isSession = (r: AccessRowJSON) => /^session_(open|close)/.test(r.reason ?? "");
-const notHttp = (r: AccessRowJSON) => r.method === "CONNECT" || isSession(r);
+const notHttp = (r: AccessRowJSON) => r.method === "CONNECT" || isSession(r) || isNativeRdpMethod(r.method);
 
 function params(f: AccessFilters, offset: number, histogram: boolean): URLSearchParams {
   const p = new URLSearchParams();
@@ -103,6 +103,7 @@ function Method({ r, site }: { r: AccessRowJSON; site?: SiteInfo }) {
   const t = transferBadge(r.method);
   if (t.isTransfer) return <span className="au-m file">{t.direction === "download" ? "↓ FILE" : "↑ FILE"}</span>;
   if (r.method === "CONNECT") return <span className="au-m">{site?.remote ? site.proto : "WS"}</span>;
+  if (isNativeRdpMethod(r.method)) return <span className="au-m" title={r.method}>RDP</span>;
   const cls = { GET: "get", HEAD: "get", POST: "post", PUT: "put", PATCH: "put", DELETE: "del" }[r.method] ?? "";
   return <span className={`au-m ${cls}`}>{r.method}</span>;
 }
