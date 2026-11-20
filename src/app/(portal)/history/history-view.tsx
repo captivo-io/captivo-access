@@ -8,7 +8,7 @@ import { dayKey, dayLabel, hm, useZone } from "@/app/(app)/admin/audit/audit-zon
 
 type Kind = "all" | HistoryKind;
 
-const VIA = { isolated: "Isolated browser", gateway: "Gateway", native: "Own RDP app" } as const;
+const VIA = { isolated: "Isolated browser", gateway: "Gateway", native: "Own app" } as const;
 
 /**
  * Session history as the design hand-off (README 7.21) lays it out: a week of

@@ -438,7 +438,7 @@ func (t *rdpgwTunnel) open() func() {
 	sessionID := newSessionID()
 	start := t.d.now()
 	if t.d.hub != nil {
-		t.d.hub.RegisterNative(sessionID, tk.SiteID, tk.UserID, host, start, t.target.ConnectorID, t.clientIP)
+		t.d.hub.RegisterNative(sessionID, "rdp", tk.SiteID, tk.UserID, host, start, t.target.ConnectorID, t.clientIP)
 		t.d.hub.clearEnded(tk.UserID, tk.SiteID)
 		t.d.hub.SetCloser(sessionID, func() {
 			_ = t.write(tsgPacket(tsgCloseChannel, le32(0)))

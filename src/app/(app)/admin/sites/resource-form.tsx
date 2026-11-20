@@ -11,6 +11,7 @@ import { autoIcon, defaultColor, protoLabel, slugFromName, type IconColor, type 
 import { recordToggleLock } from "@/lib/recording/mode";
 import { compareSemver } from "@/lib/updates/semver";
 import { NATIVE_RDP_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
+import { NATIVE_SSH_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { IconPicker, lookBody, type Look } from "./icon-picker";
@@ -48,6 +49,7 @@ export interface ResourceInitial {
   recordSessions: boolean;
   keystrokeLogging: boolean;
   nativeRdp: boolean;
+  nativeSsh: boolean;
   clipboardMode: string | null;
   watermark: boolean | null;
   fileTransferMode: string | null;
@@ -170,6 +172,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   // unless the admin turns it off (null = not chosen yet); a saved one keeps its own.
   const [keystrokeChoice, setKeystrokeChoice] = useState<boolean | null>(site ? site.keystrokeLogging : null);
   const [nativeRdp, setNativeRdp] = useState(site?.nativeRdp ?? false);
+  const [nativeSsh, setNativeSsh] = useState(site?.nativeSsh ?? false);
   const [clipboard, setClipboard] = useState(site?.clipboardMode ?? "inherit");
   const [ftWeb, setFtWeb] = useState(site && site.accessMode !== "GATEWAY" ? site.fileTransferMode ?? "inherit" : "inherit");
   const [guac, setGuac] = useState<GuacFields>(paramsToGuacFields(parseGuacParams(vault?.guacParams)));
@@ -281,6 +284,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const nativeRdpLocked = ctx.recordingEnabled && effRecord;
   const nativeRdpOn = nativeRdpShown && nativeRdp && !nativeRdpLocked;
   const nativeRdpOldConnector = nativeRdpOn && compareSemver(connector?.version, NATIVE_RDP_MIN_CONNECTOR) === -1;
+  // Native SSH: the same rule, through the jump host.
+  const nativeSshShown = kind === "ssh";
+  const nativeSshOn = nativeSshShown && nativeSsh && !nativeRdpLocked;
+  const nativeSshOldConnector = nativeSshOn && compareSemver(connector?.version, NATIVE_SSH_MIN_CONNECTOR) === -1;
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -308,6 +315,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         insecureSkipVerify: https && insecure,
         recordSessions: record, keystrokeLogging: keystrokes,
         nativeRdp: nativeRdpOn,
+        nativeSsh: nativeSshOn,
         clipboardMode: clipboard,
         watermark: watermark === "inherit" ? null : watermark === "on",
         fileTransferMode: remote ? undefined : ftWeb,
@@ -335,6 +343,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (effRecord && ctx.recordingEnabled) chips.push({ text: "Recording on", tone: "bad" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
   if (nativeRdpOn) chips.push({ text: "Native RDP client", tone: "warn" });
+  if (nativeSshOn) chips.push({ text: "Native SSH client", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
   if (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault)) chips.push({ text: "Watermark", tone: "violet" });
   if (clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
@@ -475,6 +484,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             </Row>
           )}
           {nativeRdpOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native RDP needs {NATIVE_RDP_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+          {nativeSshShown && (
+            <Row title="Native SSH client" custom={nativeSshOn} desc={nativeRdpLocked
+              ? "Not available while sessions are recorded: a session in the user's own SSH app can't be recorded."
+              : "Users can also get an ssh command and connect with their own SSH app (OpenSSH, VS Code, Termius) through Captivo's jump host. Those sessions aren't recorded or watchable, and users sign in to the server with their own account. What they can forward through the server is up to its sshd settings (AllowTcpForwarding)."}>
+              <button type="button" role="switch" aria-checked={nativeSshOn} aria-label="Native SSH client" disabled={nativeRdpLocked} className={nativeSshOn ? "toggle on" : "toggle"} onClick={() => setNativeSsh(!nativeSsh)}><span /></button>
+            </Row>
+          )}
+          {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
             <Pills value={clipboard} onChange={setClipboard} options={[["inherit", `Policy (${CLIP.find(([v]) => v === ctx.clipboardDefault)?.[1] ?? ctx.clipboardDefault})`], ...CLIP]} label="Clipboard" />
           </Row>

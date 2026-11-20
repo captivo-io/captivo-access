@@ -357,6 +357,7 @@ model Site {
   recordSessions     Boolean          @default(false)
   keystrokeLogging   Boolean          @default(false) // GATEWAY: capture typed input into a keystroke timeline
   nativeRdp          Boolean          @default(false) // GATEWAY RDP: users may also open it in their own Remote Desktop client via the RD Gateway (never recorded)
+  nativeSsh          Boolean          @default(false) // GATEWAY SSH: users may also connect with their own SSH client through the jump host (never recorded)
   clipboardMode      String? // null = inherit PlatformSettings.clipboardDefault; else allow | no_copy | no_paste | none (web via proxy; gateway via guacd disable-copy/disable-paste)
   watermark          Boolean? // isolated DLP watermark; null = inherit the global watermarkDefault
   fileTransferMode   String?          @default("none") // allow | no_upload | no_download | none (ISOLATED, TRANSPARENT); null = inherit PlatformSettings.isolatedFileTransferDefault / webAppFileTransferDefault

@@ -85,7 +85,7 @@ export function sessionsFromAudit(events: AuditSessionEvent[], modeOf: (siteId: 
     const native = e.path.startsWith(RDPGW_PATH);
     if (isOpen(e.reason)) {
       const list = opens.get(e.siteId) ?? [];
-      list.push({ at: e.at, native: native || e.reason === "session_open native_rdp", used: false });
+      list.push({ at: e.at, native: native || e.reason === "session_open native_rdp" || e.reason === "session_open native_ssh", used: false });
       opens.set(e.siteId, list);
       continue;
     }

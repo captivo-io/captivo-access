@@ -47,13 +47,21 @@ const REASONS: Record<string, string> = {
 };
 
 // Words after the code that are themselves codes (dataplane/rdpgw.go writes
-// "session_open native_rdp").
+// "session_open native_rdp", dataplane/sshjump.go "session_open native_ssh").
 const REASON_DETAILS: Record<string, string> = {
   native_rdp: "own RDP app",
+  native_ssh: "own SSH app",
 };
 
 export function accessReasonLabel(reason: string | null): string | null {
   if (!reason) return null;
+  // A native client's refusal carries the check's code after the client
+  // (dataplane/rdpgw.go "native_rdp_no_grant", sshjump.go "native_ssh_expired").
+  const native = /^(native_rdp|native_ssh)_(.+)$/.exec(reason.trim());
+  if (native) {
+    const why = native[2] === "not_allowed" ? "Not allowed in the user's own app" : REASONS[native[2]] ?? native[2];
+    return `${why} · ${REASON_DETAILS[native[1]]}`;
+  }
   const [code, ...rest] = reason.trim().split(/\s+/);
   const label = REASONS[code];
   if (!label) return reason;
@@ -64,4 +72,10 @@ export function accessReasonLabel(reason: string | null): string | null {
 // Gateway request that carried it, not an HTTP verb a reader would know.
 export function isNativeRdpMethod(method: string): boolean {
   return method === "RDG_OUT_DATA" || method === "RDG_IN_DATA";
+}
+
+// A session through the SSH jump host (dataplane/sshjump.go) is stored under
+// this method: there is no HTTP request behind it.
+export function isNativeSshMethod(method: string): boolean {
+  return method === "SSH";
 }

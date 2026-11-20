@@ -21,6 +21,8 @@ export interface CardVM {
   href: string;
   /** The .rdp download when the resource also opens in the user's own Remote Desktop app. */
   rdpHref: string | null;
+  /** Where to get a command for the user's own SSH client, when the resource allows one. */
+  sshHref: string | null;
   time: Remaining;
   whenIso?: string | null; // upcoming cards only: start instant (rendered in the display timezone); null = "Scheduled"
 }

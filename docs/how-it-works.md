@@ -260,6 +260,54 @@ What this trades away, and why the option is off by default:
   `host:3389` in it. Clients that can't use an RD Gateway with an access token
   (MobaXterm, for example) can't connect this way; the browser session still works.
 
+### Native SSH clients (jump host)
+
+An SSH Resource can also allow **Native SSH client**: under **My access** the
+user presses **SSH** and gets a ready command for their own SSH app (OpenSSH in
+a terminal or PowerShell, VS Code Remote-SSH, Termius):
+
+```
+ssh -J k7f3q9wz2m4x@acme.cloud.captivo.io:2222 deploy@10.0.0.5
+```
+
+The `-J` hop is Captivo's **SSH jump host**, run by the data-plane on port
+2222. Its user name is a ticket: who, which resource, valid for two minutes to
+start connections (more than one, for `scp` or a second terminal). There is no
+password or key on that hop, and no shell: the jump host only opens the
+`direct-tcpip` channel the client asks for, to that one resource's server,
+through its connector. Nothing opens inbound on the customer's network.
+
+```mermaid
+flowchart LR
+    F["My access<br/>ssh -J command (ticket, 2 min)"] --> M["User's SSH app"]
+    M -->|"SSH · port 2222"| D["Data-plane jump host<br/>ticket · grant · allowlist"]
+    D -->|outbound tunnel| CN["Connector<br/>egress boundary"]
+    CN -->|"TCP 22"| S["SSH server"]
+```
+
+It trades away the same things as native RDP, and is off by default for the
+same reason:
+
+- **The SSH session is end-to-end** between the app and the server. Captivo sees
+  no terminal: these sessions are **never recorded**, keystrokes are not logged,
+  and an admin can't watch. A recorded resource doesn't offer native clients.
+- **The user signs in to the server themselves** with their own password or key;
+  the vault credential is never used for a native session.
+- **Port forwarding inside the session** (`-L`, `-D`) is between the app and the
+  server and follows the server's `sshd_config` (`AllowTcpForwarding`). The jump
+  host itself refuses everything but the one channel, remote forwarding included.
+- **What stays the same:** the grant, schedule, user status and vendor IP
+  allowlist are checked when the channel opens and every minute after; the session
+  is listed on the Sessions page (as `SSH · NATIVE`), an admin can end it, and its
+  start, end and refusals are in the audit log with the client's SSH version.
+- **The jump host's key** is kept in the data-plane's `/data` volume, so clients
+  trust it once. The portal shows its SHA-256 fingerprint beside the command.
+- **Requirements:** a connector on 2.39.0 or later, the SSH server's `host:port`
+  in the connector's `ALLOWED_TARGETS` if that is set, and port 2222 reachable
+  on the console's host. Self-hosted installs publish it from the data-plane
+  (`SSH_PUBLIC_PORT` changes the published port, `SSH_PUBLIC_HOST` the name in the
+  command, `SSH_ADDR=off` turns the jump host off).
+
 ## The isolated-browser path (isolated)
 
 An **Isolated browser** Resource passes the same first two gates, but its tail

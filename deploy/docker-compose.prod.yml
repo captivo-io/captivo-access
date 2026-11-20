@@ -75,6 +75,9 @@ services:
       # Data-plane wiring — the Manager talks to the data-plane's internal
       # API (not the public WSS port) to proxy requests to connectors.
       DATAPLANE_URL: http://access-dataplane:3102
+      # Where users' own SSH clients reach the jump host (native SSH resources).
+      SSH_PUBLIC_PORT: ${SSH_PUBLIC_PORT:-2222}
+      SSH_PUBLIC_HOST: ${SSH_PUBLIC_HOST:-}
       DATAPLANE_SECRET: ${DATAPLANE_SECRET:?required}
       # Cross-subdomain SSO cookie domain — must be a leading-dot domain
       # covering both the Manager and every vendor site subdomain, e.g.
@@ -138,7 +141,16 @@ services:
       # Bounded in-memory audit-event queue depth before the data-plane
       # starts dropping events rather than blocking the proxy.
       AUDIT_QUEUE_CAP: ${AUDIT_QUEUE_CAP:-10000}
-    # None of the data-plane ports are published to the host. Caddy terminates
+      # The SSH jump host for users' own SSH clients (native SSH resources).
+      # SSH_ADDR=off turns it off; then publish nothing below.
+      SSH_ADDR: ${SSH_ADDR:-:2222}
+    volumes:
+      - access_dataplane:/data   # the jump host's key: keep it across updates
+    # The SSH jump host is the one port published raw: SSH is its own
+    # encryption. Set SSH_PUBLIC_PORT on the manager if you map it elsewhere.
+    ports:
+      - "${SSH_PUBLIC_PORT:-2222}:2222"
+    # No other data-plane port is published to the host. Caddy terminates
     # TLS and reverse-proxies to them by service name on the compose network:
     #   connect.<ACCESS_DOMAIN> -> :3101  (connector WSS tunnel)
     #   *.<ACCESS_DOMAIN>        -> :3103  (browser-facing proxy)
@@ -193,5 +205,6 @@ services:
 
 volumes:
   access_pgdata: {}
+  access_dataplane: {}
   caddy_data: {}
   caddy_config: {}

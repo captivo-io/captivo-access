@@ -2008,3 +2008,18 @@ button.rs-cell{cursor:pointer;}
 .gd-users.compact .gd-user{padding:6px 10px;border-radius:9px;}
 .gd-users.compact .gd-user-t{flex-direction:row;align-items:center;justify-content:space-between;gap:12px;}
 .gd-users.compact .gr-av.sm{width:26px;height:26px;font-size:10.5px;}
+
+/* Portal: a command for the user's own SSH client (access/ssh-command.tsx) */
+.ssh-cmd{display:flex;flex-direction:column;gap:14px;}
+.ssh-field{display:flex;flex-direction:column;gap:6px;}
+.ssh-label{font-size:13px;font-weight:600;}
+.ssh-box{display:flex;align-items:flex-start;gap:10px;padding:12px 12px 12px 14px;border-radius:12px;background:rgba(var(--ink-rgb),.05);border:1px solid var(--line-strong);}
+.ssh-box code{flex:1;min-width:0;font-family:var(--mono);font-size:13px;line-height:1.55;overflow-wrap:anywhere;user-select:all;}
+.ssh-box.expired code{color:var(--muted);text-decoration:line-through;}
+.ssh-timer{margin:0;font-size:13px;color:var(--muted);}
+.ssh-timer b{color:var(--fg);}
+.ssh-timer.warn b{color:var(--warn);}
+.ssh-timer.bad{color:var(--bad);}
+.ssh-err{margin:0;font-size:13.5px;color:var(--bad);}
+.ssh-notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);}
+.ssh-fp{overflow-wrap:anywhere;}
