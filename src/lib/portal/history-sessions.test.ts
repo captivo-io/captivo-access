@@ -39,6 +39,11 @@ describe("sessionsFromAudit", () => {
     expect(s.map((x) => [x.native, x.startedAt])).toEqual([[true, at(5)], [true, at(5)]]);
   });
 
+  it("marks a session through the SSH jump host as native", () => {
+    const s = sessionsFromAudit([ev(5, "rdp", "session_open native_ssh", "/"), ev(9, "rdp", "session_close 4m", "/")], modeOf);
+    expect(s.map((x) => [x.native, x.startedAt, x.endedAt])).toEqual([[true, at(5), at(9)]]);
+  });
+
   it("leaves out a session that hasn't closed", () => {
     expect(sessionsFromAudit([ev(0, "iso", "session_open", "/kasm-tunnel/websockify")], modeOf)).toEqual([]);
   });

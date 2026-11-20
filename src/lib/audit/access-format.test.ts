@@ -43,6 +43,9 @@ describe("accessReasonLabel", () => {
 describe("native RDP sessions", () => {
   it("name the user's own app instead of a code", () => {
     expect(accessReasonLabel("session_open native_rdp")).toBe("Session opened · own RDP app");
+    expect(accessReasonLabel("session_open native_ssh")).toBe("Session opened · own SSH app");
+    expect(accessReasonLabel("native_ssh_no_grant")).toBe("No grant for this resource · own SSH app");
+    expect(accessReasonLabel("native_rdp_not_allowed")).toBe("Not allowed in the user's own app · own RDP app");
     expect(accessReasonLabel("session_close 21s")).toBe("Session closed · 21s");
   });
   it("recognise the RD Gateway request they are stored under", () => {

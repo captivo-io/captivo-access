@@ -23,8 +23,11 @@ RUN cd dataplane && CGO_ENABLED=0 go build -o /out/dataplane .
 
 # ---- run ----
 FROM alpine:3.20
-RUN adduser -D -H -u 10001 dataplane
+# /data keeps the SSH jump host's key (sshjump.go); mount a volume there so
+# clients don't see a new host key after an update.
+RUN adduser -D -H -u 10001 dataplane && mkdir -p /data && chown dataplane /data
 COPY --from=build /out/dataplane /usr/local/bin/dataplane
 USER dataplane
-EXPOSE 3101
+VOLUME ["/data"]
+EXPOSE 3101 2222
 ENTRYPOINT ["/usr/local/bin/dataplane"]

@@ -10,6 +10,7 @@ import { remaining } from "@/lib/portal/time-remaining";
 import { securityStatus } from "@/lib/portal/security-status";
 import { launchHref } from "@/lib/portal/launch-href";
 import { nativeRdpBlock } from "@/lib/gateway/native-rdp";
+import { nativeSshBlock } from "@/lib/gateway/native-ssh";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
 import { PortalHome, type CardVM, type RecentVM } from "./portal-home";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -71,6 +72,8 @@ async function AccessPageImpl() {
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
       rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: g.site.connector.version }) === null
         ? `/api/portal/rdp/${g.site.id}` : null,
+      sshHref: nativeSshBlock({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: g.site.connector.version }) === null
+        ? `/api/portal/ssh/${g.site.id}` : null,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
     };
     if (status === "upcoming") {

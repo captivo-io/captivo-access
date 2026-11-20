@@ -60,7 +60,18 @@ func main() {
 		}
 		return err
 	}, 5*time.Second, 200)
+	// SSH jump host for a user's own SSH client (sshjump.go). SSH_ADDR=off turns it off.
+	sshTickets := newSSHTickets()
+	sshInfo, err := startSSHJump(env("SSH_ADDR", ":2222"), env("SSH_HOST_KEY_FILE", "/data/ssh_host_ed25519_key"), sshJumpDeps{
+		ctrl: ctrl, hub: hub, audit: audit, tickets: sshTickets, now: time.Now,
+		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
+	})
+	if err != nil {
+		log.Printf("WARNING: ssh jump host not started: %v", err)
+	}
 	in := http.NewServeMux()
+	in.HandleFunc("/ssh-ticket", serveSSHTicket(sshInfo, sshTickets, secret))
+	in.HandleFunc("/ssh-info", serveSSHInfo(sshInfo, secret))
 	in.HandleFunc("/proxy", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {
 			http.Error(w, "forbidden", http.StatusForbidden)

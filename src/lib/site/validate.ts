@@ -40,6 +40,7 @@ export type SiteValidation =
       clipboardMode: string | null; // read by the gateway descriptor (guacd disable-copy/paste)
       guacParams: GuacParams;
       nativeRdp: boolean; // RDP only: also open in the user's own client (lib/gateway/native-rdp.ts)
+      nativeSsh: boolean; // SSH only: also reach it with the user's own SSH client (lib/gateway/native-ssh.ts)
     }
   | {
       ok: true;
@@ -134,6 +135,7 @@ export function validateSiteInput(
       clipboardMode: CLIP.includes(str(body.clipboardMode)) ? str(body.clipboardMode) : null,
       guacParams: parseGuacParams(body.guacParams),
       nativeRdp: protocol === "RDP" && body.nativeRdp === true,
+      nativeSsh: protocol === "SSH" && body.nativeSsh === true,
     };
   }
 

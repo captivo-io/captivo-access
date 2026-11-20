@@ -180,6 +180,23 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, RedirectFlags: out.RedirectFlags}, nil
 }
 
+// NativeSshTarget is NativeRdpTarget for the SSH jump host (sshjump.go): the
+// resource's SSH server, when the grant holds and the resource allows a
+// user's own SSH client.
+func (c *ControlClient) NativeSshTarget(userID, siteID string) (rdpTarget, error) {
+	var out struct {
+		TargetHost  string `json:"targetHost"`
+		TargetPort  int    `json:"targetPort"`
+		ConnectorID string `json:"connectorId"`
+		TenantID    string `json:"tenantId"`
+		SiteName    string `json:"siteName"`
+	}
+	if err := c.post("/api/internal/gateway/native-ssh", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
+		return rdpTarget{}, err
+	}
+	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName}, nil
+}
+
 // SiteByHost resolves a browser-facing hostname to the site/connector it's
 // routed to. If the control plane has no site for host, it returns
 // ErrNoSite. recordSessions reports whether session recording is enabled for

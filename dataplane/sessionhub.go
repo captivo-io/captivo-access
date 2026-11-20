@@ -147,11 +147,11 @@ func (h *SessionHub) Register(sessionID, siteID, userID, protocol, host string, 
 	return ls
 }
 
-// RegisterNative adds a native RDP session (rdpgw.go). It has no guacd connID,
+// RegisterNative adds a native RDP (rdpgw.go) or SSH (sshjump.go) session. It has no guacd connID,
 // so nothing can join it; the console lists it and Terminate closes its tunnel.
-func (h *SessionHub) RegisterNative(sessionID, siteID, userID, host string, startedAt time.Time, connectorID, clientIP string) *liveSession {
+func (h *SessionHub) RegisterNative(sessionID, protocol, siteID, userID, host string, startedAt time.Time, connectorID, clientIP string) *liveSession {
 	ls := &liveSession{
-		id: sessionID, siteID: siteID, userID: userID, protocol: "rdp", host: host,
+		id: sessionID, siteID: siteID, userID: userID, protocol: protocol, host: host,
 		kind:      "gateway",
 		startedAt: startedAt, connectorID: connectorID, clientIP: clientIP, native: true,
 	}

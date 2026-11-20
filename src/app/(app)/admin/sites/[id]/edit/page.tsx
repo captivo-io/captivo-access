@@ -19,7 +19,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
     where: { id },
     select: {
       id: true, connectorId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true,
-      keystrokeLogging: true, nativeRdp: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true,
+      keystrokeLogging: true, nativeRdp: true, nativeSsh: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true,
       domainVerifiedAt: true, egressMode: true, egressHosts: true, createdAt: true, iconName: true, iconColor: true, logoBg: true,
     },
   });
@@ -61,6 +61,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
           recordSessions: site.recordSessions,
           keystrokeLogging: site.keystrokeLogging,
           nativeRdp: site.nativeRdp,
+          nativeSsh: site.nativeSsh,
           clipboardMode: site.clipboardMode,
           watermark: site.watermark,
           fileTransferMode: site.fileTransferMode,
