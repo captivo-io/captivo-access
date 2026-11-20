@@ -40,6 +40,11 @@ jobs:
           - image: guacd
             dockerfile: guacd/Dockerfile
             platforms: linux/amd64,linux/arm64
+          # The updater beside the connector (updater/): the only part of a
+          # connector host with Docker access, so it follows the connector too.
+          - image: updater
+            dockerfile: updater/Dockerfile
+            platforms: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v4
 

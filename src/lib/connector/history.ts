@@ -1,5 +1,7 @@
 import { db } from "@/lib/db";
-import { getConnectorTelemetry } from "@/lib/connector/telemetry";
+import type { Prisma } from "@/generated/prisma/client";
+import { getConnectorTelemetry, type HostActionStatus } from "@/lib/connector/telemetry";
+import { foldHostAction, storedHostAction } from "@/lib/connector/host-action";
 
 /** The scheduler's health pass runs every 5 minutes; each sample stands for that long. */
 export const SAMPLE_MINUTES = 5;
@@ -65,20 +67,34 @@ export const pushSpark = (spark: number[], value: number) => [...spark, value].s
  * carries. Network only; the caller writes the result inside its scope. Null
  * when the data-plane cannot be asked: no sample beats a false outage.
  */
-export async function probeConnectors(ids: string[]): Promise<Map<string, { online: boolean; active: number }> | null> {
-  const out = new Map<string, { online: boolean; active: number }>();
+type Probe = { online: boolean; active: number; hostAction?: HostActionStatus };
+
+export async function probeConnectors(ids: string[]): Promise<Map<string, Probe> | null> {
+  const out = new Map<string, Probe>();
   const answers = await Promise.all(ids.map(async (id) => [id, await getConnectorTelemetry(id).catch(() => null)] as const));
   for (const [id, t] of answers) {
     if (!t || t.dataplaneDown) return null;
-    out.set(id, { online: t.online, active: t.online ? (t.telemetry?.activeConnections ?? 0) : 0 });
+    out.set(id, { online: t.online, active: t.online ? (t.telemetry?.activeConnections ?? 0) : 0, hostAction: t.online ? t.telemetry?.hostAction : undefined });
   }
   return out;
 }
 
+/**
+ * Brings a connector's stored host action up to date with what it reports, and
+ * notes the outcome once it ends. Called from the health pass and from the
+ * connector page's poll, so a result lands even when nobody is looking.
+ */
+export async function syncHostAction(connectorId: string, stored: unknown, report: HostActionStatus | null | undefined): Promise<void> {
+  const r = foldHostAction(storedHostAction(stored), report);
+  if (!r) return;
+  await db.connector.update({ where: { id: connectorId }, data: { hostAction: r.next as unknown as Prisma.InputJsonValue } });
+  if (r.event) await recordConnectorEvent(connectorId, r.event.level, r.event.text);
+}
+
 /** Writes one pass's samples and trims old history. Call inside the tenant scope. */
 export async function writeConnectorSamples(
-  rows: { id: string; tunnelSpark: number[] }[],
-  probe: Map<string, { online: boolean; active: number }>,
+  rows: { id: string; tunnelSpark: number[]; hostAction?: unknown }[],
+  probe: Map<string, Probe>,
   now: Date,
 ): Promise<void> {
   const day = dayKey(now);
@@ -91,6 +107,7 @@ export async function writeConnectorSamples(
       update: { samples: { increment: 1 }, online: { increment: p.online ? 1 : 0 } },
     });
     await db.connector.update({ where: { id: c.id }, data: { tunnelSpark: pushSpark(c.tunnelSpark, p.active) } });
+    await syncHostAction(c.id, c.hostAction, p.hostAction);
   }
   await db.connectorEvent.deleteMany({ where: { at: { lt: new Date(now.getTime() - EVENT_DAYS * 86_400_000) } } });
   await db.connectorDay.deleteMany({ where: { day: { lt: dayKey(new Date(now.getTime() - DAY_KEEP * 86_400_000)) } } });

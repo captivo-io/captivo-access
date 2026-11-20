@@ -57,8 +57,9 @@ export function UpgradeGuide({
           <label className="field-label">On each connector host</label>
           <p className="cell-sub">
             {outdatedConnectors} connector{outdatedConnectors === 1 ? "" : "s"} older than the manager.
-            Connectors run on separate machines, so run this once on each connector&apos;s host — the token
-            volume is kept, so no re-pairing.
+            A connector with the updater beside it updates from the Connectors page in one click, once the
+            manager is upgraded. For the others, run this once on each connector&apos;s host — the token
+            volume is kept, so no re-pairing, and it installs the updater for next time.
           </p>
           <CommandBlock
             command={connectorCommand}

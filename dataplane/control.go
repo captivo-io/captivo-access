@@ -40,7 +40,8 @@ func runControl(sess *Session, connectorID string, ctrl *ControlClient, initialP
 		if err != nil {
 			return
 		}
-		// A frame on this stream is a recording report, a PolicyAck or telemetry.
+		// A frame on this stream is a host action ack, a recording report, a
+		// PolicyAck or telemetry.
 		// A report says what the connector's recording worker changed (a video
 		// made, what the disk now holds); it is relayed and, once the control
 		// plane has it, acknowledged so the connector stops resending it.
@@ -48,6 +49,13 @@ func runControl(sess *Session, connectorID string, ctrl *ControlClient, initialP
 			Kind string `json:"kind"`
 		}
 		_ = json.Unmarshal(b, &kind)
+		if kind.Kind == "hostactionack" {
+			var ack tunnel.HostActionAck
+			if json.Unmarshal(b, &ack) == nil {
+				sess.hostActionAcked(ack)
+			}
+			continue
+		}
 		if kind.Kind == "recreport" {
 			var rep tunnel.RecReport
 			if json.Unmarshal(b, &rep) == nil && len(rep.Items) > 0 && ctrl != nil {

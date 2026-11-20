@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     // 1. READ -- scoped, DB only.
     const { sites, gateways, connectors } = await inTenant(tenantId, async () => ({
-      connectors: await db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, tunnelSpark: true } }),
+      connectors: await db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, tunnelSpark: true, hostAction: true } }),
       sites: await db.site.findMany({ select: { id: true, connectorId: true, upstreamUrl: true, name: true, probeOk: true } }),
       // GATEWAY sites have no upstreamUrl; probe their remote-desktop target
       // (VaultCredential.targetHost:targetPort) with the same TCP connect.

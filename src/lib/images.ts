@@ -32,6 +32,7 @@ export const PUBLISHED_IMAGES = [
   "migrate",
   "kasm-browser",
   "guacd",
+  "updater",
 ] as const;
 
 export type PublishedImage = (typeof PUBLISHED_IMAGES)[number];

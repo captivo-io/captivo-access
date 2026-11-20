@@ -6,6 +6,7 @@ import { isConnectorOutdated } from "@/lib/updates/semver";
 import { getConnectorTelemetry } from "@/lib/connector/telemetry";
 import { resolvedDefaultConnectorLogLevel } from "@/lib/settings/platform";
 import { buildConnectorUpdateCommand } from "@/lib/connector/repair";
+import { storedHostAction } from "@/lib/connector/host-action";
 import { connectorTunnelUrl, isLocalManagerUrl } from "@/lib/url";
 import { siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
 import { mergeActivity } from "@/lib/connector/activity";
@@ -31,7 +32,7 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
     where: { id },
     select: {
       id: true, name: true, status: true, version: true, lastSeenAt: true, remoteAddr: true, createdAt: true,
-      egressPolicy: true, logLevel: true,
+      egressPolicy: true, logLevel: true, hostAction: true,
       sites: {
         select: { ...SITE_TILE_SELECT, hostname: true, probeOk: true, probeLatencyMs: true, probeDetail: true, probedAt: true },
         orderBy: { name: "asc" },
@@ -72,6 +73,7 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
           outdated: isConnectorOutdated(connector.version, mgr), mgr,
           lastSeenAt: connector.lastSeenAt?.toISOString() ?? null, remoteAddr: connector.remoteAddr,
           createdAt: connector.createdAt.toISOString(), egressPolicy: connector.egressPolicy ?? "", logLevel: connector.logLevel ?? "",
+          hostAction: storedHostAction(connector.hostAction),
         }}
         tele0={tele}
         sites={connector.sites.map((s) => ({
@@ -85,7 +87,7 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
         })))}
         auditHref={siteIds.length === 1 ? `/admin/audit?siteId=${siteIds[0]}` : "/admin/audit"}
         defaultLogLevel={defaultLogLevel}
-        updateCommand={buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl())}
+        updateCommand={{ remote: buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl()), manual: buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl(), false) }}
         managerUrlIsLocal={isLocalManagerUrl(managerUrl)}
       />
     </main>

@@ -18,6 +18,22 @@ export interface ConnectorTelemetry {
   hostname?: string;
   os?: string;
   localIp?: string;
+  /** The updater beside the connector (2.41.0 and later); absent: none, or it stopped. */
+  updater?: { version: string; dockerOk: boolean };
+  /** The latest host action, as the updater reports it. */
+  hostAction?: HostActionStatus;
+}
+
+export type HostActionState = "waiting_idle" | "preparing" | "applying" | "rolling_back" | "done" | "rolled_back" | "failed" | "removing";
+
+export interface HostActionStatus {
+  id: string;
+  action: "update" | "uninstall";
+  state: HostActionState;
+  version?: string;
+  from?: string;
+  detail?: string;
+  at?: string;
 }
 
 // Reads a connector's live telemetry from the data-plane (in-memory, ephemeral).

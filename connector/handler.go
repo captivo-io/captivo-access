@@ -131,6 +131,8 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 		defer writeMu.Unlock()
 		return tunnel.WriteFrame(st, b)
 	}
+	// The data-plane took this tunnel: what the updater waits for after an update.
+	markConnected()
 	done := make(chan struct{})
 	// reader: apply pushed policy frames
 	go func() {
@@ -144,6 +146,15 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 				Kind string `json:"kind"`
 			}
 			_ = json.Unmarshal(b, &kind)
+			if kind.Kind == "hostaction" {
+				var a tunnel.HostAction
+				if json.Unmarshal(b, &a) == nil {
+					if ab, err := json.Marshal(applyHostAction(a, time.Now())); err == nil {
+						_ = write(ab)
+					}
+				}
+				continue
+			}
 			if kind.Kind == "recreportack" {
 				var ack tunnel.RecReportAck
 				if json.Unmarshal(b, &ack) == nil && recMaintenance != nil {
@@ -169,6 +180,7 @@ func handleControl(st io.ReadWriteCloser, store *recStore) {
 	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
 	for {
+		releaseIfIdle(time.Now())
 		b, err := json.Marshal(snapshot())
 		if err == nil {
 			if err := write(b); err != nil {

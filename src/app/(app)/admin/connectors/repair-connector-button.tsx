@@ -4,8 +4,9 @@ import { useState } from "react";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { CommandBlock } from "@/app/(app)/_shell/command-block";
 import { formatShellCommand } from "@/lib/format/docker-command";
+import { UpdaterChoice } from "./remote-control";
 
-type Repaired = { code: string; reconfigureCommand: string; managerUrlIsLocal: boolean };
+type Repaired = { code: string; reconfigureCommand: string; reconfigureCommandManual: string; managerUrlIsLocal: boolean };
 
 export function RepairConnectorButton({ id, className = "btn sm" }: { id: string; className?: string }) {
   const [open, setOpen] = useState(false);
@@ -13,6 +14,7 @@ export function RepairConnectorButton({ id, className = "btn sm" }: { id: string
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Repaired | null>(null);
+  const [withUpdater, setWithUpdater] = useState(true);
 
   async function generate() {
     setError(null);
@@ -28,7 +30,7 @@ export function RepairConnectorButton({ id, className = "btn sm" }: { id: string
         setError(body?.error === "not_repairable" ? "A revoked connector can't be re-paired." : "Couldn't generate a re-pair code, please try again.");
         return;
       }
-      setResult({ code: body.code, reconfigureCommand: body.reconfigureCommand, managerUrlIsLocal: Boolean(body.managerUrlIsLocal) });
+      setResult({ code: body.code, reconfigureCommand: body.reconfigureCommand, reconfigureCommandManual: body.reconfigureCommandManual ?? body.reconfigureCommand, managerUrlIsLocal: Boolean(body.managerUrlIsLocal) });
     } catch {
       setError("Couldn't generate a re-pair code, please try again.");
     } finally {
@@ -54,7 +56,12 @@ export function RepairConnectorButton({ id, className = "btn sm" }: { id: string
               connector&apos;s host to rotate its token; the connector keeps its identity, its resources, its
               recordings and its keys.
             </p>
-            <CommandBlock command={result.reconfigureCommand} display={formatShellCommand(result.reconfigureCommand)} title="connector-repair" />
+            <UpdaterChoice on={withUpdater} onChange={setWithUpdater} />
+            <CommandBlock
+              command={withUpdater ? result.reconfigureCommand : result.reconfigureCommandManual}
+              display={formatShellCommand(withUpdater ? result.reconfigureCommand : result.reconfigureCommandManual)}
+              title="connector-repair"
+            />
             {result.managerUrlIsLocal && (
               <p className="notice error">
                 <code>MANAGER_URL</code> points at <code>localhost</code> — replace it with the manager&apos;s

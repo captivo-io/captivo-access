@@ -38,7 +38,10 @@ Setting it up:
    register yourself with a **passkey**. No passwords — your device is the key.
 4. **Install a connector inside your network.** In the admin console you create a
    connector and get a ready-to-run `docker run` command. Run it on a machine
-   inside your network; it dials out and shows up as online.
+   inside your network; it dials out and shows up as online. Later updates (and
+   removing it) are a button in the console: a small updater beside the connector
+   does the Docker work on the host, and it takes no input from the network
+   ([details](install.md#updating-a-connector-from-the-console)).
 5. **Define two things: the app, and who.** A **Resource** = which internal app
    (e.g. `jira.access.yourdomain.com` → the app's real internal address, set
    directly on the Resource — the connector itself needs no per-app config; it

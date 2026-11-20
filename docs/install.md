@@ -355,6 +355,10 @@ internal app. It only dials outward — no inbound port.
      resources (RDP/SSH/VNC).
    - **`captivo-kasm`** — the isolated-browser engine (KasmVNC) for isolated-browser
      resources.
+   - **`captivo-updater`** — lets the console update the connector and remove it
+     from the host (see [Updating a connector from the console](#updating-a-connector-from-the-console)).
+     Untick **Allow updates and removal from this console** above the command to
+     leave it out.
 
    Every connector is gateway- and isolated-capable out of the box — there is no
    separate mode to toggle. A simplified view of the connector container itself
@@ -470,9 +474,43 @@ docker image prune -a -f --filter label=org.opencontainers.image.title=captivo-a
 
 The schema is migrated automatically on `up -d` (the `access-migrate` service) —
 nothing to run by hand. Connectors run on their own hosts and are **not** touched
-by this command; update each with `docker pull …connector:latest` + recreate (the
-token in `/data` persists, so no re-enrollment). The console's **Updates** page
-shows the exact commands when an update is available.
+by this command. Once the manager runs the new version, update each connector
+from **Connectors → Update now** (below), or run the command the console shows on
+the connector's host (the token in `/data` persists, so no re-enrollment). The
+console's **Updates** page shows the exact commands when an update is available.
+
+### Updating a connector from the console
+
+A connector installed (or updated once) with the console's command since 2.41.0
+has a small `captivo-updater` container beside it. It is the only container on the
+host with access to Docker (`/var/run/docker.sock`), and it is built so that this
+matters as little as possible:
+
+- **It takes nothing from the network.** Its container has no network at all. The
+  connector writes a request into a shared volume (`captivo_hostctl`); the most a
+  request can say is "update to version X.Y.Z" or "remove the connector". Image
+  names and the commands it runs are fixed in the updater image itself, and its
+  script is generated from the same code as the install command.
+- **Nothing changes until everything is downloaded.** If an image can't be pulled,
+  the host is left as it was and the console says why.
+- **It goes back by itself.** The images the host ran before are kept as
+  `:rollback`. If the new connector has not connected within 4 minutes, the updater
+  recreates the containers from them and the console shows *Rolled back*.
+- **You choose when.** *Now* ends the sessions running through the connector for
+  about a minute; *When nobody is connected* waits until no tunnel has been open
+  for 30 seconds, and can be cancelled until then.
+
+**Remove from host** (the connector's menu, or its Settings tab) uses the same
+updater to remove the connector, guacd, KasmVNC, their networks and volumes and
+the updater itself, then revokes the connector. The recordings and the keys that
+open them stay on the host (in `access_connector_data`) unless you tick the box
+to delete them too.
+
+If your policy forbids a container with Docker access, untick **Allow updates and
+removal from this console** when you copy the install, re-pair or update command:
+the command then removes an updater a previous command installed, and you run each
+update on the host yourself. A rootless Docker (or one whose socket is elsewhere)
+shows *The updater can't reach Docker*; use the command there too.
 
 ## Troubleshooting
 
