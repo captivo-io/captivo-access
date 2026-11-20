@@ -12,7 +12,7 @@ import { parseTargets, type TargetKind } from "@/lib/connector/egress-targets";
 import { fmt, hm, useZone } from "@/app/(app)/admin/audit/audit-zone";
 import { ago, duration, latency } from "../connectors-view";
 import { HostActionBand, NoUpdaterBand, RemoveFromHostButton, UpdateConnectorButton, type UpdateCommands } from "../remote-control";
-import { remoteControl, updateTarget, type StoredHostAction } from "@/lib/connector/host-action";
+import { liveHostAction, remoteControl, updateTarget, type StoredHostAction } from "@/lib/connector/host-action";
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { RepairConnectorButton } from "../repair-connector-button";
 import type { Tab } from "./tabs";
@@ -114,9 +114,9 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
   const version = t?.version ?? tele.version ?? c.version;
   const outdated = isConnectorOutdated(version, c.mgr);
   const remote = remoteControl(online, t);
-  const report = t?.hostAction ?? null;
-  const updating = !!report && report.action === "update" && !["done", "rolled_back", "failed"].includes(report.state);
   const stored = tele.hostAction ?? c.hostAction;
+  const report = liveHostAction(t?.hostAction ?? null, stored, new Date(now));
+  const updating = !!report && report.action === "update" && !["done", "rolled_back", "failed"].includes(report.state);
 
   return (
     <div className="cd">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { foldHostAction, hostActionBusy, newHostActionId, remoteControl, storedHostAction, updateTarget, type StoredHostAction } from "./host-action";
+import { foldHostAction, liveHostAction, hostActionBusy, newHostActionId, remoteControl, storedHostAction, updateTarget, type StoredHostAction } from "./host-action";
 import type { ConnectorTelemetry } from "./telemetry";
 
 const tele = (extra: Partial<ConnectorTelemetry> = {}): ConnectorTelemetry => ({
@@ -67,5 +67,20 @@ describe("ids and stored values", () => {
     expect(storedHostAction({ id: 1 })).toBeNull();
     expect(storedHostAction({ id: "a", action: "reboot" })).toBeNull();
     expect(storedHostAction({ id: "a", action: "update", by: "x", at: "t", state: "sent" })?.id).toBe("a");
+  });
+});
+
+describe("liveHostAction", () => {
+  const now = new Date("2026-11-20T10:01:00Z");
+  const sent: StoredHostAction = { id: "act_2", action: "update", version: "2.41.1", by: "a@x", at: "2026-11-20T10:00:30Z", state: "sent" };
+  it("stands in for a request the connector has not reported yet", () => {
+    expect(liveHostAction(null, sent, now)).toMatchObject({ id: "act_2", state: "preparing", version: "2.41.1" });
+    expect(liveHostAction({ id: "act_1", action: "update", state: "done" }, sent, now)?.id).toBe("act_2");
+    expect(liveHostAction(null, { ...sent, waitIdle: true }, now)?.state).toBe("waiting_idle");
+  });
+  it("prefers the connector's own report, and gives up on a stale request", () => {
+    expect(liveHostAction({ id: "act_2", action: "update", state: "applying" }, sent, now)?.state).toBe("applying");
+    expect(liveHostAction(null, sent, new Date("2026-11-20T10:10:00Z"))).toBeNull();
+    expect(liveHostAction(null, { ...sent, state: "done" }, now)).toBeNull();
   });
 });
