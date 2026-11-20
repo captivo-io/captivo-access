@@ -95,3 +95,20 @@ const REASONS: Record<string, string> = {
 export function hostActionError(reason: string | undefined): string {
   return (reason && REASONS[reason]) || "The connector could not take the request.";
 }
+
+/** How long a just-sent request may go unreported before the console stops assuming it is under way. */
+const SENT_GRACE_MS = 3 * 60_000;
+
+/**
+ * The host action to show. The connector reports a new request with its next
+ * telemetry (up to 10 s later); until then the stored request stands in for it,
+ * so the page right after "Update now" shows the update rather than the old
+ * "new version" band.
+ */
+export function liveHostAction(report: HostActionStatus | null, stored: StoredHostAction | null, now: Date): HostActionStatus | null {
+  if (report && (!stored || report.id === stored.id || FINAL_STATES.includes(stored.state))) return report;
+  if (stored && stored.action === "update" && stored.state === "sent" && now.getTime() - Date.parse(stored.at) < SENT_GRACE_MS) {
+    return { id: stored.id, action: "update", state: stored.waitIdle ? "waiting_idle" : "preparing", version: stored.version, from: stored.from, at: stored.at };
+  }
+  return report;
+}

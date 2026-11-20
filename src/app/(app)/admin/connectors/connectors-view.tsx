@@ -79,6 +79,15 @@ export function ConnectorsView({
     return () => clearTimeout(t);
   }, [toast]);
 
+  // The page is rendered once; while an update from the console runs, look again
+  // every 5 s so its band moves on (and the card changes version) by itself.
+  const running = connectors.some((c) => c.hostAction && c.hostAction.action === "update" && !["done", "rolled_back", "failed"].includes(c.hostAction.state));
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => { if (!document.hidden) router.refresh(); }, 5_000);
+    return () => clearInterval(t);
+  }, [running, router]);
+
   const online = connectors.filter((c) => c.status === "ONLINE").length;
   const outdated = connectors.filter((c) => c.status !== "REVOKED" && c.outdated).length;
   const resources = connectors.reduce((n, c) => n + c.resources, 0);

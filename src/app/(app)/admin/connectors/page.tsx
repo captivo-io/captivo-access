@@ -13,7 +13,7 @@ import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { getConnectorTelemetry } from "@/lib/connector/telemetry";
-import { remoteControl, storedHostAction, updateTarget } from "@/lib/connector/host-action";
+import { liveHostAction, remoteControl, storedHostAction, updateTarget } from "@/lib/connector/host-action";
 import { dayKey, summarizeUptime } from "@/lib/connector/history";
 import type { EventLevel } from "@/lib/connector/history";
 
@@ -90,7 +90,7 @@ async function AdminConnectorsPageImpl() {
       events: c.events.map((e) => ({ at: e.at.toISOString(), level: e.level as EventLevel, text: e.text })),
       remote: remoteControl(!!live[i]?.online && c.status === "ONLINE", t),
       target: updateTarget(c.version, mgr),
-      hostAction: t?.hostAction ?? null,
+      hostAction: liveHostAction(t?.hostAction ?? null, storedHostAction(c.hostAction), now),
       stored: storedHostAction(c.hostAction),
     };
   });
