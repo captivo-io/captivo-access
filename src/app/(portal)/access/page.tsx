@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/current-user";
+import { newestVersion } from "@/lib/connector/route";
 import { db } from "@/lib/db";
 import { listUserGrants } from "@/lib/access/grants";
 import { siteTile } from "@/lib/access/grant-rows";
@@ -70,9 +71,9 @@ async function AccessPageImpl() {
       glyph: g.site.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "··",
       status,
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
-      rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: g.site.connector.version }) === null
+      rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: newestVersion(g.site) }) === null
         ? `/api/portal/rdp/${g.site.id}` : null,
-      sshHref: nativeSshBlock({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: g.site.connector.version }) === null
+      sshHref: nativeSshBlock({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: newestVersion(g.site) }) === null
         ? `/api/portal/ssh/${g.site.id}` : null,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
     };

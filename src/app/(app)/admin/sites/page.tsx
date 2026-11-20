@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
+import { sealsOf } from "@/lib/vault/store";
 import { timeAgo } from "@/lib/format";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { AddSiteButton } from "./add-site-button";
@@ -40,7 +41,9 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
         iconColor: true,
         logoBg: true,
         connector: { select: { name: true, status: true } },
-        vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true, sealedTo: true } },
+        connectorGroupId: true,
+        connectorGroup: { select: { name: true, members: { select: { connector: { select: { status: true } } } } } },
+        vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true, sealedTo: true, secret: true, extraSeals: true } },
         _count: { select: { grants: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -51,6 +54,11 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
       orderBy: { name: "asc" },
     }),
   ]);
+  const groupRows = await db.connectorGroup.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, members: { where: { connector: { status: { not: "REVOKED" } } }, select: { connector: { select: { vaultPublicKey: true } } } } },
+  });
+  const groups = groupRows.filter((g) => g.members.length > 0).map((g) => ({ id: g.id, name: g.name, keys: g.members.map((m) => m.connector.vaultPublicKey).filter((k): k is string => !!k) }));
 
   const rows: SiteRow[] = sites.map((s) => ({
     id: s.id,
@@ -67,12 +75,16 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
     logoBg: s.logoBg,
     connectorId: s.connectorId,
     sealed: !!s.vaultCredential?.sealedTo,
+    sealedKeys: s.vaultCredential ? Object.keys(sealsOf(s.vaultCredential)) : [],
+    connectorGroupId: s.connectorGroupId,
     insecureSkipVerify: s.insecureSkipVerify,
     recordSessions: s.recordSessions,
     keystrokeLogging: s.keystrokeLogging,
     clipboardMode: s.clipboardMode,
-    connectorName: s.connector.name,
-    connectorOnline: s.connector.status === "ONLINE",
+    // A group resource shows its group, up while any member is online.
+    connectorName: s.connectorGroup ? s.connectorGroup.name : s.connector.name,
+    connectorOnline: s.connectorGroup ? s.connectorGroup.members.some((m) => m.connector.status === "ONLINE") : s.connector.status === "ONLINE",
+    isGroup: !!s.connectorGroup,
     grantCount: s._count.grants,
     probeOk: s.probeOk,
     probeDetail: s.probeDetail,
@@ -110,7 +122,7 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
         // Existing sites always render (with edit/delete), even when the only
         // connector is revoked — otherwise a revoked connector's sites become
         // invisible and neither the sites nor the connector can be removed.
-        <SitesView sites={rows} connectors={connectors} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} initialQuery={typeof sp.q === "string" ? sp.q : ""} initialStatus={sp.status === "down" || sp.status === "up" ? sp.status : "all"} />
+        <SitesView sites={rows} connectors={connectors} groups={groups} recordingEnabled={recordingEnabled()} recordingMode={await resolvedRecordingMode()} keystrokeMode={await resolvedKeystrokeLoggingMode()} initialQuery={typeof sp.q === "string" ? sp.q : ""} initialStatus={sp.status === "down" || sp.status === "up" ? sp.status : "all"} />
       )}
     </main>
   );

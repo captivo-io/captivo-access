@@ -219,7 +219,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
           <span className="au-av" aria-hidden="true">{initials(r.userLabel)}</span>
           <span className="au-stack">
             <b>{r.userLabel} <span className="sv-arrow">→</span> {r.site && <ResourceIcon name={r.site.icon} color={r.site.color} logoUrl={r.site.logoUrl} logoBg={r.site.logoBg} size={20} className="sv-site-ic" />}{r.siteName}</b>
-            <span className="mono cell-sub">{[r.clientIp, hostOf(r)].filter(Boolean).join(" · ") || "—"}</span>
+            <span className="mono cell-sub">{[r.clientIp, hostOf(r), r.via ? `via ${r.via}` : null].filter(Boolean).join(" · ") || "—"}</span>
           </span>
         </div>
         <div className="sv-line">

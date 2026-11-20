@@ -228,6 +228,7 @@ type rdpgwDeps struct {
 	secret string
 	ctrl   rdpgwAuthorizer
 	dial   func(connectorID, target string) (net.Conn, error)
+	pick   func([]routeCandidate) routeCandidate // nil: the target's own connector
 	hub    *SessionHub
 	audit  *AuditQueue
 	now    func() time.Time
@@ -347,6 +348,9 @@ func (t *rdpgwTunnel) run() {
 			if !strings.EqualFold(server, t.target.Host) || fmt.Sprint(port) != t.target.Port {
 				// The tunnel goes where the ticket says, whatever the file was edited to ask for.
 				log.Printf("rdpgw: site=%s client asked for %s:%d, using the resource's %s:%s", t.ticket.SiteID, server, port, t.target.Host, t.target.Port)
+			}
+			if t.d.pick != nil && len(t.target.Candidates) > 0 {
+				t.target.ConnectorID = t.d.pick(t.target.Candidates).ID
 			}
 			remote, err := t.d.dial(t.target.ConnectorID, net.JoinHostPort(t.target.Host, t.target.Port))
 			if err != nil {

@@ -28,4 +28,17 @@ describe("planMove", () => {
     ], "c2");
     expect(p).toEqual({ move: ["web", "iso", "legacy"], sealed: ["rdp"], already: ["there"] });
   });
+  it("moves a sealed resource only where one of its seals opens", () => {
+    const sites = [
+      { id: "rdp", accessMode: "GATEWAY", connectorId: "c1", sealed: true, sealedKeys: ["k1"] },
+      { id: "grp", accessMode: "GATEWAY", connectorId: "c1", connectorGroupId: "g1", sealed: true, sealedKeys: ["k1", "k2"] },
+      { id: "web", accessMode: "TRANSPARENT", connectorId: "c1", sealed: false },
+    ];
+    // Into a group that keeps c1 (key k1): all three go.
+    expect(planMove(sites, { connectorGroupId: "g2", keys: ["k1", "k3"] })).toEqual({ move: ["rdp", "grp", "web"], sealed: [], already: [] });
+    // Into a group without c1: the sealed ones stay; the group's own resource is already there.
+    expect(planMove(sites, { connectorGroupId: "g1", keys: ["k3"] })).toEqual({ move: ["web"], sealed: ["rdp"], already: ["grp"] });
+    // Out of a group onto its member c2: the group resource's seal for k2 opens there.
+    expect(planMove(sites, { connectorId: "c2", keys: ["k2"] })).toEqual({ move: ["grp", "web"], sealed: ["rdp"], already: [] });
+  });
 });

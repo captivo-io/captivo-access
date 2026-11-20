@@ -5,7 +5,8 @@ const role = { value: "ADMIN" };
 vi.mock("@/lib/tenant/request", () => ({ withTenantRoute: (h: unknown) => h }));
 vi.mock("@/lib/current-user", () => ({ getCurrentUser: async () => ({ id: "a1", email: "a@x", role: role.value }) }));
 vi.mock("@/lib/audit/admin", () => ({ recordAdminAction: vi.fn() }));
-vi.mock("@/lib/vault/store", () => ({ sealLegacyCredentials: vi.fn() }));
+vi.mock("@/lib/vault/store", () => ({ sealLegacyCredentials: vi.fn(), sealsOf: (c: { sealedTo: string | null }) => (c.sealedTo ? { [c.sealedTo]: "cv1:x" } : {}) }));
+vi.mock("@/lib/connector/groups", () => ({ standInMember: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     site: { findMany: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn() },
@@ -44,7 +45,7 @@ describe("bulk resource actions", () => {
     vi.mocked(db.connector.findUnique).mockResolvedValue({ id: "c2", name: "New", status: "ONLINE" } as never);
     const res = await call({ action: "move", ids: ["web", "rdp", "old"], connectorId: "c2" });
     expect(await res.json()).toEqual({ ok: true, moved: 2, sealed: 1, already: 0 });
-    expect(vi.mocked(db.site.updateMany).mock.calls[0][0]).toEqual({ where: { id: { in: ["web", "old"] } }, data: { connectorId: "c2" } });
+    expect(vi.mocked(db.site.updateMany).mock.calls[0][0]).toEqual({ where: { id: { in: ["web", "old"] } }, data: { connectorId: "c2", connectorGroupId: null } });
     expect(vi.mocked(sealLegacyCredentials)).toHaveBeenCalledWith({ siteId: "old" });
     expect(vi.mocked(recordAdminAction)).toHaveBeenCalledTimes(2);
   });

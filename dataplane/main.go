@@ -65,6 +65,7 @@ func main() {
 	sshInfo, err := startSSHJump(env("SSH_ADDR", ":2222"), env("SSH_HOST_KEY_FILE", "/data/ssh_host_ed25519_key"), sshJumpDeps{
 		ctrl: ctrl, hub: hub, audit: audit, tickets: sshTickets, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
+		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
 	})
 	if err != nil {
 		log.Printf("WARNING: ssh jump host not started: %v", err)
@@ -449,6 +450,7 @@ func main() {
 	rdpgw := rdpgwDeps{
 		secret: ctrl.Secret, ctrl: ctrl, hub: hub, audit: audit, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
+		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
 	}
 	rdpgwHandler := rlGuard(func(w http.ResponseWriter, r *http.Request) { serveRdpGateway(rdpgw, w, r) })
 	mux.HandleFunc(rdpgwPath, rdpgwHandler)

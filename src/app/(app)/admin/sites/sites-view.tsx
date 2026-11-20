@@ -27,6 +27,11 @@ export interface SiteRow {
   connectorId: string;
   /** A remote-desktop password sealed to its connector: it opens only there, so a bulk move leaves it. */
   sealed: boolean;
+  /** The vault keys its password is sealed to: a move keeps it only where one of them is. */
+  sealedKeys: string[];
+  connectorGroupId: string | null;
+  /** connectorName is a connector group's. */
+  isGroup: boolean;
   insecureSkipVerify: boolean;
   recordSessions: boolean;
   keystrokeLogging: boolean;
@@ -74,6 +79,7 @@ function targetHost(s: SiteRow): string | null {
 export function SitesView({
   sites,
   connectors,
+  groups = [],
   recordingEnabled,
   recordingMode = "per_resource",
   keystrokeMode = "per_resource",
@@ -82,6 +88,7 @@ export function SitesView({
 }: {
   sites: SiteRow[];
   connectors: { id: string; name: string; vaultPublicKey?: string | null }[];
+  groups?: MoveGroup[];
   recordingEnabled: boolean;
   /** Policy: off / per_resource / required, for the "keystrokes off" note on a card. */
   recordingMode?: string;
@@ -294,7 +301,7 @@ export function SitesView({
       {picked.length > 0 && (
         <div className="gr-bulk" role="region" aria-label="Selected resources">
           <span className="gr-bulk-n">{picked.length} {picked.length === 1 ? "resource" : "resources"} selected</span>
-          <button type="button" className="gr-bulk-b" onClick={() => setBulk("move")}>Move to connector…</button>
+          <button type="button" className="gr-bulk-b" onClick={() => setBulk("move")}>Move to connector or group…</button>
           <button type="button" className="gr-bulk-b danger" onClick={() => setBulk("delete")}>Delete</button>
           <button type="button" className="gr-bulk-x" aria-label="Clear selection" onClick={() => setSelected(new Set())}>×</button>
         </div>
@@ -302,8 +309,8 @@ export function SitesView({
       <Modal open={bulk === "delete"} onClose={() => setBulk(null)} title={`Delete ${plural(picked.length, "resource")}?`} size="md">
         {bulk === "delete" && <BulkDelete sites={picked} onCancel={() => setBulk(null)} onDone={(n) => bulkDone(`${plural(n, "resource")} deleted`)} />}
       </Modal>
-      <Modal open={bulk === "move"} onClose={() => setBulk(null)} title="Move to another connector" size="md">
-        {bulk === "move" && <BulkMove sites={picked} connectors={connectors} onCancel={() => setBulk(null)} onDone={bulkDone} />}
+      <Modal open={bulk === "move"} onClose={() => setBulk(null)} title="Move to another connector or group" size="md">
+        {bulk === "move" && <BulkMove sites={picked} connectors={connectors} groups={groups} onCancel={() => setBulk(null)} onDone={bulkDone} />}
       </Modal>
       {toast && <div className={toast.ok ? "toast" : "toast warn"} role="status"><span aria-hidden="true">{toast.ok ? "✓" : "!"}</span> {toast.msg}</div>}
     </div>
@@ -375,24 +382,32 @@ function BulkDelete({ sites, onCancel, onDone }: { sites: SiteRow[]; onCancel: (
   );
 }
 
-function BulkMove({ sites, connectors, onCancel, onDone }: { sites: SiteRow[]; connectors: { id: string; name: string }[]; onCancel: () => void; onDone: (msg: string) => void }) {
-  const from = new Set(sites.map((s) => s.connectorId));
-  // Moving everything onto the connector they already share would do nothing.
-  const options = connectors.filter((c) => !(from.size === 1 && from.has(c.id)));
-  const [to, setTo] = useState(options[0]?.id ?? "");
+export type MoveGroup = { id: string; name: string; keys: string[] };
+
+function BulkMove({ sites, connectors, groups, onCancel, onDone }: { sites: SiteRow[]; connectors: { id: string; name: string; vaultPublicKey?: string | null }[]; groups: MoveGroup[]; onCancel: () => void; onDone: (msg: string) => void }) {
+  const from = new Set(sites.map((s) => (s.connectorGroupId ? `g:${s.connectorGroupId}` : s.connectorId)));
+  // Moving everything onto the connector (or group) they already share would do nothing.
+  const options = [
+    ...connectors.map((c) => ({ value: c.id, name: c.name, keys: c.vaultPublicKey ? [c.vaultPublicKey] : [], group: false })),
+    ...groups.map((g) => ({ value: `g:${g.id}`, name: g.name, keys: g.keys, group: true })),
+  ].filter((o) => !(from.size === 1 && from.has(o.value)));
+  const [to, setTo] = useState(options[0]?.value ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const sealed = sites.filter((s) => s.accessMode === "GATEWAY" && s.sealed && s.connectorId !== to);
-  const movable = sites.filter((s) => s.connectorId !== to && !sealed.includes(s));
+  const dest = options.find((o) => o.value === to);
+  const there = (s: SiteRow) => (s.connectorGroupId ? `g:${s.connectorGroupId}` : s.connectorId) === to;
+  // A sealed password moves only where one of its seals still opens.
+  const sealed = sites.filter((s) => s.accessMode === "GATEWAY" && s.sealed && !there(s) && !s.sealedKeys.some((k) => dest?.keys.includes(k)));
+  const movable = sites.filter((s) => !there(s) && !sealed.includes(s));
   async function go() {
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch("/api/admin/sites/bulk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "move", ids: movable.map((s) => s.id), connectorId: to }) });
+      const target = to.startsWith("g:") ? { connectorGroupId: to.slice(2) } : { connectorId: to };
+      const res = await fetch("/api/admin/sites/bulk", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "move", ids: movable.map((s) => s.id), ...target }) });
       const r = (await res.json().catch(() => ({}))) as { ok?: boolean; moved?: number };
       if (res.ok && r.ok) {
-        const name = connectors.find((c) => c.id === to)?.name ?? "the connector";
-        onDone(`${plural(r.moved ?? movable.length, "resource")} moved to ${name}`);
+        onDone(`${plural(r.moved ?? movable.length, "resource")} moved to ${dest?.name ?? "the connector"}`);
         return;
       }
       setErr("Couldn't move the resources. Try again.");
@@ -404,16 +419,21 @@ function BulkMove({ sites, connectors, onCancel, onDone }: { sites: SiteRow[]; c
   return (
     <div className="rq">
       {options.length === 0 ? (
-        <p className="cell-sub" style={{ marginTop: 0 }}>There is no other connector to move them to. Add one under Connectors first.</p>
+        <p className="cell-sub" style={{ marginTop: 0 }}>There is no other connector or group to move them to. Add one under Connectors first.</p>
       ) : (
         <>
           <label className="rs-bulk-to">
             <span>Move to</span>
             <select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
-              {options.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {options.filter((o) => !o.group).map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
+              {options.some((o) => o.group) && (
+                <optgroup label="Connector groups">
+                  {options.filter((o) => o.group).map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
+                </optgroup>
+              )}
             </select>
           </label>
-          {movable.length > 0 && <><p className="cell-sub">{plural(movable.length, "resource")} will be served by the new connector, which must be able to reach their addresses.</p><NameList sites={movable} /></>}
+          {movable.length > 0 && <><p className="cell-sub">{plural(movable.length, "resource")} will be served by {dest?.group ? "the group's connectors, which" : "the new connector, which"} must be able to reach their addresses.</p><NameList sites={movable} /></>}
           {sealed.length > 0 && (
             <p className="notice warn">
               {sealed.length === 1 ? "1 remote-desktop resource keeps its" : `${sealed.length} remote-desktop resources keep their`} password sealed to {sealed.length === 1 ? "its" : "their"} connector; edit each one to move it and type the password again.
@@ -487,7 +507,7 @@ function Route({ s, h }: { s: SiteRow; h: Health }) {
       </div>
       <div className="rs-route-labels">
         <span><i>Edge</i><b>Captivo Edge</b></span>
-        <span><i>Connector</i><b title={s.connectorName}>{s.connectorName}{!s.connectorOnline && <em className="t-bad"> · offline</em>}</b></span>
+        <span><i>{s.isGroup ? "Group" : "Connector"}</i><b title={s.connectorName}>{s.connectorName}{!s.connectorOnline && <em className="t-bad"> · offline</em>}</b></span>
         <span className="rs-route-target">
           <i>Target</i>
           <b className="mono">{t ? <><span title={t}>{stripScheme(t)}</span><CopyIcon value={t} label="target" /></> : <span className="t-muted">none</span>}</b>

@@ -18,7 +18,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
   const site = await db.site.findUnique({
     where: { id },
     select: {
-      id: true, connectorId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true,
+      id: true, connectorId: true, connectorGroupId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true,
       keystrokeLogging: true, nativeRdp: true, nativeSsh: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true,
       domainVerifiedAt: true, egressMode: true, egressHosts: true, createdAt: true, iconName: true, iconColor: true, logoBg: true,
     },
@@ -53,6 +53,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
         site={{
           id: site.id,
           connectorId: site.connectorId,
+          connectorGroupId: site.connectorGroupId,
           name: site.name,
           hostname: site.hostname ?? "",
           upstreamUrl: site.upstreamUrl ?? "",

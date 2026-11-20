@@ -33,6 +33,7 @@ async function handler(req: NextRequest) {
     tenantId: currentTenantId(),
     siteName: t.siteName,
     connectorId: t.connectorId,
+    connectors: t.connectors,
     targetHost: t.targetHost,
     targetPort: t.targetPort,
   });

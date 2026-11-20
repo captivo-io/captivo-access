@@ -123,7 +123,10 @@ func (c *ControlClient) ViewAuthz(userID, siteID string) (bool, error) {
 // descriptor with the decrypted credential + the guacd address to reach. On a
 // denied grant / missing credential the control plane returns an HTTP status,
 // surfaced here as an error so the tunnel closes.
-func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn, guacdAddress, connectorID, tenantID string, record, keystrokeLogging bool, err error) {
+//
+// connectors lists every connector that may carry the session, each with the
+// secret sealed to its own key; the caller picks one (connpick.go).
+func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn, guacdAddress string, connectors []routeCandidate, tenantID string, record, keystrokeLogging bool, err error) {
 	var out struct {
 		Protocol         string            `json:"protocol"`
 		TargetHost       string            `json:"targetHost"`
@@ -134,13 +137,14 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		SecretKind       string            `json:"secretKind"`
 		GuacdAddress     string            `json:"guacdAddress"`
 		ConnectorID      string            `json:"connectorId"`
+		Connectors       []routeCandidate  `json:"connectors"`
 		TenantID         string            `json:"tenantId"`
 		Record           bool              `json:"record"`
 		KeystrokeLogging bool              `json:"keystrokeLogging"`
 		Params           map[string]string `json:"params"`
 	}
 	if err := c.post("/api/internal/gateway/descriptor", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
-		return GuacConn{}, "", "", "", false, false, err
+		return GuacConn{}, "", nil, "", false, false, err
 	}
 	return GuacConn{
 		Protocol:     out.Protocol,
@@ -151,7 +155,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		SealedSecret: out.SealedSecret,
 		SecretKind:   out.SecretKind,
 		Params:       out.Params,
-	}, out.GuacdAddress, out.ConnectorID, out.TenantID, out.Record, out.KeystrokeLogging, nil
+	}, out.GuacdAddress, candidatesOr(out.Connectors, out.ConnectorID), out.TenantID, out.Record, out.KeystrokeLogging, nil
 }
 
 // rdpTarget is where a native RDP tunnel goes, and the device redirection the
@@ -159,6 +163,9 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 type rdpTarget struct {
 	Host, Port, ConnectorID, TenantID, SiteName string
 	RedirectFlags                               uint32
+	// Every connector that may carry the tunnel; ConnectorID is set to the one
+	// picked from them when the tunnel is dialled.
+	Candidates []routeCandidate
 }
 
 // NativeRdpTarget authorizes (userID, siteID) for a native RDP client and
@@ -167,17 +174,18 @@ type rdpTarget struct {
 // not allow native clients, or its sessions must be recorded.
 func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error) {
 	var out struct {
-		TargetHost    string `json:"targetHost"`
-		TargetPort    int    `json:"targetPort"`
-		ConnectorID   string `json:"connectorId"`
-		TenantID      string `json:"tenantId"`
-		SiteName      string `json:"siteName"`
-		RedirectFlags uint32 `json:"redirectFlags"`
+		TargetHost    string           `json:"targetHost"`
+		TargetPort    int              `json:"targetPort"`
+		ConnectorID   string           `json:"connectorId"`
+		Connectors    []routeCandidate `json:"connectors"`
+		TenantID      string           `json:"tenantId"`
+		SiteName      string           `json:"siteName"`
+		RedirectFlags uint32           `json:"redirectFlags"`
 	}
 	if err := c.post("/api/internal/gateway/native-rdp", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return rdpTarget{}, err
 	}
-	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, RedirectFlags: out.RedirectFlags}, nil
+	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, RedirectFlags: out.RedirectFlags, Candidates: candidatesOr(out.Connectors, out.ConnectorID)}, nil
 }
 
 // NativeSshTarget is NativeRdpTarget for the SSH jump host (sshjump.go): the
@@ -185,16 +193,17 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 // user's own SSH client.
 func (c *ControlClient) NativeSshTarget(userID, siteID string) (rdpTarget, error) {
 	var out struct {
-		TargetHost  string `json:"targetHost"`
-		TargetPort  int    `json:"targetPort"`
-		ConnectorID string `json:"connectorId"`
-		TenantID    string `json:"tenantId"`
-		SiteName    string `json:"siteName"`
+		TargetHost  string           `json:"targetHost"`
+		TargetPort  int              `json:"targetPort"`
+		ConnectorID string           `json:"connectorId"`
+		Connectors  []routeCandidate `json:"connectors"`
+		TenantID    string           `json:"tenantId"`
+		SiteName    string           `json:"siteName"`
 	}
 	if err := c.post("/api/internal/gateway/native-ssh", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return rdpTarget{}, err
 	}
-	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName}, nil
+	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)}, nil
 }
 
 // SiteByHost resolves a browser-facing hostname to the site/connector it's
@@ -206,18 +215,19 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (rdpTarget, error
 // to this site; only ever true while recordSessions is).
 func (c *ControlClient) SiteByHost(host string) (siteRoute, error) {
 	var out struct {
-		SiteID             string `json:"siteId"`
-		ConnectorID        string `json:"connectorId"`
-		TenantID           string `json:"tenantId"`
-		UpstreamUrl        string `json:"upstreamUrl"`
-		InsecureSkipVerify bool   `json:"insecureSkipVerify"`
-		RecordSessions     bool   `json:"recordSessions"`
-		ClipboardMode      string `json:"clipboardMode"`
-		FileTransferMode   string `json:"fileTransferMode"`
-		AccessMode         string `json:"accessMode"`
-		ConsentRequired    bool   `json:"recordingConsentRequired"`
-		Watermark          bool   `json:"watermark"`
-		KeystrokeLogging   bool   `json:"keystrokeLogging"`
+		SiteID             string           `json:"siteId"`
+		ConnectorID        string           `json:"connectorId"`
+		Connectors         []routeCandidate `json:"connectors"`
+		TenantID           string           `json:"tenantId"`
+		UpstreamUrl        string           `json:"upstreamUrl"`
+		InsecureSkipVerify bool             `json:"insecureSkipVerify"`
+		RecordSessions     bool             `json:"recordSessions"`
+		ClipboardMode      string           `json:"clipboardMode"`
+		FileTransferMode   string           `json:"fileTransferMode"`
+		AccessMode         string           `json:"accessMode"`
+		ConsentRequired    bool             `json:"recordingConsentRequired"`
+		Watermark          bool             `json:"watermark"`
+		KeystrokeLogging   bool             `json:"keystrokeLogging"`
 	}
 	if err := c.post("/api/internal/site/by-host", map[string]string{"host": host}, &out); err != nil {
 		if he, ok := err.(*httpError); ok && he.code == http.StatusNotFound {
@@ -233,6 +243,7 @@ func (c *ControlClient) SiteByHost(host string) (siteRoute, error) {
 	return siteRoute{
 		SiteID:             out.SiteID,
 		ConnectorID:        out.ConnectorID,
+		Candidates:         candidatesOr(out.Connectors, out.ConnectorID),
 		TenantID:           out.TenantID,
 		Upstream:           out.UpstreamUrl,
 		ClipboardMode:      out.ClipboardMode,

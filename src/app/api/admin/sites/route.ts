@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
-import { storedSecretFor, VaultInputError } from "@/lib/vault/store";
+import { storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
+import { resolveConnectorChoice } from "@/lib/connector/groups";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
@@ -28,6 +29,11 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   }
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  // A connector, or a connector group standing in through one of its members.
+  const choice = await resolveConnectorChoice(body);
+  if ("error" in choice) return NextResponse.json({ error: choice.error }, { status: 400 });
+  body.connectorId = choice.connectorId;
+  const connectorGroupId = choice.connectorGroupId;
   // Capabilities: the deployment flag, overridable per tenant from the platform console.
   const [capGateway, capRecording, capIsolated] = await Promise.all([capabilityAllowed("gateway"), capabilityAllowed("recording"), capabilityAllowed("isolated")]);
   const v = validateSiteInput(body, { nativeGateway: nativeGatewayEnabled() && capGateway, requireSecret: true, recordingEnabled: recordingEnabled() && capRecording, isolationEnabled: isolationEnabled() && capIsolated, hostSuffix: await siteHostSuffix() });
@@ -59,7 +65,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     try {
       const site = await db.site.create({
         data: {
-          connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, upstreamUrl: v.upstreamUrl, description: v.description,
+          connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, upstreamUrl: v.upstreamUrl, description: v.description,
           insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, accessMode: "TRANSPARENT", ...logoData,
         },
         select: { id: true },
@@ -84,7 +90,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     // Isolated browser: a site with the internal URL to open; no VaultCredential.
     const site = await db.site.create({
       data: {
-        connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description,
+        connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description,
         insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, egressMode: v.egressMode ?? null, egressHosts: v.egressHosts ?? [], accessMode: "ISOLATED", ...logoData,
       },
       select: { id: true },
@@ -102,18 +108,18 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   // GATEWAY (remote desktop): the site (null hostname/upstream) + its credential, atomically.
   let stored;
   try {
-    stored = await storedSecretFor(v.connectorId, v.secret!, { host: v.targetHost, port: v.targetPort, username: v.username });
+    stored = await storedSecretFor({ connectorId: v.connectorId, connectorGroupId }, v.secret!, { host: v.targetHost, port: v.targetPort, username: v.username });
   } catch (e) {
     if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
     throw e;
   }
   const id = await db.$transaction(async (tx) => {
     const site = await tx.site.create({
-      data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData },
+      data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData },
       select: { id: true },
     });
     await tx.vaultCredential.create({
-      data: { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, secret: stored.secret, sealedTo: stored.sealedTo, secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
+      data: { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
     });
     return site.id;
   });

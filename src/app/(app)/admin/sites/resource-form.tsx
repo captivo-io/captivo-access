@@ -21,6 +21,8 @@ type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: stri
 
 export interface ResourceContext {
   connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null; version?: string | null }[];
+  /** Connector groups: a resource on one is served by any eligible member. */
+  groups?: ResourceGroup[];
   recordingEnabled: boolean;
   recordingMode: string;
   keystrokeMode: KeystrokeMode;
@@ -38,9 +40,12 @@ export interface ResourceContext {
   customDomainIp: string | null;
 }
 
+export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; version: string | null }[] };
+
 export interface ResourceInitial {
   id: string;
   connectorId: string;
+  connectorGroupId?: string | null;
   name: string;
   hostname: string;
   upstreamUrl: string;
@@ -64,7 +69,7 @@ export interface ResourceInitial {
   iconColor: string | null;
   logoBg: string | null;
 }
-export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; sealed?: boolean; stale?: boolean }
+export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[] }
 export type EgressEvent = { dest: string; blocked: boolean; reason: string; count: number; last: string };
 
 const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: string; color: IconColor }[] = [
@@ -148,6 +153,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [protocol, setProtocol] = useState<"RDP" | "VNC" | "SSH">(init.protocol);
   const [name, setName] = useState(site?.name ?? "");
   const [connectorId, setConnectorId] = useState(site?.connectorId ?? ctx.connectors.find((c) => c.online)?.id ?? ctx.connectors[0]?.id ?? "");
+  // A connector group instead of one connector (connectorId then stands for its first member).
+  const [groupId, setGroupId] = useState<string | null>(site?.connectorGroupId ?? null);
   // Public address (web only).
   const suffix = ctx.hostSuffix ?? "";
   const [customDomain, setCustomDomain] = useState(site?.customDomain ?? false);
@@ -192,7 +199,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const rkind: ResourceKind = kind === "remote" ? (protocol === "VNC" ? "vnc" : "rdp") : kind;
   const remote = kind === "remote" || kind === "ssh";
   const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : protoLabel(rkind, address.trim());
+  const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
+  // The connectors that would carry this resource, and the keys its password is sealed to.
+  const routeConnectors = group ? group.members : connector ? [{ ...connector, standby: false, vaultPublicKey: connector.vaultPublicKey ?? null, version: connector.version ?? null }] : [];
+  const routeKeys = routeConnectors.map((c) => c.vaultPublicKey).filter((k): k is string => !!k);
+  const routeName = group ? group.name : connector?.name;
   const storedLogoUrl = site?.hasLogo ? `/api/sites/${site.id}/logo` : null;
   const autoName = autoIcon(`${name} ${address}`, rkind);
   const look: Look = { ...lookState, iconColor: colorPick ?? defaultColor(rkind) };
@@ -226,9 +238,13 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     return { host: m[1].replace(/^\[|\]$/g, ""), port };
   }, [addr, remote, protocol]);
   const https = (kind === "web" || kind === "isolated") && /^https:\/\//i.test(addr);
-  const vaultKey = connector?.vaultPublicKey ?? null;
+  const vaultKey = routeKeys[0] ?? null;
+  // The saved password still opens where the resource now goes when one of its seals is for a connector there.
+  const sealedOpensHere = vault?.sealedKeys ? vault.sealedKeys.some((k) => routeKeys.includes(k)) : site?.connectorId === connectorId && !groupId === !site?.connectorGroupId;
   const sealedTargetChanged = !!vault?.sealed && !!hostPort &&
-    (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || site?.connectorId !== connectorId);
+    (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
+  // Group members that can't open the saved password (it was sealed before they joined).
+  const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
   const needSecret = remote && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged);
 
   function pickKind(k: Kind) {
@@ -242,27 +258,46 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   }
   // A changed target, connector or protocol makes the last probe meaningless.
   const changeAddress = (v: string) => { setAddress(v); setProbe({ state: "idle" }); };
-  const changeConnector = (v: string) => { setConnectorId(v); setProbe({ state: "idle" }); };
+  const changeConnector = (v: string) => { setConnectorId(v); setGroupId(null); setProbe({ state: "idle" }); };
+  const changeGroup = (g: ResourceGroup) => {
+    const stand = g.members.find((m) => m.online && !m.standby) ?? g.members.find((m) => !m.standby) ?? g.members[0];
+    setGroupId(g.id);
+    if (stand) setConnectorId(stand.id);
+    setProbe({ state: "idle" });
+  };
   const changeProtocol = (v: "RDP" | "VNC") => { setProtocol(v); setProbe({ state: "idle" }); };
 
-  async function runProbe() {
-    setProbe({ state: "busy" });
+  async function probeVia(id: string): Promise<{ ok: boolean; ms?: number; error?: string }> {
     try {
       const res = await fetch("/api/admin/sites/probe", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ connectorId, target: addr, port: defaultPort(protocol) }),
+        body: JSON.stringify({ connectorId: id, target: addr, port: defaultPort(protocol) }),
       });
       const r = await res.json().catch(() => ({}));
-      setProbe(r.ok ? { state: "ok", ms: r.ms } : { state: "fail", error: r.error ?? "unreachable" });
+      return r.ok ? { ok: true, ms: r.ms } : { ok: false, error: r.error ?? "unreachable" };
     } catch {
-      setProbe({ state: "fail", error: "unreachable" });
+      return { ok: false, error: "unreachable" };
     }
+  }
+  async function runProbe() {
+    setProbe({ state: "busy" });
+    // A group: through every online member, since any of them may carry a session.
+    const via = group ? group.members.filter((m) => m.online) : [{ id: connectorId, name: connector?.name ?? "" }];
+    const results = await Promise.all(via.map(async (m) => ({ name: m.name, ...(await probeVia(m.id)) })));
+    const ok = results.filter((r) => r.ok);
+    if (!group) {
+      setProbe(ok.length ? { state: "ok", ms: ok[0].ms } : { state: "fail", error: results[0]?.error ?? "unreachable" });
+      return;
+    }
+    if (results.length === 0) { setProbe({ state: "fail", error: "no member is online" }); return; }
+    const each = results.map((r) => (r.ok ? `${r.name} ${r.ms ?? "?"} ms` : `${r.name} ✕`)).join(" · ");
+    setProbe(ok.length === results.length ? { state: "ok", ms: undefined, error: each } : ok.length ? { state: "ok", ms: undefined, error: `${each} — sessions skip the members that can't reach it` } : { state: "fail", error: each });
   }
 
   // What's missing, for the footer.
   const missing: string[] = [];
   if (!name.trim()) missing.push("resource name");
-  if (!connectorId) missing.push("connector");
+  if (!connectorId && !group) missing.push("connector");
   if (!addrOk) missing.push("internal address");
   if (kind === "web" && !(customDomain ? domainOk : labelOk || !suffix)) missing.push("public address");
   if (kind === "web" && hostState && hostState.host === publicHost && !hostState.available) missing.push("a free public address");
@@ -283,11 +318,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const nativeRdpShown = kind === "remote" && protocol === "RDP";
   const nativeRdpLocked = ctx.recordingEnabled && effRecord;
   const nativeRdpOn = nativeRdpShown && nativeRdp && !nativeRdpLocked;
-  const nativeRdpOldConnector = nativeRdpOn && compareSemver(connector?.version, NATIVE_RDP_MIN_CONNECTOR) === -1;
+  // On a group, native sessions go through members new enough; only all-old is a problem.
+  const nativeRdpOldConnector = nativeRdpOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_RDP_MIN_CONNECTOR) === -1);
   // Native SSH: the same rule, through the jump host.
   const nativeSshShown = kind === "ssh";
   const nativeSshOn = nativeSshShown && nativeSsh && !nativeRdpLocked;
-  const nativeSshOldConnector = nativeSshOn && compareSemver(connector?.version, NATIVE_SSH_MIN_CONNECTOR) === -1;
+  const nativeSshOldConnector = nativeSshOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_SSH_MIN_CONNECTOR) === -1);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -295,11 +331,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     setError(null);
     setBusy(true);
     try {
-      let secretBody: Record<string, string> = {};
+      let secretBody: Record<string, unknown> = {};
       if (remote && secret && hostPort) {
         try {
+          // Sealed in this browser to every connector that may carry the session.
+          const target = { host: hostPort.host, port: hostPort.port, username: username.trim() };
+          const extra = Object.fromEntries(await Promise.all(routeKeys.slice(1).map(async (k) => [k, await sealSecret(k, secret, target)] as const)));
           secretBody = vaultKey
-            ? { sealedSecret: await sealSecret(vaultKey, secret, { host: hostPort.host, port: hostPort.port, username: username.trim() }), sealedTo: vaultKey }
+            ? { sealedSecret: await sealSecret(vaultKey, secret, target), sealedTo: vaultKey, ...(Object.keys(extra).length ? { extraSeals: extra } : {}) }
             : { secret };
         } catch {
           setError(errorMessage("vault_unsupported_browser", edit));
@@ -308,7 +347,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
       }
       const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : "GATEWAY";
       const body: Record<string, unknown> = {
-        connectorId, name: name.trim(), accessMode,
+        connectorId, connectorGroupId: groupId ?? undefined, name: name.trim(), accessMode,
         hostname: customDomain ? domain.trim().toLowerCase() : label, customDomain,
         upstreamUrl: remote ? undefined : addr,
         description: description.trim() || undefined,
@@ -387,14 +426,26 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <span className="rq-label"><span>Connector</span><Link href="/admin/connectors" className="rf-link">+ New connector</Link></span>
             <div className="rf-conns" role="radiogroup" aria-label="Connector">
               {ctx.connectors.map((c) => (
-                <button key={c.id} type="button" role="radio" aria-checked={connectorId === c.id} disabled={!c.online && connectorId !== c.id}
-                  className={connectorId === c.id ? "rf-conn on" : "rf-conn"} onClick={() => changeConnector(c.id)}>
+                <button key={c.id} type="button" role="radio" aria-checked={!groupId && connectorId === c.id} disabled={!c.online && connectorId !== c.id}
+                  className={!groupId && connectorId === c.id ? "rf-conn on" : "rf-conn"} onClick={() => changeConnector(c.id)}>
                   <span className="rf-plug" aria-hidden="true"><PlugIcon />{c.online && <span className="rf-plug-dot" />}</span>
                   <span className="rf-conn-t"><b>{c.name}</b><span className="mono t-muted">{c.id.slice(0, 9)} · {c.online ? "online" : "offline"}</span></span>
-                  {connectorId === c.id && <span className="rf-check" aria-hidden="true">✓</span>}
+                  {connectorId === c.id && !groupId && <span className="rf-check" aria-hidden="true">✓</span>}
                 </button>
               ))}
+              {(ctx.groups ?? []).map((g) => {
+                const up = g.members.filter((m) => m.online).length;
+                return (
+                  <button key={g.id} type="button" role="radio" aria-checked={groupId === g.id} disabled={up === 0 && groupId !== g.id}
+                    className={groupId === g.id ? "rf-conn rf-group on" : "rf-conn rf-group"} onClick={() => changeGroup(g)}>
+                    <span className="rf-plug" aria-hidden="true"><PlugIcon /><PlugIcon />{up > 0 && <span className="rf-plug-dot" />}</span>
+                    <span className="rf-conn-t"><b>{g.name}</b><span className="mono t-muted">group · {g.members.length} connector{g.members.length === 1 ? "" : "s"} · {up} online</span></span>
+                    {groupId === g.id && <span className="rf-check" aria-hidden="true">✓</span>}
+                  </button>
+                );
+              })}
             </div>
+            {group && <p className="rf-hint">Sessions are spread over the online active members ({group.members.filter((m) => !m.standby).map((m) => m.name).join(", ")}){group.members.some((m) => m.standby) ? `; ${group.members.filter((m) => m.standby).map((m) => m.name).join(", ")} take${group.members.filter((m) => m.standby).length === 1 ? "s" : ""} over when none is online` : ""}.</p>}
           </div>
 
           <Sec n="02" title="Addresses" />
@@ -441,8 +492,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               </button>
             </div>
             {addrTouched && addr && !addrOk && <p className="rf-msg bad">{kind === "web" || kind === "isolated" ? "Use http(s)://host:port, with an optional path." : "Use host or host:port."}</p>}
-            {probe.state === "ok" && <p className="rf-probe-r ok">✓ The connector reached the target{probe.ms != null ? ` · ${probe.ms} ms` : ""}</p>}
-            {probe.state === "fail" && <p className="rf-probe-r bad">× The connector couldn&apos;t reach this target ({probe.error}). Check the address and the firewall.</p>}
+            {probe.state === "ok" && <p className="rf-probe-r ok">✓ {group ? "Reached through the group" : "The connector reached the target"}{probe.ms != null ? ` · ${probe.ms} ms` : ""}{group && probe.error ? `: ${probe.error}` : ""}</p>}
+            {probe.state === "fail" && <p className="rf-probe-r bad">× {group ? "No member reached this target" : "The connector couldn&apos;t reach this target"} ({probe.error}). Check the address and the firewall.</p>}
             <p className="rf-hint">The connector dials this address from inside your network; it is stored only in the console. To limit what a connector may reach, set <code>ALLOWED_TARGETS</code> on it.</p>
           </div>
           {https && (
@@ -459,7 +510,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               <label className="rq-sec"><span className="rq-label"><span>Password</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>
-              <p className="rf-hint rf-wide">Users never see these; the gateway signs in for them. The password is {vaultKey ? "sealed to the connector" : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}</p>
+              <p className="rf-hint rf-wide">Users never see these; the gateway signs in for them. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}</p>
+              {!needSecret && unsealedMembers.length > 0 && (
+                <p className="rf-msg warn rf-wide">{unsealedMembers.map((m) => m.name).join(", ")} joined the group after the password was saved and can&apos;t open it, so sessions skip {unsealedMembers.length === 1 ? "it" : "them"}. Enter the password again to include {unsealedMembers.length === 1 ? "it" : "them"}.</p>
+              )}
             </div>
           )}
 
@@ -559,7 +613,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 <span className={probe.state === "ok" ? "rf-line ok" : probe.state === "fail" ? "rf-line bad" : "rf-line dim"} />
                 <span className={probe.state === "ok" ? "rf-dot ring ok" : probe.state === "fail" ? "rf-dot ring bad" : "rf-dot ring"} />
               </span>
-              <span className="rf-route-l"><span><span className="pp-k">Edge</span>Captivo Edge</span><span><span className="pp-k">Connector</span>{connector?.name ?? "—"}</span><span><span className="pp-k">Target</span><span className="mono">{addr || "—"}</span></span></span>
+              <span className="rf-route-l"><span><span className="pp-k">Edge</span>Captivo Edge</span><span><span className="pp-k">{group ? "Group" : "Connector"}</span>{routeName ?? "—"}</span><span><span className="pp-k">Target</span><span className="mono">{addr || "—"}</span></span></span>
             </div>
           </div>
           {chips.length > 0 && <div className="rf-chips">{chips.map((c) => <span key={c.text} className={`rf-chip ${c.tone}`}><span aria-hidden="true" />{c.text}</span>)}</div>}

@@ -83,6 +83,7 @@ type sshAuthorizer interface {
 type sshJumpDeps struct {
 	ctrl    sshAuthorizer
 	dial    func(connectorID, target string) (net.Conn, error)
+	pick    func([]routeCandidate) routeCandidate // nil: the target's own connector
 	hub     *SessionHub
 	audit   *AuditQueue
 	tickets *sshTickets
@@ -239,6 +240,9 @@ func (j *sshJumpConn) forward(nc ssh.NewChannel) {
 	if !strings.EqualFold(req.Host, target.Host) || strconv.Itoa(int(req.Port)) != target.Port {
 		// The jump goes where the ticket says, whatever the command was edited to ask for.
 		log.Printf("ssh jump: site=%s client asked for %s:%d, using the resource's %s:%s", j.tk.SiteID, req.Host, req.Port, target.Host, target.Port)
+	}
+	if j.d.pick != nil && len(target.Candidates) > 0 {
+		target.ConnectorID = j.d.pick(target.Candidates).ID
 	}
 	remote, err := j.d.dial(target.ConnectorID, net.JoinHostPort(target.Host, target.Port))
 	if err != nil {

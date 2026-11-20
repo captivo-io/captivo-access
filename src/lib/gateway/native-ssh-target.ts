@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
 import { evaluateAccess } from "@/lib/access/evaluate";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { nativeSshBlock, type NativeSshBlock } from "@/lib/gateway/native-ssh";
+import { nativeSshBlock, NATIVE_SSH_MIN_CONNECTOR, type NativeSshBlock } from "@/lib/gateway/native-ssh";
+import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 
 export type NativeSshTarget =
-  | { ok: true; siteName: string; connectorId: string; targetHost: string; targetPort: number }
+  | { ok: true; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number }
   | { ok: false; status: number; error: "not_found" | "forbidden" | NativeSshBlock; reason?: string };
 
 /**
@@ -16,8 +17,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const site = await db.site.findUnique({
     where: { id: siteId },
     select: {
-      name: true, accessMode: true, nativeSsh: true, recordSessions: true, connectorId: true,
-      connector: { select: { version: true } },
+      name: true, accessMode: true, nativeSsh: true, recordSessions: true, ...siteRoutingSelect,
       vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true } },
     },
   });
@@ -27,8 +27,11 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const cred = site.vaultCredential;
   const block = nativeSshBlock({
     accessMode: site.accessMode, nativeSsh: site.nativeSsh, protocol: cred?.protocol,
-    recorded: await effectiveSiteRecording(site.recordSessions), connectorVersion: site.connector.version,
+    recorded: await effectiveSiteRecording(site.recordSessions), connectorVersion: newestVersion(site),
   });
   if (block || !cred) return { ok: false, status: 409, error: block ?? "not_ssh" };
-  return { ok: true, siteName: site.name, connectorId: site.connectorId, targetHost: cred.targetHost, targetPort: cred.targetPort };
+  // On a group, only members new enough to relay the tunnel carry it.
+  const members = routeMembers(site, { minVersion: NATIVE_SSH_MIN_CONNECTOR }).eligible;
+  if (members.length === 0) return { ok: false, status: 409, error: "connector_outdated" };
+  return { ok: true, siteName: site.name, connectorId: members[0].id, connectors: candidatesFor(members), targetHost: cred.targetHost, targetPort: cred.targetPort };
 }

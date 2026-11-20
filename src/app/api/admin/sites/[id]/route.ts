@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
-import { keptSecretStillOpens, sealLegacyCredentials, storedSecretFor, VaultInputError, type StoredSecret } from "@/lib/vault/store";
+import { keptSecretStillOpens, sealLegacyCredentials, storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
+import { resolveConnectorChoice } from "@/lib/connector/groups";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
 import { capabilityAllowed } from "@/lib/tenant/envelope";
@@ -25,6 +26,12 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   const { id } = await ctx.params;
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  // A connector, or a connector group standing in through one of its members.
+  const choice = await resolveConnectorChoice(body);
+  if ("error" in choice) return NextResponse.json({ error: choice.error }, { status: 400 });
+  body.connectorId = choice.connectorId;
+  const connectorGroupId = choice.connectorGroupId;
+  const holder = { connectorId: choice.connectorId, connectorGroupId };
   const [capGateway, capRecording, capIsolated] = await Promise.all([capabilityAllowed("gateway"), capabilityAllowed("recording"), capabilityAllowed("isolated")]);
   const v = validateSiteInput(body, { nativeGateway: nativeGatewayEnabled() && capGateway, requireSecret: false, recordingEnabled: recordingEnabled() && capRecording, isolationEnabled: isolationEnabled() && capIsolated, hostSuffix: await siteHostSuffix() });
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: v.error === "native_gateway_disabled" || v.error === "isolation_disabled" ? 403 : 400 });
@@ -50,7 +57,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
     }
     try {
-      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, nativeRdp: false, accessMode: "TRANSPARENT", ...logoData } });
+      await db.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: v.hostname, customDomain: v.customDomain, domainVerifiedAt: v.customDomain && v.hostname === existing.hostname ? undefined : null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, nativeRdp: false, accessMode: "TRANSPARENT", ...logoData } });
     } catch (e) {
       if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2002") {
         return NextResponse.json({ error: "hostname_taken" }, { status: 409 });
@@ -69,7 +76,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   if (v.mode === "ISOLATED") {
     // Isolated browser: URL-only site, no credential. Drop any stale vault from a GATEWAY→ISOLATED switch.
     await db.$transaction(async (tx) => {
-      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, ...(v.egressMode !== undefined ? { egressMode: v.egressMode } : {}), ...(v.egressHosts !== undefined ? { egressHosts: v.egressHosts } : {}), nativeRdp: false, accessMode: "ISOLATED", ...logoData } });
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: v.upstreamUrl, description: v.description, insecureSkipVerify: v.insecureSkipVerify, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, clipboardMode: v.clipboardMode, watermark: v.watermark, fileTransferMode: v.fileTransferMode, ...(v.egressMode !== undefined ? { egressMode: v.egressMode } : {}), ...(v.egressHosts !== undefined ? { egressHosts: v.egressHosts } : {}), nativeRdp: false, accessMode: "ISOLATED", ...logoData } });
       await tx.vaultCredential.deleteMany({ where: { siteId: id } });
     });
     await recordAdminAction({
@@ -88,25 +95,25 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   const target = { host: v.targetHost, port: v.targetPort, username: v.username };
   // A secret sealed to the connector opens only for the target and connector
   // it was entered for: changing either needs it again (see keptSecretStillOpens).
-  if (!v.secret && hadVault && !(await keptSecretStillOpens(id, v.connectorId, target))) {
+  if (!v.secret && hadVault && !(await keptSecretStillOpens(id, holder, target))) {
     return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
   }
-  let secretUpdate: StoredSecret | Record<string, never> = {}; // set whenever there was no credential (checked above)
+  let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = {}; // set whenever there was no credential (checked above)
   if (v.secret) {
     try {
-      secretUpdate = await storedSecretFor(v.connectorId, v.secret, target);
+      secretUpdate = storedSecretColumns(await storedSecretFor(holder, v.secret, target));
     } catch (e) {
       if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
       throw e;
     }
   }
   await db.$transaction(async (tx) => {
-    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData } });
+    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData } });
     // Not an upsert: Prisma validates the create branch even when the row
     // exists, and a kept secret leaves it without the required `secret`.
     const fields = { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, guacParams: v.guacParams as Prisma.InputJsonValue };
     if (hadVault) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate } });
-    else await tx.vaultCredential.create({ data: { siteId: id, ...fields, ...(secretUpdate as StoredSecret), secretKind: "PASSWORD" } });
+    else await tx.vaultCredential.create({ data: { siteId: id, ...fields, ...(secretUpdate as ReturnType<typeof storedSecretColumns>), secretKind: "PASSWORD" } });
   });
   // A kept legacy secret is sealed for the (possibly new) target right away.
   await sealLegacyCredentials({ siteId: id });

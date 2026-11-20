@@ -48,6 +48,8 @@ export interface ConnectorCard {
   hostAction: HostActionStatus | null;
   /** The latest host action as stored here (a removal outlives the connector's reports). */
   stored: StoredHostAction | null;
+  /** Connector groups it is a member of. */
+  groups: { name: string; standby: boolean }[];
 }
 
 type Filter = "all" | "online" | "offline" | "outdated";
@@ -217,6 +219,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
             {c.hostname && <span>{c.hostname}</span>}
             {c.version && <span>v{c.version}</span>}
             <span>paired {date(c.createdAt)}</span>
+            {c.groups.map((g) => <span key={g.name} className="cn-group">{g.name}{g.standby ? " · standby" : ""}</span>)}
           </div>
         </div>
         <div className="cn-state">

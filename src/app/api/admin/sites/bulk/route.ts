@@ -3,7 +3,8 @@ import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
 import { parseBulk, planMove } from "@/lib/site/bulk";
-import { sealLegacyCredentials } from "@/lib/vault/store";
+import { sealLegacyCredentials, sealsOf } from "@/lib/vault/store";
+import { standInMember } from "@/lib/connector/groups";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
@@ -23,7 +24,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
 
   const sites = await db.site.findMany({
     where: { id: { in: input.ids } },
-    select: { id: true, name: true, accessMode: true, connectorId: true, vaultCredential: { select: { sealedTo: true } } },
+    select: { id: true, name: true, accessMode: true, connectorId: true, connectorGroupId: true, vaultCredential: { select: { sealedTo: true, secret: true, extraSeals: true } } },
   });
   if (sites.length === 0) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const ip = clientIp(req.headers) ?? null;
@@ -38,16 +39,33 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     return NextResponse.json({ ok: true, deleted: ids.length });
   }
 
-  const target = await db.connector.findUnique({ where: { id: input.connectorId }, select: { id: true, name: true, status: true } });
-  if (!target || target.status === "REVOKED") return NextResponse.json({ error: "connector_not_found" }, { status: 400 });
+  // The destination: a connector, or a connector group (through its stand-in member).
+  let dest: { connectorId: string; connectorGroupId: string | null; name: string; keys: string[] };
+  if (input.connectorGroupId) {
+    const g = await db.connectorGroup.findUnique({ where: { id: input.connectorGroupId }, select: { id: true, name: true, members: { select: { connector: { select: { status: true, vaultPublicKey: true } } } } } });
+    const standIn = g ? await standInMember(db, g.id) : null;
+    if (!g || !standIn) return NextResponse.json({ error: "group_not_found" }, { status: 400 });
+    const keys = g.members.filter((m) => m.connector.status !== "REVOKED").map((m) => m.connector.vaultPublicKey).filter((k): k is string => !!k);
+    dest = { connectorId: standIn, connectorGroupId: g.id, name: `group "${g.name}"`, keys };
+  } else {
+    const target = await db.connector.findUnique({ where: { id: input.connectorId }, select: { id: true, name: true, status: true, vaultPublicKey: true } });
+    if (!target || target.status === "REVOKED") return NextResponse.json({ error: "connector_not_found" }, { status: 400 });
+    dest = { connectorId: target.id, connectorGroupId: null, name: `connector "${target.name}"`, keys: target.vaultPublicKey ? [target.vaultPublicKey] : [] };
+  }
 
-  const plan = planMove(sites.map((s) => ({ id: s.id, accessMode: s.accessMode, connectorId: s.connectorId, sealed: !!s.vaultCredential?.sealedTo })), target.id);
+  const plan = planMove(
+    sites.map((s) => ({
+      id: s.id, accessMode: s.accessMode, connectorId: s.connectorId, connectorGroupId: s.connectorGroupId,
+      sealed: !!s.vaultCredential?.sealedTo, sealedKeys: s.vaultCredential ? Object.keys(sealsOf(s.vaultCredential)) : [],
+    })),
+    dest.connectorGroupId ? { connectorGroupId: dest.connectorGroupId, keys: dest.keys } : { connectorId: dest.connectorId, keys: dest.keys },
+  );
   if (plan.move.length) {
-    await db.site.updateMany({ where: { id: { in: plan.move } }, data: { connectorId: target.id } });
+    await db.site.updateMany({ where: { id: { in: plan.move } }, data: { connectorId: dest.connectorId, connectorGroupId: dest.connectorGroupId } });
     for (const s of sites.filter((x) => plan.move.includes(x.id))) {
       // A legacy server-side secret is sealed to the new connector right away, as an edit does.
       if (s.accessMode === "GATEWAY") await sealLegacyCredentials({ siteId: s.id });
-      await recordAdminAction({ actor, action: "resource.update", targetType: "resource", targetId: s.id, summary: `Moved resource "${s.name}" to connector "${target.name}"`, clientIp: ip });
+      await recordAdminAction({ actor, action: "resource.update", targetType: "resource", targetId: s.id, summary: `Moved resource "${s.name}" to ${dest.name}`, clientIp: ip });
     }
   }
   return NextResponse.json({ ok: true, moved: plan.move.length, sealed: plan.sealed.length, already: plan.already.length });

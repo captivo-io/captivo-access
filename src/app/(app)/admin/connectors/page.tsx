@@ -7,6 +7,10 @@ import { BackupConnectorButton } from "./backup-connector-button";
 import { connectorTunnelUrl, isLocalManagerUrl } from "@/lib/url";
 import { ConnectorsView, type ConnectorCard } from "./connectors-view";
 import { InstallPanel, AddConnectorScroll } from "./install-panel";
+import { GroupsPanel, type GroupCard } from "./groups-panel";
+import { sealsOf } from "@/lib/vault/store";
+import { memberProbes } from "@/lib/connector/route";
+import { listActiveSessions } from "@/lib/dataplane/client";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { planUsage } from "@/lib/platform/plan-usage";
@@ -28,6 +32,7 @@ async function AdminConnectorsPageImpl() {
     select: {
       id: true, name: true, status: true, lastSeenAt: true, version: true, createdAt: true, remoteAddr: true, tunnelSpark: true, hostAction: true,
       sites: { select: { probeOk: true } },
+      groupMemberships: { select: { standby: true, group: { select: { name: true } } } },
       days: { where: { day: { gte: dayKey(new Date(now.getTime() - 30 * 86_400_000)) } }, select: { day: true, samples: true, online: true } },
       events: { orderBy: { at: "desc" }, take: 8, select: { at: true, level: true, text: true } },
     },
@@ -92,8 +97,33 @@ async function AdminConnectorsPageImpl() {
       target: updateTarget(c.version, mgr),
       hostAction: liveHostAction(t?.hostAction ?? null, storedHostAction(c.hostAction), now),
       stored: storedHostAction(c.hostAction),
+      groups: c.groupMemberships.map((m) => ({ name: m.group.name, standby: m.standby })),
     };
   });
+
+  // Connector groups, with what each member cannot do for the group's resources.
+  const groupRows = await db.connectorGroup.findMany({
+    orderBy: { name: "asc" },
+    select: {
+      id: true, name: true,
+      members: { orderBy: [{ standby: "asc" }, { createdAt: "asc" }], select: { standby: true, connector: { select: { id: true, name: true, status: true, version: true, vaultPublicKey: true } } } },
+      sites: { orderBy: { name: "asc" }, select: { name: true, accessMode: true, probeByConnector: true, vaultCredential: { select: { secret: true, sealedTo: true, extraSeals: true } } } },
+    },
+  });
+  // Sessions each member carries now, from the dataplane (fail-soft: unknown on error).
+  const carried = groupRows.length ? await listActiveSessions().catch(() => null) : null;
+  const sessionsOf = (id: string, status: string) => (carried && status === "ONLINE" ? carried.filter((x) => x.connectorId === id).length : null);
+  const groups: GroupCard[] = groupRows.map((g) => ({
+    id: g.id,
+    name: g.name,
+    resources: g.sites.map((s) => s.name),
+    members: g.members.map(({ standby, connector: m }) => ({
+      id: m.id, name: m.name, status: m.status, version: m.version, standby,
+      sessions: sessionsOf(m.id, m.status),
+      noSeal: g.sites.filter((s) => s.accessMode === "GATEWAY" && s.vaultCredential?.sealedTo && !(m.vaultPublicKey && sealsOf(s.vaultCredential)[m.vaultPublicKey])).map((s) => s.name),
+      unreachable: g.sites.filter((s) => memberProbes(s.probeByConnector)[m.id]?.ok === false).map((s) => s.name),
+    })),
+  }));
   const active = connectors.filter((c) => c.status !== "REVOKED").length;
 
   return (
@@ -117,6 +147,8 @@ async function AdminConnectorsPageImpl() {
           <AddConnectorScroll />
         </div>
       </div>
+
+      {cards.length > 0 && <GroupsPanel groups={groups} connectors={cards.map((c) => ({ id: c.id, name: c.name, status: c.status }))} />}
 
       {cards.length > 0 && <ConnectorsView connectors={cards} mgr={mgr} updateCommand={updateCommand} managerUrlIsLocal={managerUrlIsLocal} />}
 

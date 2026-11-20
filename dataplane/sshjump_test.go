@@ -17,6 +17,9 @@ import (
 type fakeSSHCtrl struct {
 	allow  bool
 	native error
+	// A connector-group resource: its members, and how the dataplane picks.
+	cands []routeCandidate
+	pick  func([]routeCandidate) routeCandidate
 }
 
 func (f *fakeSSHCtrl) CheckAccess(userID, siteID, clientIP string) (bool, string, error) {
@@ -30,7 +33,7 @@ func (f *fakeSSHCtrl) NativeSshTarget(userID, siteID string) (rdpTarget, error) 
 	if f.native != nil {
 		return rdpTarget{}, f.native
 	}
-	return rdpTarget{Host: "10.0.0.5", Port: "22", ConnectorID: "c1", TenantID: "t1", SiteName: "Build box"}, nil
+	return rdpTarget{Host: "10.0.0.5", Port: "22", ConnectorID: "c1", TenantID: "t1", SiteName: "Build box", Candidates: f.cands}, nil
 }
 
 // jumpRig starts a jump host on a loopback port whose "connector" is an echo server.
@@ -41,7 +44,7 @@ func jumpRig(t *testing.T, ctrl *fakeSSHCtrl) (addr string, tickets *sshTickets,
 	audit = NewAuditQueue(100)
 	var targets []string
 	d := sshJumpDeps{
-		ctrl: ctrl, hub: hub, audit: audit, tickets: tickets, now: time.Now,
+		ctrl: ctrl, hub: hub, audit: audit, tickets: tickets, now: time.Now, pick: ctrl.pick,
 		dial: func(connectorID, target string) (net.Conn, error) {
 			targets = append(targets, connectorID+"/"+target)
 			a, b := net.Pipe()
@@ -249,5 +252,29 @@ func TestSSHTicketEndpoint(t *testing.T) {
 	off(rec, r)
 	if !strings.Contains(rec.Body.String(), "ssh_off") {
 		t.Fatal(rec.Body.String())
+	}
+}
+
+func TestSSHJumpGoesThroughThePickedGroupMember(t *testing.T) {
+	reg := liveReg(t, "c2") // c1 is down
+	ctrl := &fakeSSHCtrl{allow: true, cands: []routeCandidate{{ID: "c1"}, {ID: "c2"}},
+		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, nil, c); return p }}
+	addr, tickets, hub, _, dialed := jumpRig(t, ctrl)
+	addTicket(tickets, "k7f3q9wz2m4x")
+	c, err := dialJump(addr, "k7f3q9wz2m4x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	conn, err := c.Dial("tcp", "x:22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if strings.Join(*dialed, ",") != "c2/10.0.0.5:22" {
+		t.Fatalf("dialed %v, want the online member", *dialed)
+	}
+	if l := hub.List(); len(l) != 1 || l[0].ConnectorID != "c2" {
+		t.Fatalf("hub %+v", l)
 	}
 }

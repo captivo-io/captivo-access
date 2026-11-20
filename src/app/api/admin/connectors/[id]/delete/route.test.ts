@@ -5,6 +5,7 @@ const tx = { site: { deleteMany: vi.fn() }, connector: { delete: vi.fn() } };
 vi.mock("@/lib/tenant/request", () => ({ withTenantRoute: (h: unknown) => h }));
 vi.mock("@/lib/current-user", () => ({ getCurrentUser: async () => ({ id: "a1", email: "a@x", role: "ADMIN" }) }));
 vi.mock("@/lib/audit/admin", () => ({ recordAdminAction: vi.fn() }));
+vi.mock("@/lib/connector/groups", () => ({ releaseConnectorFromGroups: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     connector: { findUnique: vi.fn() },
