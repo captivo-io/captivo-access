@@ -23,4 +23,8 @@ type Telemetry struct {
 	Hostname string `json:"hostname,omitempty"`
 	OS       string `json:"os,omitempty"`
 	LocalIP  string `json:"localIp,omitempty"`
+	// The updater beside the connector (nil: none, or a connector before 2.41.0)
+	// and the latest host action it ran.
+	Updater    *UpdaterInfo      `json:"updater,omitempty"`
+	HostAction *HostActionStatus `json:"hostAction,omitempty"`
 }

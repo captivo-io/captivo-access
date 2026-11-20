@@ -27,6 +27,10 @@ type Session struct {
 	// and policy pushes and report acks are sent from different goroutines.
 	ctrlWriteMu sync.Mutex
 
+	// Host actions waiting for the connector's ack, by id.
+	hostAckMu sync.Mutex
+	hostAcks  map[string]chan tunnel.HostActionAck
+
 	// kasmToken is the isolated-browser control service's secret, as the
 	// connector presented it at the handshake. Memory only, this connection only.
 	kasmToken string
@@ -88,6 +92,57 @@ func (s *Session) writeControl(w io.Writer, b []byte) error {
 	s.ctrlWriteMu.Lock()
 	defer s.ctrlWriteMu.Unlock()
 	return tunnel.WriteFrame(w, b)
+}
+
+var (
+	errHostActionOld     = errors.New("connector cannot take host actions")
+	errHostActionTimeout = errors.New("connector did not answer")
+)
+
+// HostAction sends a host action down the control stream and waits for the
+// connector's ack. Only a connector whose telemetry shows the hostctl side is
+// asked: an older one would read the frame as a Policy with no egress
+// narrowing (see tunnel.HostAction).
+func (s *Session) HostAction(a tunnel.HostAction, timeout time.Duration) (tunnel.HostActionAck, error) {
+	t, _ := s.Telemetry()
+	if t == nil || (t.Updater == nil && t.HostAction == nil) {
+		return tunnel.HostActionAck{}, errHostActionOld
+	}
+	a.Kind = "hostaction"
+	ch := make(chan tunnel.HostActionAck, 1)
+	s.hostAckMu.Lock()
+	if s.hostAcks == nil {
+		s.hostAcks = map[string]chan tunnel.HostActionAck{}
+	}
+	s.hostAcks[a.ID] = ch
+	s.hostAckMu.Unlock()
+	defer func() {
+		s.hostAckMu.Lock()
+		delete(s.hostAcks, a.ID)
+		s.hostAckMu.Unlock()
+	}()
+	if err := s.SendControl(a); err != nil {
+		return tunnel.HostActionAck{}, err
+	}
+	select {
+	case ack := <-ch:
+		return ack, nil
+	case <-time.After(timeout):
+		return tunnel.HostActionAck{}, errHostActionTimeout
+	}
+}
+
+// hostActionAcked hands an ack from the control stream to the waiting request.
+func (s *Session) hostActionAcked(ack tunnel.HostActionAck) {
+	s.hostAckMu.Lock()
+	ch := s.hostAcks[ack.ID]
+	s.hostAckMu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- ack:
+		default:
+		}
+	}
 }
 
 func (s *Session) SetTelemetry(t *tunnel.Telemetry) {

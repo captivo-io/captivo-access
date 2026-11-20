@@ -42,6 +42,7 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
 
   const managerUrl = managerBaseUrl(req);
   const reconfigureCommand = buildReconfigureCommand(code, managerUrl, connectorTunnelUrl());
+  const reconfigureCommandManual = buildReconfigureCommand(code, managerUrl, connectorTunnelUrl(), false);
   const managerUrlIsLocal = isLocalManagerUrl(managerUrl);
 
   await recordAdminAction({
@@ -51,5 +52,5 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
     summary: `Repaired connector ${id}`,
     clientIp: clientIp(req.headers) ?? null,
   });
-  return NextResponse.json({ code, reconfigureCommand, managerUrlIsLocal });
+  return NextResponse.json({ code, reconfigureCommand, reconfigureCommandManual, managerUrlIsLocal });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

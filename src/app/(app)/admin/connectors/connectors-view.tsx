@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { textMatch } from "@/lib/table/filter";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
-import { UpdateConnectorButton } from "./update-connector-button";
+import { HostActionBand, RemoveFromHostModal, UpdateConnectorButton, type UpdateCommands } from "./remote-control";
 import { RepairConnectorButton } from "./repair-connector-button";
 import { DeleteConnectorButton, DeleteWithResourcesButton } from "./delete-connector-button";
 import { CleanupHostButton } from "./cleanup-host";
 import type { DayState, EventLevel } from "@/lib/connector/history";
+import type { HostActionStatus } from "@/lib/connector/telemetry";
+import type { RemoteControl, StoredHostAction } from "@/lib/connector/host-action";
 
 export interface ConnectorCard {
   id: string;
@@ -38,6 +40,14 @@ export interface ConnectorCard {
   unreachable: number;
   uptime: { pct: number | null; downtimeMin: number; days: { date: string; state: DayState; minutes: number }[] };
   events: { at: string; level: EventLevel; text: string }[];
+  /** Whether the console can update or remove it (an updater beside it, online). */
+  remote: RemoteControl;
+  /** The update the console offers (the manager's version), when newer. */
+  target: string | null;
+  /** The latest host action as the connector reports it. */
+  hostAction: HostActionStatus | null;
+  /** The latest host action as stored here (a removal outlives the connector's reports). */
+  stored: StoredHostAction | null;
 }
 
 type Filter = "all" | "online" | "offline" | "outdated";
@@ -56,7 +66,7 @@ export function ConnectorsView({
 }: {
   connectors: ConnectorCard[];
   mgr: string;
-  updateCommand: string;
+  updateCommand: UpdateCommands;
   managerUrlIsLocal: boolean;
 }) {
   const router = useRouter();
@@ -166,13 +176,15 @@ export function maskIp(addr: string): string {
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const date = (iso: string) => new Date(iso).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
 
-function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: ConnectorCard; mgr: string; updateCommand: string; managerUrlIsLocal: boolean; onRevoked: () => void }) {
+function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: ConnectorCard; mgr: string; updateCommand: UpdateCommands; managerUrlIsLocal: boolean; onRevoked: () => void }) {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const revoked = c.status === "REVOKED";
   const on = c.status === "ONLINE";
   const signal = c.signalAgeMs != null ? Date.now() - c.signalAgeMs : c.lastSeenAt ? Date.parse(c.lastSeenAt) : null;
   const pill = revoked ? ["bad", "Revoked"] : on ? ["up", "Online"] : c.status === "PENDING" ? ["unknown", "Waiting to connect"] : ["down", "Offline"];
+  // An update under way replaces the "new version" band with its progress.
+  const busy = !!c.hostAction && c.hostAction.action === "update" && !["done", "rolled_back", "failed"].includes(c.hostAction.state);
 
   return (
     <article className={revoked ? "cn-card revoked" : "cn-card"}>
@@ -206,7 +218,9 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
 
       {revoked ? (
         <div className="cn-band bad">
-          <span>This connector&apos;s access is revoked; it can no longer connect.</span>
+          <span>{c.stored?.action === "uninstall"
+            ? `Removed from its host from the console on ${date(c.stored.at)}${c.stored.keepData ? "; its recordings and keys were left on the host" : ""}.`
+            : "This connector's access is revoked; it can no longer connect."}</span>
           <span className="cn-band-acts">
             <CleanupHostButton />
             {c.resources === 0 ? <DeleteConnectorButton id={c.id} name={c.name} /> : <DeleteWithResourcesButton id={c.id} name={c.name} resources={c.resources} />}
@@ -214,12 +228,14 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
         </div>
       ) : (
         <>
-          {c.outdated && (
+          <HostActionBand connectorId={c.id} status={c.hostAction} now={Date.now()} />
+          {c.outdated && !busy && (
             <div className="cn-band warn">
               <span className="cn-chip mono">{c.version ?? "?"} → {mgr}</span>
               <span className="cn-band-t">A new version is ready. Updating keeps the token and pairing; sessions on it end while it restarts.</span>
               <a className="cn-notes" href={`https://github.com/captivo-io/captivo-access/releases/tag/v${mgr}`} target="_blank" rel="noreferrer">Release notes</a>
-              <UpdateConnectorButton command={updateCommand} managerUrlIsLocal={managerUrlIsLocal} label="Update now" className="btn sm ink" />
+              <UpdateConnectorButton connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={c.remote} target={c.target}
+                from={c.version} openTunnels={on ? (c.activeTunnels ?? 0) : 0} label={c.remote.ok && c.target ? "Update now" : "How to update"} className="btn sm ink" />
             </div>
           )}
 
@@ -369,6 +385,7 @@ function Menu({ c, onRename, onRevoked }: { c: ConnectorCard; onRename: () => vo
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -391,12 +408,14 @@ function Menu({ c, onRename, onRevoked }: { c: ConnectorCard; onRename: () => vo
   }
   return (
     <div className="rs-menu" ref={ref}>
+      <RemoveFromHostModal open={removing} onClose={() => setRemoving(false)} id={c.id} name={c.name} resources={c.resources} remote={c.remote} />
       <button type="button" className="btn sm rs-more" aria-label={`More actions for ${c.name}`} aria-expanded={open} onClick={() => { setOpen((v) => !v); setConfirm(false); }}>⋯</button>
       {open && (
         <div className="rs-menu-pop cn-menu-pop">
           <button type="button" className="rs-mi" onClick={() => { setOpen(false); onRename(); }}>Rename</button>
           <Link href={`/admin/connectors/${c.id}`} className="rs-mi">Settings &amp; logs</Link>
           <hr />
+          <button type="button" className="rs-mi danger" onClick={() => { setOpen(false); setRemoving(true); }}>Remove from host…</button>
           {confirm ? (
             <>
               <button type="button" className="rs-mi danger-solid" disabled={busy} onClick={revoke}>{busy ? "Revoking…" : "Click again to revoke"}</button>

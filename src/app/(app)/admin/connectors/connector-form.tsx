@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CommandBlock } from "@/app/(app)/_shell/command-block";
 import { formatShellCommand } from "@/lib/format/docker-command";
+import { UpdaterChoice } from "./remote-control";
 
 function errorMessage(code: string | undefined): string {
   switch (code) {
@@ -21,7 +22,8 @@ export function ConnectorForm({ onDone }: { onDone?: () => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pairing, setPairing] = useState<{ code: string; installCommand: string; managerUrlIsLocal: boolean } | null>(null);
+  const [pairing, setPairing] = useState<{ code: string; installCommand: string; installCommandManual: string; managerUrlIsLocal: boolean } | null>(null);
+  const [withUpdater, setWithUpdater] = useState(true);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,6 +44,7 @@ export function ConnectorForm({ onDone }: { onDone?: () => void }) {
       setPairing({
         code: result.code,
         installCommand: result.installCommand,
+        installCommandManual: result.installCommandManual ?? result.installCommand,
         managerUrlIsLocal: Boolean(result.managerUrlIsLocal),
       });
       setName("");
@@ -95,9 +98,10 @@ export function ConnectorForm({ onDone }: { onDone?: () => void }) {
             in the list (as <b>Pending</b>, then <b>Online</b>) once it connects — creating it here doesn&apos;t
             add a row until then. This pairing code is shown only once.
           </p>
+          <UpdaterChoice on={withUpdater} onChange={setWithUpdater} />
           <CommandBlock
-            command={pairing.installCommand}
-            display={formatShellCommand(pairing.installCommand)}
+            command={withUpdater ? pairing.installCommand : pairing.installCommandManual}
+            display={formatShellCommand(withUpdater ? pairing.installCommand : pairing.installCommandManual)}
             title="connector-install"
           />
           {pairing.managerUrlIsLocal && (

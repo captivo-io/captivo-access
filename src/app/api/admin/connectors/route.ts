@@ -34,6 +34,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   const { code } = await createPairing(name);
   const managerUrl = managerBaseUrl(req);
   const installCommand = buildInstallCommand(code, managerUrl, connectorTunnelUrl());
+  // The same without the updater, for an admin who turns updates from the console off.
+  const installCommandManual = buildInstallCommand(code, managerUrl, connectorTunnelUrl(), false);
   // A connector runs on a different machine, so a localhost manager URL (seen
   // when the admin browses via an SSH tunnel) won't be reachable from it.
   const managerUrlIsLocal = isLocalManagerUrl(managerUrl);
@@ -45,7 +47,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     summary: `Created connector "${name}"`,
     clientIp: clientIp(req.headers) ?? null,
   });
-  return NextResponse.json({ code, installCommand, managerUrlIsLocal });
+  return NextResponse.json({ code, installCommand, installCommandManual, managerUrlIsLocal });
 });
 
 export const GET = withTenantRoute(async () => {

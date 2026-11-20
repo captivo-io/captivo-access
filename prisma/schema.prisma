@@ -279,6 +279,9 @@ model Connector {
   directoryConfigs DirectoryConfig[]
   /// Active tunnels at each of the last 16 health passes (oldest first): the card's spark.
   tunnelSpark      Int[]              @default([])
+  /// The latest update or removal asked from the console (src/lib/connector/host-action.ts
+  /// StoredHostAction); its progress is read from the connector's telemetry.
+  hostAction       Json?
   days             ConnectorDay[]
   events           ConnectorEvent[]
 

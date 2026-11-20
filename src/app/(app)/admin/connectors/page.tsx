@@ -13,6 +13,7 @@ import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { getConnectorTelemetry } from "@/lib/connector/telemetry";
+import { remoteControl, storedHostAction, updateTarget } from "@/lib/connector/host-action";
 import { dayKey, summarizeUptime } from "@/lib/connector/history";
 import type { EventLevel } from "@/lib/connector/history";
 
@@ -25,7 +26,7 @@ async function AdminConnectorsPageImpl() {
   const now = new Date();
   const connectors = await db.connector.findMany({
     select: {
-      id: true, name: true, status: true, lastSeenAt: true, version: true, createdAt: true, remoteAddr: true, tunnelSpark: true,
+      id: true, name: true, status: true, lastSeenAt: true, version: true, createdAt: true, remoteAddr: true, tunnelSpark: true, hostAction: true,
       sites: { select: { probeOk: true } },
       days: { where: { day: { gte: dayKey(new Date(now.getTime() - 30 * 86_400_000)) } }, select: { day: true, samples: true, online: true } },
       events: { orderBy: { at: "desc" }, take: 8, select: { at: true, level: true, text: true } },
@@ -53,7 +54,7 @@ async function AdminConnectorsPageImpl() {
   const mgr = managerVersion();
   const managerUrl = process.env.MANAGER_PUBLIC_URL?.replace(/\/+$/, "") || "https://manager.<your-access-domain>";
   const managerUrlIsLocal = isLocalManagerUrl(managerUrl);
-  const updateCommand = buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl());
+  const updateCommand = { remote: buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl()), manual: buildConnectorUpdateCommand(managerUrl, connectorTunnelUrl(), false) };
 
   // Live counters straight from the data-plane, all at once (fail-soft: an
   // unanswered one only blanks that card's live figures).
@@ -87,6 +88,10 @@ async function AdminConnectorsPageImpl() {
       unreachable: c.sites.filter((s) => s.probeOk === false).length,
       uptime: summarizeUptime(c.days, now),
       events: c.events.map((e) => ({ at: e.at.toISOString(), level: e.level as EventLevel, text: e.text })),
+      remote: remoteControl(!!live[i]?.online && c.status === "ONLINE", t),
+      target: updateTarget(c.version, mgr),
+      hostAction: t?.hostAction ?? null,
+      stored: storedHostAction(c.hostAction),
     };
   });
   const active = connectors.filter((c) => c.status !== "REVOKED").length;

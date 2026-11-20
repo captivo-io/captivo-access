@@ -11,15 +11,18 @@ import { logRows, parseLogLine, type LevelFilter } from "@/lib/connector/log-lin
 import { parseTargets, type TargetKind } from "@/lib/connector/egress-targets";
 import { fmt, hm, useZone } from "@/app/(app)/admin/audit/audit-zone";
 import { ago, duration, latency } from "../connectors-view";
-import { UpdateConnectorButton } from "../update-connector-button";
+import { HostActionBand, RemoveFromHostButton, UpdateConnectorButton, type UpdateCommands } from "../remote-control";
+import { remoteControl, updateTarget, type StoredHostAction } from "@/lib/connector/host-action";
+import { isConnectorOutdated } from "@/lib/updates/semver";
 import { RepairConnectorButton } from "../repair-connector-button";
 import type { Tab } from "./tabs";
 
-type Tele = { online: boolean; ageMs?: number; telemetry?: ConnectorTelemetry | null; status?: string; lastSeenAt?: string | null };
+type Tele = { online: boolean; ageMs?: number; telemetry?: ConnectorTelemetry | null; status?: string; lastSeenAt?: string | null; version?: string | null; hostAction?: StoredHostAction | null };
 type Res = { tile: SiteTile; publicHost: string | null; ok: boolean | null; latencyMs: number | null; detail: string | null };
 type Conn = {
   id: string; name: string; status: string; version: string | null; outdated: boolean; mgr: string;
   lastSeenAt: string | null; remoteAddr: string | null; createdAt: string; egressPolicy: string; logLevel: string;
+  hostAction: StoredHostAction | null;
 };
 type Sample = { at: number; active: number; total: number; uptime: number; denied: number; bin: number; bout: number };
 type Source = "connector" | "guacd" | "kasm";
@@ -59,7 +62,7 @@ function initials(s: string): string {
 
 export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultLogLevel, updateCommand, managerUrlIsLocal, serverNow, initialTab, workspace }: {
   c: Conn; tele0: Tele; sites: Res[]; activity: ActivityRow[]; auditHref: string; defaultLogLevel: string;
-  updateCommand: string; managerUrlIsLocal: boolean; serverNow: number; initialTab: Tab; workspace: string;
+  updateCommand: UpdateCommands; managerUrlIsLocal: boolean; serverNow: number; initialTab: Tab; workspace: string;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [tele, setTele] = useState<Tele>(tele0);
@@ -107,6 +110,13 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
 
   const down = sites.filter((s) => s.ok === false);
   const settings = useSettings(c);
+  // Live: an update from the console changes the version while the page is open.
+  const version = t?.version ?? tele.version ?? c.version;
+  const outdated = isConnectorOutdated(version, c.mgr);
+  const remote = remoteControl(online, t);
+  const report = t?.hostAction ?? null;
+  const updating = !!report && report.action === "update" && !["done", "rolled_back", "failed"].includes(report.state);
+  const stored = tele.hostAction ?? c.hostAction;
 
   return (
     <div className="cd">
@@ -130,15 +140,26 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
         </div>
       </div>
 
-      {c.outdated && !revoked && (
+      {!revoked && <HostActionBand connectorId={c.id} status={report} now={now} />}
+      {outdated && !revoked && !updating && (
         <div className="cn-band warn">
-          <span className="cn-chip mono">{c.version ?? "?"} → {c.mgr}</span>
+          <span className="cn-chip mono">{version ?? "?"} → {c.mgr}</span>
           <span className="cn-band-t"><b>A new version is ready.</b> Updating keeps the token and pairing; sessions on it end while it restarts.</span>
           <a className="cn-notes" href={`https://github.com/captivo-io/captivo-access/releases/tag/v${c.mgr}`} target="_blank" rel="noreferrer">Release notes</a>
-          <UpdateConnectorButton command={updateCommand} managerUrlIsLocal={managerUrlIsLocal} label="Update now" className="btn sm ink" />
+          <UpdateConnectorButton connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={updateTarget(version, c.mgr)}
+            from={version} openTunnels={online ? (t?.activeConnections ?? 0) : 0} label={remote.ok ? "Update now" : "How to update"} className="btn sm ink" />
         </div>
       )}
-      {revoked && <div className="cn-band bad"><span className="cn-band-t">This connector was revoked. Its tunnels are closed and it can&apos;t be re-paired; add a new connector instead.</span><CleanupHostButton /></div>}
+      {revoked && (
+        <div className="cn-band bad">
+          <span className="cn-band-t">
+            {stored?.action === "uninstall"
+              ? `Removed from its host from the console by ${stored.by}${stored.keepData ? "; its recordings and keys were left on the host" : ""}. If anything is left there, clean it up by hand.`
+              : "This connector was revoked. Its tunnels are closed and it can't be re-paired; add a new connector instead."}
+          </span>
+          <CleanupHostButton />
+        </div>
+      )}
 
       <div className="cd-tabs" role="tablist" aria-label="Connector">
         {(Object.keys(TAB_LABEL) as Tab[]).map((k) => {
@@ -156,7 +177,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
         <div className="cd-pane">
           <Telemetry t={t} samples={samples} ageS={signal != null && tele.online ? Math.max(0, Math.round((now - signal) / 1000)) : null} />
           <div className="cd-two">
-            <Identity c={c} t={t} lastSeen={lastSeen} />
+            <Identity c={{ ...c, version, outdated }} t={t} lastSeen={lastSeen} />
             <section className="cd-card">
               <CardHead icon="server" title="Resource health" sub={sites.length ? `${sites.length - down.length} reachable · ${down.length} unreachable` : "No resources on this connector yet"}>
                 <button type="button" className="btn sm" onClick={() => go("resources")}>All →</button>
@@ -186,7 +207,12 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
       {tab === "resources" && <Resources sites={sites} />}
       {tab === "logs" && <Logs name={c.name} t={t} online={online} onSettings={() => go("settings")} />}
       {tab === "activity" && <Activity rows={activity} auditHref={auditHref} />}
-      {tab === "settings" && <Settings s={settings} defaultLogLevel={defaultLogLevel} connectorId={c.id} onToast={setToast} />}
+      {tab === "settings" && (
+        <>
+          <Settings s={settings} defaultLogLevel={defaultLogLevel} connectorId={c.id} onToast={setToast} />
+          {!revoked && <RemoveCard c={c} resources={sites.length} remote={remote} />}
+        </>
+      )}
 
       {toast && <div className="toast" role="status"><span className={toast.ok ? undefined : "t-bad"}>{toast.ok ? "✓" : "!"}</span>{toast.msg}</div>}
     </div>
@@ -511,6 +537,26 @@ function Settings({ s, defaultLogLevel, connectorId, onToast }: { s: SettingsSta
           <button type="button" className="pol-bar-b primary" disabled={busy || bad} onClick={() => void save()}>{busy ? "Sending…" : "Push to connector"}</button>
         </div>
       )}
+    </div>
+  );
+}
+
+function RemoveCard({ c, resources, remote }: { c: Conn; resources: number; remote: ReturnType<typeof remoteControl> }) {
+  return (
+    <div className="cd-pane cd-set">
+      <section className="cd-card cd-danger">
+        <CardHead icon="server" title="Remove from host" sub="Takes the connector, its session engines and the updater off the host, then revokes it here." />
+        <div className="cd-setb">
+          <span className="cd-hint">
+            {remote.ok
+              ? "Done by the updater on the host; nothing to run there. The recordings and their keys stay on the host unless you ask otherwise."
+              : remote.reason === "offline"
+                ? "Needs the connector online. While it is offline, revoke it and clean up the host by hand."
+                : "This host has no updater. Revoke the connector and clean up the host by hand, or update it once with the command (it installs the updater)."}
+          </span>
+          <div><RemoveFromHostButton id={c.id} name={c.name} resources={resources} remote={remote} /></div>
+        </div>
+      </section>
     </div>
   );
 }

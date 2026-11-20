@@ -138,7 +138,7 @@ describe("every connector bundles guacd on the shared network", () => {
       // Generated once, kept across updates.
       expect(cmd).toContain("[ -s /secret/token ] ||");
       expect(gen).toBeLessThan(cmd.indexOf("--name access-connector"));
-      expect(cmd).toContain("-v captivo_kasm_secret:/kasmsecret:ro " + accessImage("connector"));
+      expect(cmd).toContain("-v captivo_kasm_secret:/kasmsecret:ro -v captivo_hostctl:/hostctl " + accessImage("connector"));
       expect(cmd).toContain("-v captivo_kasm_secret:/secret " + accessImage("kasm-browser"));
     }
   });
@@ -220,5 +220,39 @@ describe("buildConnectorCleanupCommand", () => {
   it("is one command per line so a missing name does not stop the rest", () => {
     expect(cleanup.split("\n")).toHaveLength(5);
     expect(cleanup).not.toMatch(/&&|;/);
+  });
+});
+
+describe("the updater (updates and removal from the console)", () => {
+  const m = "https://mgr.example.com";
+  const t = "wss://connect.example.com";
+
+  it("is installed by default, with the Docker socket and no network, after the other containers", () => {
+    for (const cmd of [buildInstallCommand("C", m, t), buildConnectorUpdateCommand(m, t), buildReconfigureCommand("C", m, t)]) {
+      expect(cmd).toMatch(/docker run -d --name captivo-updater --restart unless-stopped --network none -v \/var\/run\/docker\.sock:\/var\/run\/docker\.sock -v captivo_hostctl:\/hostctl \S+captivo-access-updater:latest;/);
+      expect(cmd.indexOf("--name captivo-updater")).toBeGreaterThan(cmd.indexOf("--name captivo-kasm"));
+      expect(cmd.indexOf("--name captivo-updater")).toBeLessThan(cmd.indexOf("docker image prune"));
+    }
+  });
+
+  it("only the updater gets the Docker socket", () => {
+    const cmd = buildConnectorUpdateCommand(m, t);
+    expect(cmd.split("docker.sock:/var/run/docker.sock").length - 1).toBe(1);
+    expect(cmd).not.toMatch(/--name access-connector [^;]*docker\.sock/);
+  });
+
+  it("turned off, the command removes an updater a previous command installed", () => {
+    for (const cmd of [buildInstallCommand("C", m, t, false), buildConnectorUpdateCommand(m, t, false), buildReconfigureCommand("C", m, t, false)]) {
+      expect(cmd).not.toContain("docker.sock");
+      expect(cmd).not.toContain("captivo-access-updater");
+      expect(cmd).toContain("docker rm -f captivo-updater >/dev/null 2>&1;");
+    }
+  });
+
+  it("the connector can write into the hostctl volume", () => {
+    const cmd = buildConnectorUpdateCommand(m, t);
+    const chown = cmd.indexOf("-v captivo_hostctl:/hostctl " + accessImage("guacd") + " 10001:10001 /hostctl");
+    expect(chown).toBeGreaterThan(-1);
+    expect(chown).toBeLessThan(cmd.indexOf("--name access-connector"));
   });
 });

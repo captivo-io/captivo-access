@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -254,6 +255,41 @@ func main() {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+	// An update or removal of a connector's host, asked from the console. The
+	// answer says whether the connector handed it to its updater; how it went
+	// comes later in the connector's telemetry (hostAction).
+	in.HandleFunc("/connector-hostaction", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			ConnectorID string `json:"connectorId"`
+			tunnel.HostAction
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ConnectorID == "" || body.ID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "reason": "invalid_body"})
+			return
+		}
+		sess := reg.Get(body.ConnectorID)
+		if sess == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "offline"})
+			return
+		}
+		ack, err := sess.HostAction(body.HostAction, 10*time.Second)
+		switch {
+		case errors.Is(err, errHostActionOld):
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "no_updater"})
+		case errors.Is(err, errHostActionTimeout):
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "no_answer"})
+		case err != nil:
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": "not_ready"})
+		case ack.Error != "":
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": ack.Error})
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		}
 	})
 	in.HandleFunc("/sessions", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {

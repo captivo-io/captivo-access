@@ -38,6 +38,8 @@ func snapshot() tunnel.Telemetry {
 		Hostname:          host.hostname,
 		OS:                host.os,
 		LocalIP:           host.localIP,
+		Updater:           updaterInfo(time.Now()),
+		HostAction:        hostActionStatus(),
 	}
 }
 
