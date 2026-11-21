@@ -24,6 +24,15 @@ describe("isConnectorOutdated / isUpdateAvailable", () => {
     expect(isConnectorOutdated(null, "0.9.0")).toBe(false);
     expect(isConnectorOutdated("0.8.0", "dev")).toBe(false); // unknown manager → no badge
   });
+  it("measures against the last connector change, not every console release", () => {
+    // Console 2.44.1 changed nothing on the connector (marker 2.44.0).
+    expect(isConnectorOutdated("2.44.0", "2.44.1", "2.44.0")).toBe(false);
+    expect(isConnectorOutdated("2.43.1", "2.44.1", "2.44.0")).toBe(true);
+    // A manager behind the marker can only offer its own version.
+    expect(isConnectorOutdated("2.43.0", "2.43.0", "2.44.0")).toBe(false);
+    expect(isConnectorOutdated("2.42.0", "2.43.0", "2.44.0")).toBe(true);
+    expect(isConnectorOutdated("2.40.0", "dev", "2.44.0")).toBe(false);
+  });
   it("flags an available upstream update, not equal/older", () => {
     expect(isUpdateAvailable("0.9.1", "0.9.0")).toBe(true);
     expect(isUpdateAvailable("0.9.0", "0.9.0")).toBe(false);

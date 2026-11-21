@@ -1,3 +1,5 @@
+import { CONNECTOR_RELEASE } from "./connector-release";
+
 // Parse major.minor.patch from a version string, stripping a leading "v" and
 // ignoring any pre-release/build suffix. null when it isn't a plain semver.
 function parse(v: string | null | undefined): [number, number, number] | null {
@@ -18,9 +20,14 @@ export function compareSemver(a: string | null | undefined, b: string | null | u
   return 0;
 }
 
-// A connector is outdated when its reported version is strictly older than the manager's.
-export function isConnectorOutdated(connectorVersion: string | null | undefined, managerVersion: string): boolean {
-  return compareSemver(connectorVersion, managerVersion) === -1;
+// A connector is outdated when it is older than the last release that changed
+// connector code (CONNECTOR_RELEASE), or than the manager when that is older
+// still (a manager behind the marker can only offer its own version). A
+// manager that is not a plain version ("dev") calls nothing outdated.
+export function isConnectorOutdated(connectorVersion: string | null | undefined, managerVersion: string, connectorRelease: string = CONNECTOR_RELEASE): boolean {
+  if (!parse(managerVersion)) return false;
+  const floor = compareSemver(connectorRelease, managerVersion) === 1 ? managerVersion : connectorRelease;
+  return compareSemver(connectorVersion, floor) === -1;
 }
 
 // An update is available when the latest release is strictly newer than the manager's version.

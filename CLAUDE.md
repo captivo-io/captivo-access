@@ -24,6 +24,10 @@ else is in `docs/` and `README.md`.
 1. Feature branch → `git merge --no-ff` into `main`.
 2. `release: X.Y.Z` commit: `VERSION`, `deploy/docker-compose.prod.yml` image tag,
    and the excluded `deploy-saas/docker-compose.saas.yml`.
+   If the release changes `connector/`, `tunnel/`, `updater/`, `guacd/` or
+   `kasm-browser/`, also raise `CONNECTOR_RELEASE` in
+   `src/lib/updates/connector-release.ts` to X.Y.Z; `scripts/check-connector-release.sh`
+   (run before tagging) and the publish run refuse the tag otherwise.
 3. Tag `vX.Y.Z`, push; `publish.yml` builds the images.
 4. `gh release edit vX.Y.Z --notes-file …`: English first, then a `## Türkçe`
    heading with the Turkish text. The captivo.io changelog page splits on that

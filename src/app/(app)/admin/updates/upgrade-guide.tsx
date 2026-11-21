@@ -7,7 +7,7 @@ const SERVER_UPGRADE_COMMAND =
   "cd captivo-access/deploy && git pull && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d";
 
 // Renders the "How to upgrade" card. Displays commands only — the app never runs
-// them. `connectorCommand` is null when no connector is older than the manager.
+// them. `connectorCommand` is null when no connector is outdated (lib/updates/semver.ts).
 export function UpgradeGuide({
   currentVersion,
   latestVersion,
@@ -56,7 +56,7 @@ export function UpgradeGuide({
         <div className="field">
           <label className="field-label">On each connector host</label>
           <p className="cell-sub">
-            {outdatedConnectors} connector{outdatedConnectors === 1 ? "" : "s"} older than the manager.
+            {outdatedConnectors} connector{outdatedConnectors === 1 ? "" : "s"} need{outdatedConnectors === 1 ? "s" : ""} an update.
             A connector with the updater beside it updates from the Connectors page in one click, once the
             manager is upgraded. For the others, run this once on each connector&apos;s host — the token
             volume is kept, so no re-pairing, and it installs the updater for next time.
