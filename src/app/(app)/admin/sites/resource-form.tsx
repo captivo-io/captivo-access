@@ -512,7 +512,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>
               <p className="rf-hint rf-wide">Users never see these; the gateway signs in for them. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}</p>
               {!needSecret && unsealedMembers.length > 0 && (
-                <p className="rf-msg warn rf-wide">{unsealedMembers.map((m) => m.name).join(", ")} joined the group after the password was saved and can&apos;t open it, so sessions skip {unsealedMembers.length === 1 ? "it" : "them"}. Enter the password again to include {unsealedMembers.length === 1 ? "it" : "them"}.</p>
+                <p className="rf-msg warn rf-wide">{unsealedMembers.map((m) => m.name).join(", ")} {unsealedMembers.length === 1 ? "has" : "have"} no copy of the saved password yet, so sessions skip {unsealedMembers.length === 1 ? "it" : "them"} for now. A member on 2.44 or later that has it copies it over within a few minutes; entering the password again includes {unsealedMembers.length === 1 ? "it" : "them"} at once.</p>
               )}
             </div>
           )}

@@ -57,8 +57,8 @@ export function sealsOf(c: { secret: string; sealedTo: string | null; extraSeals
   return out;
 }
 
-function splitSeals(seals: Record<string, string>, order: string[]): StoredSecret {
-  const keys = order.filter((k) => seals[k]);
+export function splitSeals(seals: Record<string, string>, order: string[]): StoredSecret {
+  const keys = [...new Set(order)].filter((k) => seals[k]);
   const [first, ...rest] = keys;
   return { secret: seals[first], sealedTo: first, extraSeals: rest.length ? Object.fromEntries(rest.map((k) => [k, seals[k]])) : null };
 }

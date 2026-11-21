@@ -74,9 +74,19 @@ choose the group on a resource instead of a single connector.
   sessions skip it from the moment its tunnel drops.
 - **Saved passwords are sealed to each member.** A resource password is sealed in
   the admin's browser to every member's vault key, and each member is handed only
-  its own copy. A member that joins after the password was saved cannot open it:
-  sessions to that resource skip it, and the group card names the resources to
-  enter again.
+  its own copy.
+- **A member that joins later gets its copies from a member that has them.** A
+  member on 2.44.0 or later opens each password with its own key and seals it
+  again to the newcomer's key, for the same target; the plaintext stays in that
+  connector's memory and the cloud stores only the new sealed copy. This runs
+  when a group is saved, when a resource is moved onto a group, and on every
+  health pass (so a giver that was offline catches up within five minutes). Each
+  copy is recorded in the admin audit log and in the giving connector's own log.
+  Until a member has its copy, sessions to that resource skip it; if no member
+  that holds the password is new enough, the group card asks to update one or to
+  enter the password again. The trade-off: a running, compromised control plane
+  could ask a connector to seal a password to a key of its choosing. A database
+  leak alone cannot, and every such copy leaves a trace on both sides.
 - **Members must reach the same machines.** The health check probes a group
   resource through every online member. A member that cannot reach it while
   another can is left out of its sessions, and its card says so.

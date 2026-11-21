@@ -125,6 +125,26 @@ func main() {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": res.Ok, "latencyMs": res.LatencyMs, "error": res.Error})
 	})
+	in.HandleFunc("/vault-reseal", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			ConnectorID string              `json:"connectorId"`
+			Items       []tunnel.ResealItem `json:"items"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
+			return
+		}
+		res, err := Reseal(reg.Get(body.ConnectorID), tunnel.ResealRequest{Items: body.Items})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
 	registerRecEndpoints(in, secret, reg)
 	in.HandleFunc("/kick", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {

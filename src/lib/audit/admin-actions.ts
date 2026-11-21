@@ -19,6 +19,7 @@ const LABELS: Record<string, string> = {
   "connector.group_create": "Connector group created",
   "connector.group_update": "Connector group updated",
   "connector.group_delete": "Connector group deleted",
+  "connector.vault_reshare": "Saved passwords copied to a group member",
   "resource.create": "Resource created",
   "resource.update": "Resource updated",
   "resource.delete": "Resource deleted",

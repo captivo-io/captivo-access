@@ -1,7 +1,9 @@
 // Connector groups against a real Postgres with RLS: a group resource's secret
 // is sealed to every member and the gateway descriptor hands each member its
-// own seal; a member that joins later is left out until the secret is entered
-// again; a revoked member's resources move to another member; a legacy secret
+// own seal; a member that joins later is left out until a member that holds a
+// copy seals one for it (through a stand-in dataplane that does what
+// connector/vaultreseal.go does) or the secret is entered again; a revoked
+// member's resources move to another member; a legacy secret
 // waits until every member has a key; and a group cannot take another
 // tenant's connector.
 //
@@ -12,6 +14,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 import type { NextRequest } from "next/server";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 
 const OWNER_URL = process.env.TEST_DATABASE_URL;
 const suffix = crypto.randomUUID().slice(0, 8);
@@ -58,6 +62,9 @@ describe.skipIf(!OWNER_URL)("connector groups", () => {
   let groups: typeof import("@/lib/connector/groups");
   let saveConnectorGroup: typeof import("@/lib/connector/group-save").saveConnectorGroup;
   let db: typeof import("@/lib/db").db;
+  let reshare: typeof import("@/lib/vault/reshare");
+  let fakeDataplane: Server;
+  const resealCalls: string[] = [];
   let descriptor: (req: NextRequest) => Promise<Response>;
   const keys: Record<string, Key> = {};
   let groupId = "";
@@ -89,6 +96,26 @@ describe.skipIf(!OWNER_URL)("connector groups", () => {
     process.env.ENCRYPTION_KEY = "0".repeat(64);
     process.env.DATAPLANE_SECRET = DP_SECRET;
     process.env.VAULT_ENABLED = "true";
+    // The dataplane's /vault-reseal, with the connector's part done here by the
+    // member's own key: open the seal for its target, seal it to each recipient.
+    fakeDataplane = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const body = JSON.parse(raw) as { connectorId: string; items: { id: string; sealed: string; host: string; port: string; username: string; to: string[] }[] };
+      if (req.url !== "/vault-reseal" || req.headers["x-dataplane-secret"] !== DP_SECRET || !keys[body.connectorId]) {
+        res.writeHead(403).end();
+        return;
+      }
+      resealCalls.push(body.connectorId);
+      const items = await Promise.all(body.items.map(async (it) => {
+        const t = { host: it.host, port: Number(it.port), username: it.username };
+        const plain = await open(keys[body.connectorId], it.sealed, seal.targetAAD(t));
+        return { id: it.id, seals: Object.fromEntries(await Promise.all(it.to.map(async (k) => [k, await seal.sealSecret(k, plain, t)] as const))) };
+      }));
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ items }));
+    });
+    await new Promise<void>((r) => fakeDataplane.listen(0, "127.0.0.1", r));
+    process.env.DATAPLANE_URL = `http://127.0.0.1:${(fakeDataplane.address() as AddressInfo).port}`;
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
     vi.resetModules();
     ({ withTenant } = await import("@/lib/tenant/scope"));
@@ -97,13 +124,15 @@ describe.skipIf(!OWNER_URL)("connector groups", () => {
     groups = await import("@/lib/connector/groups");
     ({ saveConnectorGroup } = await import("@/lib/connector/group-save"));
     ({ db } = await import("@/lib/db"));
+    reshare = await import("@/lib/vault/reshare");
     ({ POST: descriptor } = await import("@/app/api/internal/gateway/descriptor/route"));
   });
 
   afterAll(async () => {
     for (const t of [tA, tB]) await owner.$executeRawUnsafe(`DELETE FROM "Tenant" WHERE id = $1`, t.id);
     await owner.$disconnect();
-    for (const k of ["MULTI_TENANT", "APP_DATABASE_URL", "ENCRYPTION_KEY", "DATAPLANE_SECRET", "VAULT_ENABLED"]) delete process.env[k];
+    await new Promise((r) => fakeDataplane.close(r));
+    for (const k of ["MULTI_TENANT", "APP_DATABASE_URL", "ENCRYPTION_KEY", "DATAPLANE_SECRET", "VAULT_ENABLED", "DATAPLANE_URL"]) delete process.env[k];
   });
 
   it("seals a group resource's secret to every member and hands each its own", async () => {
@@ -133,6 +162,41 @@ describe.skipIf(!OWNER_URL)("connector groups", () => {
     ({ body } = await describeSession());
     expect(body.connectors?.map((c) => c.id)).toEqual([c1, c3, c2]); // actives first
     expect(await open(keys[c3], body.connectors![1].sealedSecret!, seal.targetAAD(target))).toBe("pw-2");
+  });
+
+  it("has a member that holds a copy seal one for a member that joined later", async () => {
+    const c4 = `c4-${suffix}`;
+    keys[c4] = await connectorKey();
+    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,"vaultPublicKey",version) VALUES($1,$2,'DC-04',$1,'ONLINE',$3,'2.44.0')`, c4, tA.id, keys[c4].pub);
+    await withTenant(tA.id, () => saveConnectorGroup(groupId, "DC", [{ connectorId: c1, standby: false }, { connectorId: c2, standby: true }, { connectorId: c3, standby: false }, { connectorId: c4, standby: false }]));
+    expect((await describeSession()).body.connectors?.map((c) => c.id)).not.toContain(c4);
+
+    // Holders too old to copy: nothing is asked of them, and nothing changes.
+    expect(await withTenant(tA.id, () => reshare.reshareGroupSecrets({ groupIds: [groupId] }, null))).toBe(0);
+    expect(resealCalls).toEqual([]);
+
+    await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.44.0' WHERE id = $1`, c2);
+    expect(await withTenant(tA.id, () => reshare.reshareGroupSecrets({ groupIds: [groupId] }, { id: `cg-admin-${suffix}`, email: "admin@a.test" }))).toBe(1);
+    expect(resealCalls).toEqual([c2]);
+    const { body } = await describeSession();
+    expect(body.connectors?.map((c) => c.id)).toEqual([c1, c3, c4, c2]);
+    const mine = body.connectors!.find((c) => c.id === c4)!;
+    expect(await open(keys[c4], mine.sealedSecret!, seal.targetAAD(target))).toBe("pw-2");
+    // One copy per key: the first in secret/sealedTo, never repeated in extraSeals.
+    const [row] = await owner.$queryRawUnsafe<{ sealedTo: string; extraSeals: Record<string, string> }[]>(`SELECT "sealedTo", "extraSeals" FROM "VaultCredential" WHERE "siteId" = $1`, site);
+    expect(Object.keys(row.extraSeals).sort()).toEqual([keys[c2].pub, keys[c3].pub, keys[c4].pub].filter((k) => k !== row.sealedTo).sort());
+    // The members that had a copy keep their own.
+    expect(await open(keys[c1], body.connectors![0].sealedSecret!, seal.targetAAD(target))).toBe("pw-2");
+
+    const audit = await owner.$queryRawUnsafe<{ summary: string; actorEmail: string | null }[]>(`SELECT summary, "actorEmail" FROM "AdminAuditEvent" WHERE "tenantId" = $1 AND action = 'connector.vault_reshare'`, tA.id);
+    expect(audit).toEqual([{ summary: `${c2} copied the saved password of 1 resource to DC-04`, actorEmail: "admin@a.test" }]);
+    const events = await owner.$queryRawUnsafe<{ text: string }[]>(`SELECT text FROM "ConnectorEvent" WHERE "connectorId" = $1`, c4);
+    expect(events.map((e) => e.text)).toEqual([`Received the saved password of 1 resource from ${c2}`]);
+
+    // Nothing left to copy: a second pass asks no one.
+    expect(await withTenant(tA.id, () => reshare.reshareGroupSecrets({}, null))).toBe(0);
+    expect(resealCalls).toEqual([c2]);
+    await withTenant(tA.id, () => saveConnectorGroup(groupId, "DC", [{ connectorId: c1, standby: false }, { connectorId: c2, standby: true }, { connectorId: c3, standby: false }]));
   });
 
   it("moves a revoked member's resources onto another member", async () => {

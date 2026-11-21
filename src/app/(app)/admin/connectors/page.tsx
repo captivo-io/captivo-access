@@ -9,6 +9,7 @@ import { ConnectorsView, type ConnectorCard } from "./connectors-view";
 import { InstallPanel, AddConnectorScroll } from "./install-panel";
 import { GroupsPanel, type GroupCard } from "./groups-panel";
 import { sealsOf } from "@/lib/vault/store";
+import { canReshare } from "@/lib/vault/reshare";
 import { memberProbes } from "@/lib/connector/route";
 import { listActiveSessions } from "@/lib/dataplane/client";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -120,8 +121,13 @@ async function AdminConnectorsPageImpl() {
     members: g.members.map(({ standby, connector: m }) => ({
       id: m.id, name: m.name, status: m.status, version: m.version, standby,
       sessions: sessionsOf(m.id, m.status),
-      noSeal: g.sites.filter((s) => s.accessMode === "GATEWAY" && s.vaultCredential?.sealedTo && !(m.vaultPublicKey && sealsOf(s.vaultCredential)[m.vaultPublicKey])).map((s) => s.name),
-      unreachable: g.sites.filter((s) => memberProbes(s.probeByConnector)[m.id]?.ok === false).map((s) => s.name),
+      ...missingCopies(m, g),
+      // As routing reads it: a member is short only where another member gets through;
+      // a target nobody reaches is the resource's problem (shown on Resources).
+      unreachable: g.sites.filter((s) => {
+        const p = memberProbes(s.probeByConnector);
+        return p[m.id]?.ok === false && Object.values(p).some((x) => x.ok);
+      }).map((s) => s.name),
     })),
   }));
   const active = connectors.filter((c) => c.status !== "REVOKED").length;
@@ -163,4 +169,28 @@ async function AdminConnectorsPageImpl() {
 export default async function AdminConnectorsPage(...args: Parameters<typeof AdminConnectorsPageImpl>) {
   // Reads every connector's live counters: up to the telemetry timeout, so the slow budget.
   return withRequestTenant(() => AdminConnectorsPageImpl(...args), { budgetMs: SLOW_SCOPE_BUDGET_MS });
+}
+
+type GroupMemberRow = { status: string; version: string | null; vaultPublicKey: string | null };
+
+// The group resources whose saved password a member cannot open: `copying` when
+// another member that has a copy can give it one now (lib/vault/reshare.ts, on
+// the next health pass at the latest), `waiting` when such a member is offline,
+// `noSeal` when no member that has a copy is new enough to give it.
+function missingCopies(m: GroupMemberRow, g: { members: { connector: GroupMemberRow }[]; sites: { name: string; accessMode: string; vaultCredential: { secret: string; sealedTo: string | null; extraSeals: unknown } | null }[] }) {
+  const copying: string[] = [];
+  const waiting: string[] = [];
+  const noSeal: string[] = [];
+  for (const s of g.sites) {
+    if (s.accessMode !== "GATEWAY" || !s.vaultCredential?.sealedTo) continue;
+    const seals = sealsOf(s.vaultCredential);
+    if (m.vaultPublicKey && seals[m.vaultPublicKey]) continue;
+    const holders = g.members.map((x) => x.connector).filter((o) => o.status !== "REVOKED" && o.vaultPublicKey && seals[o.vaultPublicKey]);
+    const list = !m.vaultPublicKey ? noSeal
+      : holders.some((o) => canReshare(o)) ? copying
+      : holders.some((o) => canReshare({ ...o, status: "ONLINE" })) ? waiting
+      : noSeal;
+    list.push(s.name);
+  }
+  return { copying, waiting, noSeal };
 }

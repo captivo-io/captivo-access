@@ -10,6 +10,7 @@ import { reconcilePendingErasures } from "@/lib/connector/policy";
 import { notifyPlatformAlerts } from "@/lib/platform/alert-push";
 import { probeConnectors, recordConnectorEvent, writeConnectorSamples } from "@/lib/connector/history";
 import { pumpTenant } from "@/lib/logforward/pump";
+import { planGroupReshare, runGroupReshare, saveGroupReshare } from "@/lib/vault/reshare";
 
 // The group fields a resource is probed through (probeThrough below).
 const groupProbeSelect = {
@@ -190,7 +191,20 @@ export async function POST(req: NextRequest) {
       /* best-effort */
     }
 
-    // 6. LOG FORWARDING -- whatever a restart or a failed delivery left behind
+    // 6. GROUP SECRETS -- a member that has no copy of a saved password yet (it
+    // joined later, or the member that had one was offline) gets one from a
+    // member that has it. Plan and save scoped, the copying unscoped.
+    try {
+      const plan = await inTenant(tenantId, () => planGroupReshare());
+      if (plan.length) {
+        const copied = await runGroupReshare(plan);
+        await inTenant(tenantId, () => saveGroupReshare(plan, copied, null));
+      }
+    } catch (e) {
+      console.error("vault: copying secrets to group members failed", e);
+    }
+
+    // 7. LOG FORWARDING -- whatever a restart or a failed delivery left behind
     // (new records start their own pump). Not awaited: a slow SIEM must not hold
     // the health pass.
     void pumpTenant(tenantId).catch((e) => console.error("log forwarding: catch-up failed", e));

@@ -16,7 +16,11 @@ export type GroupMemberCard = {
   standby: boolean;
   /** Live sessions it carries now (telemetry); null when not known. */
   sessions: number | null;
-  /** Resources it cannot open the password of (sealed before it joined). */
+  /** Resources whose password another member is copying to it. */
+  copying: string[];
+  /** Resources whose password it gets once a member that has it is online again. */
+  waiting: string[];
+  /** Resources it cannot open the password of, and no member can copy it. */
   noSeal: string[];
   /** Resources the health probe last saw it fail to reach. */
   unreachable: string[];
@@ -78,7 +82,7 @@ function Group({ g, onEdit }: { g: GroupCard; onEdit: () => void }) {
   const online = g.members.filter((m) => m.status === "ONLINE");
   const activeUp = online.filter((m) => !m.standby).length;
   const state = online.length === 0 ? ["down", "No member online"] : activeUp === 0 ? ["warn", "Running on standby"] : online.length < g.members.length ? ["warn", `${online.length} of ${g.members.length} online`] : ["up", "All online"];
-  const issues = g.members.filter((m) => m.noSeal.length || m.unreachable.length);
+  const issues = g.members.filter((m) => m.copying.length || m.waiting.length || m.noSeal.length || m.unreachable.length);
   return (
     <article className="cg-card">
       <div className="cg-top">
@@ -103,8 +107,14 @@ function Group({ g, onEdit }: { g: GroupCard; onEdit: () => void }) {
         <ul className="cg-issues">
           {issues.map((m) => (
             <li key={m.id}>
+              {m.copying.length > 0 && (
+                <span><b>{m.name}</b> is getting the saved password{m.copying.length === 1 ? "" : "s"} of {list(m.copying)} from another member, within a few minutes. Until then {m.copying.length === 1 ? "its sessions go" : "their sessions go"} through the others.</span>
+              )}
+              {m.waiting.length > 0 && (
+                <span><b>{m.name}</b> gets the saved password{m.waiting.length === 1 ? "" : "s"} of {list(m.waiting)} when a member that has {m.waiting.length === 1 ? "it" : "them"} is online again. Until then {m.waiting.length === 1 ? "its sessions go" : "their sessions go"} through the others.</span>
+              )}
               {m.noSeal.length > 0 && (
-                <span><b>{m.name}</b> can&apos;t open the saved password of {list(m.noSeal)}. Enter the password again on {m.noSeal.length === 1 ? "that resource" : "those resources"} and it is saved for every member; until then their sessions go through the others.</span>
+                <span><b>{m.name}</b> can&apos;t open the saved password of {list(m.noSeal)}. Update the group&apos;s connectors to 2.44 or later and it is copied over automatically, or enter the password again. Until then {m.noSeal.length === 1 ? "its sessions go" : "their sessions go"} through the others.</span>
               )}
               {m.unreachable.length > 0 && (
                 <span><b>{m.name}</b> can&apos;t reach {list(m.unreachable)}. Sessions to {m.unreachable.length === 1 ? "it" : "them"} go through the other members until it can.</span>
@@ -195,7 +205,7 @@ function GroupDialog({ group, connectors, onClose }: { group: GroupCard | null; 
         </ul>
         <p className="cell-sub cg-hint">
           Active members share the sessions. A standby member is used only while no active member is online.
-          A member that joins later can&apos;t open passwords saved before it joined; the group shows which ones to enter again.
+          A member that joins later gets copies of the saved passwords from a member that has them, sealed to its own key.
         </p>
       </div>
       {error && <p className="notice error" role="alert">{error}</p>}

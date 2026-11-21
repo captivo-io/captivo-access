@@ -18,6 +18,8 @@ import { ICON_NAMES } from "@/lib/site/icons";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { reshareGroupSecrets } from "@/lib/vault/reshare";
 
 export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -123,8 +125,10 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     summary: `Updated resource "${v.name}"`,
     clientIp: clientIp(req.headers) ?? null,
   });
+  // A kept password moved onto a group: the members without a copy get one.
+  if (connectorGroupId && hadVault && !v.secret) await reshareGroupSecrets({ groupIds: [connectorGroupId] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
   return NextResponse.json({ ok: true });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });
 
 export const DELETE = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();

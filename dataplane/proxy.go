@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
@@ -98,6 +99,38 @@ func Probe(s *Session, pr tunnel.ProbeRequest) (*tunnel.ProbeResponse, error) {
 		return nil, err
 	}
 	var resp tunnel.ProbeResponse
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Reseal asks a connector to copy saved secrets to other connectors' keys
+// (tunnel.ResealRequest). A whole batch is bounded by one deadline: the work
+// is local crypto on the connector, so a slow answer means a stuck tunnel.
+func Reseal(s *Session, req tunnel.ResealRequest) (*tunnel.ResealResponse, error) {
+	if s == nil || s.mux == nil {
+		return nil, errors.New("connector offline")
+	}
+	st, err := s.mux.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	_ = st.SetDeadline(time.Now().Add(20 * time.Second))
+	req.Kind = "reseal"
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := tunnel.WriteFrame(st, reqBytes); err != nil {
+		return nil, err
+	}
+	respBytes, err := tunnel.ReadFrame(st)
+	if err != nil {
+		return nil, err
+	}
+	var resp tunnel.ResealResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
 		return nil, err
 	}

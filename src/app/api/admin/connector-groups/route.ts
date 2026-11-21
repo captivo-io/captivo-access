@@ -6,6 +6,8 @@ import { GroupSaveError, saveConnectorGroup } from "@/lib/connector/group-save";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { reshareGroupSecrets } from "@/lib/vault/reshare";
 
 export const dynamic = "force-dynamic";
 
@@ -28,5 +30,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     summary: `Created connector group "${input.name}" with ${input.members.length} connector${input.members.length === 1 ? "" : "s"}`,
     clientIp: clientIp(req.headers) ?? null,
   });
+  // Members without a copy of a resource's saved password get one from a member that has it.
+  await reshareGroupSecrets({ groupIds: [id] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
   return NextResponse.json({ id });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

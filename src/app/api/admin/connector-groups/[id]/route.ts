@@ -7,6 +7,8 @@ import { GroupSaveError, saveConnectorGroup } from "@/lib/connector/group-save";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { reshareGroupSecrets } from "@/lib/vault/reshare";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +36,10 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: Ctx) => {
     summary: `Updated connector group "${input.name}": ${active} active, ${input.members.length - active} standby`,
     clientIp: clientIp(req.headers) ?? null,
   });
+  // A member that just joined gets copies of the saved passwords from one that has them.
+  await reshareGroupSecrets({ groupIds: [id] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
   return NextResponse.json({ ok: true });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });
 
 // A group still serving resources is not deleted: they would have nowhere to
 // go. Move them to a connector or another group first.

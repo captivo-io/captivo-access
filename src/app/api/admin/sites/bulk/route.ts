@@ -8,6 +8,8 @@ import { standInMember } from "@/lib/connector/groups";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { reshareGroupSecrets } from "@/lib/vault/reshare";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +69,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
       if (s.accessMode === "GATEWAY") await sealLegacyCredentials({ siteId: s.id });
       await recordAdminAction({ actor, action: "resource.update", targetType: "resource", targetId: s.id, summary: `Moved resource "${s.name}" to ${dest.name}`, clientIp: ip });
     }
+    // Moved onto a group, a password sealed for one member is copied to the others.
+    if (dest.connectorGroupId) await reshareGroupSecrets({ groupIds: [dest.connectorGroupId] }, actor).catch((e) => console.error("vault: copying secrets to the group failed", e));
   }
   return NextResponse.json({ ok: true, moved: plan.move.length, sealed: plan.sealed.length, already: plan.already.length });
-});
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });

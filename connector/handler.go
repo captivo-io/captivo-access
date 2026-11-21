@@ -87,6 +87,10 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleEgress(st, reqBytes)
 		return
 	}
+	if peek.Kind == "reseal" {
+		handleReseal(st, reqBytes)
+		return
+	}
 	if peek.Kind == "logforward" {
 		handleLogForward(st, allow, reqBytes)
 		return
