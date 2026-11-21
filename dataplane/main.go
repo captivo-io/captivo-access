@@ -65,6 +65,7 @@ func main() {
 	sshInfo, err := startSSHJump(env("SSH_ADDR", ":2222"), env("SSH_HOST_KEY_FILE", "/data/ssh_host_ed25519_key"), sshJumpDeps{
 		ctrl: ctrl, hub: hub, audit: audit, tickets: sshTickets, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
+		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
 	})
 	if err != nil {
 		log.Printf("WARNING: ssh jump host not started: %v", err)
@@ -123,6 +124,26 @@ func main() {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": res.Ok, "latencyMs": res.LatencyMs, "error": res.Error})
+	})
+	in.HandleFunc("/vault-reseal", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			ConnectorID string              `json:"connectorId"`
+			Items       []tunnel.ResealItem `json:"items"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
+			return
+		}
+		res, err := Reseal(reg.Get(body.ConnectorID), tunnel.ResealRequest{Items: body.Items})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
 	})
 	registerRecEndpoints(in, secret, reg)
 	in.HandleFunc("/kick", func(w http.ResponseWriter, r *http.Request) {
@@ -449,6 +470,7 @@ func main() {
 	rdpgw := rdpgwDeps{
 		secret: ctrl.Secret, ctrl: ctrl, hub: hub, audit: audit, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
+		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
 	}
 	rdpgwHandler := rlGuard(func(w http.ResponseWriter, r *http.Request) { serveRdpGateway(rdpgw, w, r) })
 	mux.HandleFunc(rdpgwPath, rdpgwHandler)

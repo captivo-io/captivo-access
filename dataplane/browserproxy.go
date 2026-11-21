@@ -236,6 +236,7 @@ type proxyControl interface {
 // siteRoute is what the control plane says about the site published at a host.
 type siteRoute struct {
 	SiteID, ConnectorID, TenantID, Upstream string
+	Candidates                              []routeCandidate // every connector that may carry it; ConnectorID is the first
 	ClipboardMode                           string
 	FileTransferMode                        string // allow | no_upload | no_download | none
 	InsecureSkipVerify                      bool
@@ -297,6 +298,10 @@ func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.audit.Enqueue(auditEvent("DENY", reason, userID, siteID, host, r, http.StatusForbidden, 0))
 		denyPage(w, reason)
 		return
+	}
+	// A resource on a connector group: keep this user on one online member.
+	if c, ok := pickSticky(p.reg, site.Candidates, userID); ok {
+		connectorID = c.ID
 	}
 
 	// Recording consent gate (opt-in via RECORDING_CONSENT_REQUIRED): on a

@@ -11,6 +11,7 @@ import { currentTenantId } from "@/lib/tenant/context";
 import { parseGuacParams, resolveGuacParams, toGuacArgs } from "@/lib/gateway/guac-params";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { db } from "@/lib/db";
+import { candidatesFor, routeMembers, siteRoutingSelect } from "@/lib/connector/route";
 import { requireDataplaneSecret, resolveTenantBySite, withTenantFrom } from "@/lib/tenant/internal";
 
 export const runtime = "nodejs";
@@ -37,7 +38,7 @@ async function handler(req: NextRequest) {
   const siteId = typeof b.siteId === "string" ? b.siteId : "";
   if (!userId || !siteId) return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  const site = await db.site.findUnique({ where: { id: siteId }, select: { accessMode: true, connectorId: true, recordSessions: true, clipboardMode: true, upstreamUrl: true, watermark: true, fileTransferMode: true, keystrokeLogging: true, insecureSkipVerify: true, egressMode: true, egressHosts: true, createdAt: true } });
+  const site = await db.site.findUnique({ where: { id: siteId }, select: { ...siteRoutingSelect, accessMode: true, recordSessions: true, clipboardMode: true, upstreamUrl: true, watermark: true, fileTransferMode: true, keystrokeLogging: true, insecureSkipVerify: true, egressMode: true, egressHosts: true, createdAt: true } });
   if (!site || (site.accessMode !== "GATEWAY" && site.accessMode !== "ISOLATED")) return NextResponse.json({ error: "not_gateway" }, { status: 404 });
 
   const decision = await evaluateAccess(userId, siteId, new Date());
@@ -54,6 +55,8 @@ async function handler(req: NextRequest) {
     if (!isolationEnabled()) return NextResponse.json({ error: "isolation_disabled" }, { status: 404 });
     // DLP watermark (live-view): vendor email + live UTC clock, rendered by KasmVNC to
     // every client. Resolve per-site override against the global default.
+    const isoMembers = routeMembers(site).eligible;
+    if (isoMembers.length === 0) return NextResponse.json({ error: "no_connector" }, { status: 503 });
     const watermarkOn = site.watermark ?? (await resolvedWatermarkDefault());
     let watermarkText = "";
     if (watermarkOn) {
@@ -67,7 +70,8 @@ async function handler(req: NextRequest) {
       tenantId: currentTenantId(),
       kasmAddr: (process.env.ISOLATED_KASM_ADDR ?? "captivo-kasm:6901").trim(),
       kasmControlAddr: (process.env.ISOLATED_KASM_CONTROL_ADDR ?? "captivo-kasm:7900").trim(),
-      connectorId: site.connectorId,
+      connectorId: isoMembers[0]?.id ?? site.connectorId,
+      connectors: candidatesFor(isoMembers),
       clipboardMode,
       record,
       watermarkText,
@@ -90,6 +94,12 @@ async function handler(req: NextRequest) {
   // Sealed to a key the connector no longer has (its data volume was lost):
   // nothing can open it; the admin has to enter the secret again.
   if (cred.stale) return NextResponse.json({ error: "vault_secret_reenter" }, { status: 409 });
+  // A group member carries the session only with its own seal of the secret.
+  const sealed = !!cred.sealedSecret;
+  const { eligible } = routeMembers(site, sealed ? { canOpen: (m) => !!m.vaultPublicKey && !!cred.seals[m.vaultPublicKey] } : {});
+  if (eligible.length === 0) return NextResponse.json({ error: sealed ? "vault_secret_reenter" : "no_connector" }, { status: sealed ? 409 : 503 });
+  const first = eligible[0];
+  const sealFor = (m: { vaultPublicKey: string | null }) => (m.vaultPublicKey ? cred.seals[m.vaultPublicKey] : undefined) ?? cred.sealedSecret;
 
   const resolved = resolveGuacParams(parseGuacParams(cred.guacParams), await resolvedGuacParamDefaults());
   const params = toGuacArgs(resolved, clipboardMode, cred.protocol as "RDP" | "SSH" | "VNC", cred.username);
@@ -103,10 +113,12 @@ async function handler(req: NextRequest) {
     username: cred.username,
     // Exactly one of these: the connector opens a sealed secret; a legacy one
     // (connector without a vault key yet) is sent as before.
-    ...(cred.sealedSecret ? { sealedSecret: cred.sealedSecret } : { secret: cred.secret }),
+    ...(sealed ? { sealedSecret: sealFor(first) } : { secret: cred.secret }),
     secretKind: cred.secretKind,
     guacdAddress: (process.env.GUACD_ADDR ?? "captivo-guacd:4822").trim(),
-    connectorId: site.connectorId,
+    connectorId: first.id,
+    // Every member that may carry it, each with the secret sealed to its own key.
+    connectors: candidatesFor(eligible, (m) => (sealed ? { sealedSecret: sealFor(m) } : {})),
     record,
     keystrokeLogging: effectiveKeystrokeLogging({
       mode: await resolvedKeystrokeLoggingMode(),

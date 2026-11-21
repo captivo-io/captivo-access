@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { releaseConnectorFromGroups } from "@/lib/connector/groups";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
@@ -86,6 +87,8 @@ export const DELETE = withTenantRoute(async (req: NextRequest) => {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
+  // Its connector-group resources move to another member first.
+  await releaseConnectorFromGroups(db, id);
   await db.connector.update({ where: { id }, data: { status: "REVOKED" } });
   await kickConnector(id);
   await recordAdminAction({

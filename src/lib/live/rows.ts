@@ -19,6 +19,8 @@ export interface LiveExtra {
   site?: SiteTile;
   /** A native RDP client on the RD Gateway: it can be ended, not watched. */
   native?: boolean;
+  /** A connector-group resource: the member carrying this session. */
+  via?: string | null;
 }
 
 export type LiveRow =
@@ -38,7 +40,7 @@ export async function liveRows(): Promise<LiveRow[]> {
 
   const [userList, siteList, liveGrants] = await Promise.all([
     userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : Promise.resolve([]),
-    siteIds.length ? db.site.findMany({ where: { id: { in: siteIds } }, select: SITE_TILE_SELECT }) : Promise.resolve([]),
+    siteIds.length ? db.site.findMany({ where: { id: { in: siteIds } }, select: { ...SITE_TILE_SELECT, connectorGroupId: true } }) : Promise.resolve([]),
     userIds.length
       ? db.accessGrant.findMany({
           where: { status: "ACTIVE", userId: { in: userIds }, siteId: { in: siteIds } },
@@ -47,6 +49,10 @@ export async function liveRows(): Promise<LiveRow[]> {
       : Promise.resolve([]),
   ]);
   const users = new Map(userList.map((u) => [u.id, u]));
+  // On a group resource, which member carries each session.
+  const carrierIds = [...new Set(sessions.filter((s) => s.connectorId && siteList.some((x) => x.id === s.siteId && x.connectorGroupId)).map((s) => s.connectorId!))];
+  const carriers = new Map((carrierIds.length ? await db.connector.findMany({ where: { id: { in: carrierIds } }, select: { id: true, name: true } }) : []).map((c) => [c.id, c.name]));
+  const via = (s: { connectorId?: string }) => (s.connectorId ? carriers.get(s.connectorId) ?? null : null);
   const sites = new Map(siteList.map((s) => [s.id, s]));
   const grantMap = new Map(liveGrants.map((g) => [g.userId + "\x1f" + g.siteId, g]));
   const label = (userId: string) => users.get(userId)?.name ?? users.get(userId)?.email ?? userId;
@@ -76,6 +82,7 @@ export async function liveRows(): Promise<LiveRow[]> {
     ...extra(s.userId, s.siteId),
     clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
     native: !!s.native,
+    via: via(s),
   }));
   const isolatedRows: LiveRow[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({
     kind: "isolated" as const,
@@ -88,6 +95,7 @@ export async function liveRows(): Promise<LiveRow[]> {
     grantId: grant(s.userId, s.siteId),
     ...extra(s.userId, s.siteId),
     clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
+    via: via(s),
   }));
   const webRows: LiveRow[] = webSessions.map((s) => ({
     kind: "web" as const,

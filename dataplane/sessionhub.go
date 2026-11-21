@@ -30,6 +30,8 @@ type SessionInfo struct {
 	// A native RDP client on the RD Gateway: no screen passes through Captivo,
 	// so it can't be watched or recorded, only ended.
 	Native bool `json:"native,omitempty"`
+	// The connector carrying it: one of several on a connector-group resource.
+	ConnectorID string `json:"connectorId,omitempty"`
 	// Input over the last two minutes, in 5-second buckets, oldest first.
 	Activity []int `json:"activity"`
 }
@@ -129,6 +131,20 @@ func NewSessionHub() *SessionHub {
 	return &SessionHub{m: map[string]*liveSession{}, ended: map[string]policyEnd{}}
 }
 
+// CountByConnector is how many live sessions a connector carries: the load a
+// connector group's members are balanced on (connpick.go).
+func (h *SessionHub) CountByConnector(connectorID string) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	n := 0
+	for _, ls := range h.m {
+		if ls.connectorID == connectorID {
+			n++
+		}
+	}
+	return n
+}
+
 func newSessionID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
@@ -215,7 +231,7 @@ func (h *SessionHub) List() []SessionInfo {
 			SessionID: ls.id, SiteID: ls.siteID, UserID: ls.userID, Kind: ls.kind, Protocol: ls.protocol,
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
 			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
-			Native: ls.native,
+			Native: ls.native, ConnectorID: ls.connectorID,
 		})
 		ls.mu.Unlock()
 	}

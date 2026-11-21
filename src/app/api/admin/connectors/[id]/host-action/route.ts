@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { releaseConnectorFromGroups } from "@/lib/connector/groups";
 import type { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/current-user";
 import { recordAdminAction } from "@/lib/audit/admin";
@@ -91,6 +92,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
   const r = await sendHostAction(id, { id: actionId, action: "uninstall", keepData });
   if (!r.ok) return NextResponse.json({ ok: false, error: r.reason ?? "no_answer" }, { status: 409 });
   const stored: StoredHostAction = { id: actionId, action: "uninstall", keepData, by: admin.email, at, state: "removing" };
+  await releaseConnectorFromGroups(db, id); // its connector-group resources move to another member
   await db.connector.update({ where: { id }, data: { status: "REVOKED", hostAction: stored as unknown as Prisma.InputJsonValue } });
   await kickConnector(id);
   await recordConnectorEvent(id, "warn", `Removed from its host by ${admin.email}${keepData ? " (recordings and keys kept on the host)" : ""}`);

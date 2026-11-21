@@ -175,17 +175,18 @@ func clipboardToKasm(mode string) (copyOut, pasteIn bool) {
 
 // kasmDesc is the ISOLATED-hi-fi connection descriptor from the control plane.
 type kasmDesc struct {
-	Transport          string `json:"transport"`
-	NavigateUrl        string `json:"navigateUrl"`
-	KasmAddr           string `json:"kasmAddr"`
-	KasmControlAddr    string `json:"kasmControlAddr"`
-	ConnectorID        string `json:"connectorId"`
-	TenantID           string `json:"tenantId"`
-	ClipboardMode      string `json:"clipboardMode"`
-	Record             bool   `json:"record"`
-	WatermarkText      string `json:"watermarkText"`
-	FileTransferMode   string `json:"fileTransferMode"`
-	InsecureSkipVerify bool   `json:"insecureSkipVerify"`
+	Transport          string           `json:"transport"`
+	NavigateUrl        string           `json:"navigateUrl"`
+	KasmAddr           string           `json:"kasmAddr"`
+	KasmControlAddr    string           `json:"kasmControlAddr"`
+	ConnectorID        string           `json:"connectorId"`
+	Connectors         []routeCandidate `json:"connectors"`
+	TenantID           string           `json:"tenantId"`
+	ClipboardMode      string           `json:"clipboardMode"`
+	Record             bool             `json:"record"`
+	WatermarkText      string           `json:"watermarkText"`
+	FileTransferMode   string           `json:"fileTransferMode"`
+	InsecureSkipVerify bool             `json:"insecureSkipVerify"`
 	// Typed input in the isolated browser (the broker loads its keys extension);
 	// only ever acted on while Record is true.
 	KeystrokeLogging bool `json:"keystrokeLogging"`
@@ -250,6 +251,16 @@ func serveKasmTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	}
 	if r.URL.Query().Get("w") != "" && r.URL.Query().Get("h") != "" {
 		http.SetCookie(w, &http.Cookie{Name: "ca_kasm_size", Value: strconv.Itoa(kasmW) + "x" + strconv.Itoa(kasmH), Path: "/kasm-tunnel", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+	}
+	// A connector group: a new browser goes to the least loaded member; the
+	// web client's static files come from the user's usual one.
+	cands := candidatesOr(d.Connectors, d.ConnectorID)
+	if isWebSocketUpgrade(r) {
+		if c, ok := pickLeastLoaded(reg, hub, cands); ok {
+			d.ConnectorID = c.ID
+		}
+	} else if c, ok := pickSticky(reg, cands, userID+"\x00"+siteID); ok {
+		d.ConnectorID = c.ID
 	}
 	sess := reg.Get(d.ConnectorID)
 	if sess == nil {

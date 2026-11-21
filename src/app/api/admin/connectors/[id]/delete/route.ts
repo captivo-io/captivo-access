@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { releaseConnectorFromGroups } from "@/lib/connector/groups";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
@@ -16,6 +17,9 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
 
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as { withResources?: unknown; confirmName?: unknown };
+  // Connector-group resources it stood in for move to another member, so only
+  // its own resources (and those of groups it was the last member of) remain.
+  await releaseConnectorFromGroups(db, id);
   const connector = await db.connector.findUnique({
     where: { id },
     select: { id: true, name: true, status: true, sites: { select: { id: true } } },

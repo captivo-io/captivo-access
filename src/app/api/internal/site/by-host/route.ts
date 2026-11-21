@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { candidatesFor, routeMembers, siteRoutingSelect } from "@/lib/connector/route";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { db } from "@/lib/db";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
@@ -31,14 +32,16 @@ async function handler(req: NextRequest) {
   // this lookup runs already scoped in cloud (RLS) via the ambient `db`.
   const site = await db.site.findFirst({
     where: { hostname },
-    select: { id: true, connectorId: true, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true, keystrokeLogging: true, fileTransferMode: true },
+    select: { id: true, ...siteRoutingSelect, upstreamUrl: true, insecureSkipVerify: true, recordSessions: true, clipboardMode: true, accessMode: true, watermark: true, keystrokeLogging: true, fileTransferMode: true },
   });
   if (!site) return NextResponse.json({ error: "no_site" }, { status: 404 });
 
   const recordSessions = await effectiveSiteRecording(site.recordSessions);
+  const members = routeMembers(site).eligible;
   return NextResponse.json({
     siteId: site.id,
-    connectorId: site.connectorId,
+    connectorId: members[0]?.id ?? site.connectorId,
+    connectors: candidatesFor(members),
     tenantId: currentTenantId(),
     upstreamUrl: site.upstreamUrl,
     insecureSkipVerify: site.insecureSkipVerify,

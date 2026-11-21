@@ -55,6 +55,51 @@ Setting it up:
 
 ---
 
+## Connector groups (redundancy and load sharing)
+
+One connector is a single point of failure: when its machine is down, every
+resource it serves is unreachable. Install two or more connectors in the same
+network, put them in a **connector group** (Connectors → Connector groups), and
+choose the group on a resource instead of a single connector.
+
+- **Active and standby members.** New sessions go to the online active member
+  carrying the fewest live sessions. A standby member carries sessions only while
+  no active member is online.
+- **Web apps stay on one member per user.** Every request of a web app is routed
+  on its own; each user is kept on the same online member (rendezvous hashing),
+  so a recorded page's chunks all reach one connector. When a member leaves, only
+  its users move.
+- **A connector going down.** Sessions it carried end (an RDP or SSH connection
+  cannot move between machines); reconnecting lands on another member. New
+  sessions skip it from the moment its tunnel drops.
+- **Saved passwords are sealed to each member.** A resource password is sealed in
+  the admin's browser to every member's vault key, and each member is handed only
+  its own copy.
+- **A member that joins later gets its copies from a member that has them.** A
+  member on 2.44.0 or later opens each password with its own key and seals it
+  again to the newcomer's key, for the same target; the plaintext stays in that
+  connector's memory and the cloud stores only the new sealed copy. This runs
+  when a group is saved, when a resource is moved onto a group, and on every
+  health pass (so a giver that was offline catches up within five minutes). Each
+  copy is recorded in the admin audit log and in the giving connector's own log.
+  Until a member has its copy, sessions to that resource skip it; if no member
+  that holds the password is new enough, the group card asks to update one or to
+  enter the password again. The trade-off: a running, compromised control plane
+  could ask a connector to seal a password to a key of its choosing. A database
+  leak alone cannot, and every such copy leaves a trace on both sides.
+- **Members must reach the same machines.** The health check probes a group
+  resource through every online member. A member that cannot reach it while
+  another can is left out of its sessions, and its card says so.
+- **Recordings stay where they were made.** A recording lives on the member that
+  carried the session and plays from it; while that member is offline the
+  recording cannot be opened.
+- Native RDP and native SSH sessions go through members on 2.39.0 or later.
+- Revoking or deleting a member moves the group's resources onto another member;
+  a group that still serves resources cannot be deleted.
+- Not yet covered: the directory (AD/LDAP) connection still uses one connector.
+
+---
+
 ## The journey of a single request
 
 **Scenario:** a vendor types `jira.access.yourdomain.com` into their browser.

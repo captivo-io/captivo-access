@@ -15,31 +15,33 @@ datasource db {
 
 // A tenant (organization). Self-host uses the single seeded row id="default".
 model Tenant {
-  id              String           @id @default(cuid())
-  slug            String           @unique
-  name            String
-  status          String           @default("ACTIVE") // ACTIVE | SUSPENDED
-  createdAt       DateTime         @default(now())
+  id                    String                 @id @default(cuid())
+  slug                  String                 @unique
+  name                  String
+  status                String                 @default("ACTIVE") // ACTIVE | SUSPENDED
+  createdAt             DateTime               @default(now())
   // --- Platform console (Cloud) ---
-  plan            String           @default("free") // free | pro | enterprise
+  plan                  String                 @default("free") // free | pro | enterprise
   // Default "free" on purpose: an unclassified tenant should not be labelled as
   // something someone paid for. The plan is a LABEL here -- caps live in
   // `limits` -- so this restricts nothing on its own.
-  trialEndsAt     DateTime? // plan=trial: auto-suspended by the platform-ops cron after this
-  deletedAt       DateTime? // soft-deleted (hidden from resolvers); purged 30 days later
-  limits          Json? // { maxUsers?, maxSites?, maxConnectors?, maxRecordingRetentionDays? } — null/absent = unlimited
-  capabilities    Json? // { recording?, isolated?, gateway?, vault? } booleans — absent = deployment default
-  notes           String? // internal operator notes (never shown to the tenant)
+  trialEndsAt           DateTime? // plan=trial: auto-suspended by the platform-ops cron after this
+  deletedAt             DateTime? // soft-deleted (hidden from resolvers); purged 30 days later
+  limits                Json? // { maxUsers?, maxSites?, maxConnectors?, maxRecordingRetentionDays? } — null/absent = unlimited
+  capabilities          Json? // { recording?, isolated?, gateway?, vault? } booleans — absent = deployment default
+  notes                 String? // internal operator notes (never shown to the tenant)
   /// The Captivo ID organisation this workspace was provisioned for. Unique so
   /// one organisation can never hold two free-tier workspaces; null on every
   /// tenant an operator created by hand.
-  captivoOrgId    String?          @unique
-  updatedAt       DateTime         @default(now()) @updatedAt
-  supportHandoffs SupportHandoff[]
-  connectorDays   ConnectorDay[]
-  connectorEvents ConnectorEvent[]
-  passkeyResets   PasskeyReset[]
-  logDestinations LogDestination[]
+  captivoOrgId          String?                @unique
+  updatedAt             DateTime               @default(now()) @updatedAt
+  supportHandoffs       SupportHandoff[]
+  connectorDays         ConnectorDay[]
+  connectorEvents       ConnectorEvent[]
+  passkeyResets         PasskeyReset[]
+  logDestinations       LogDestination[]
+  connectorGroups       ConnectorGroup[]
+  connectorGroupMembers ConnectorGroupMember[]
 
   users              User[]
   passkeys           Passkey[]
@@ -262,29 +264,30 @@ enum SiteAccessMode {
 }
 
 model Connector {
-  id               String             @id @default(cuid())
-  tenantId         String             @default("default")
-  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id               String                 @id @default(cuid())
+  tenantId         String                 @default("default")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name             String
   tokenHash        String
-  status           ConnectorStatus    @default(PENDING)
+  status           ConnectorStatus        @default(PENDING)
   lastSeenAt       DateTime?
   version          String?
   remoteAddr       String?
   egressPolicy     String?
   logLevel         String? // debug | info | warn | error; null = inherit the policy default — pushed to the connector live
   vaultPublicKey   String? // X25519 public key (base64) resource secrets are sealed to; the private half stays on the connector
-  createdAt        DateTime           @default(now())
+  createdAt        DateTime               @default(now())
   sites            Site[]
   pairings         ConnectorPairing[]
   directoryConfigs DirectoryConfig[]
   /// Active tunnels at each of the last 16 health passes (oldest first): the card's spark.
-  tunnelSpark      Int[]              @default([])
+  tunnelSpark      Int[]                  @default([])
   /// The latest update or removal asked from the console (src/lib/connector/host-action.ts
   /// StoredHostAction); its progress is read from the connector's telemetry.
   hostAction       Json?
   days             ConnectorDay[]
   events           ConnectorEvent[]
+  groupMemberships ConnectorGroupMember[]
 
   @@unique([tenantId, tokenHash])
   @@index([tenantId])
@@ -322,6 +325,36 @@ model ConnectorEvent {
   @@index([tenantId])
 }
 
+/// A set of connectors that serve the same resources: sessions are spread over
+/// the online active members, standby members take over when none is left.
+model ConnectorGroup {
+  id        String                 @id @default(cuid())
+  tenantId  String                 @default("default")
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime               @default(now())
+  members   ConnectorGroupMember[]
+  sites     Site[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model ConnectorGroupMember {
+  tenantId    String         @default("default")
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  groupId     String
+  group       ConnectorGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  connectorId String
+  connector   Connector      @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  standby     Boolean        @default(false) // used only while no active member is online
+  createdAt   DateTime       @default(now())
+
+  @@id([groupId, connectorId])
+  @@index([tenantId])
+  @@index([connectorId])
+}
+
 model ConnectorPairing {
   id          String     @id @default(cuid())
   tenantId    String     @default("default")
@@ -341,8 +374,11 @@ model Site {
   id                 String           @id @default(cuid())
   tenantId           String           @default("default")
   tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  connectorId        String
+  connectorId        String // the connector, or for a group resource the member that stands for it (kept a member; src/lib/connector/groups.ts)
   connector          Connector        @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  connectorGroupId   String? // set: sessions go through any eligible member of this group (src/lib/connector/route.ts)
+  connectorGroup     ConnectorGroup?  @relation(fields: [connectorGroupId], references: [id], onDelete: Restrict)
+  probeByConnector   Json? // group resources: { [connectorId]: { ok, ms, at, detail } } from the health probe, per member
   name               String
   hostname           String? // null for GATEWAY (remote-desktop) sites; required for web apps
   customDomain       Boolean          @default(false) // hostname is a tenant-owned FQDN (BYO), not a managed <label>.<slug> host
@@ -406,6 +442,7 @@ model VaultCredential {
   username   String
   secret     String // sealed to the connector ("cv1:", src/lib/vault/seal.ts) or, before that, AES-256-GCM under ENCRYPTION_KEY
   sealedTo   String? // the connector vault public key `secret` is sealed to; null = legacy server-side encryption
+  extraSeals Json? // group resources: { [vaultPublicKey]: sealed } for the other members' keys (src/lib/vault/store.ts)
   secretKind VaultSecretKind @default(PASSWORD)
   guacParams Json? // curated per-resource Guacamole connection params (validated allowlist)
   createdAt  DateTime        @default(now())

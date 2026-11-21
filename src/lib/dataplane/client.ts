@@ -33,6 +33,8 @@ export interface ActiveSession {
   activity?: number[];
   /** A native RDP client on the RD Gateway (2.39+): nothing to watch or record, only to end. */
   native?: boolean;
+  /** The connector carrying it (2.44+). */
+  connectorId?: string;
 }
 
 export interface LiveFeedEvent { at: string; type: string; text: string }

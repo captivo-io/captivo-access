@@ -39,11 +39,11 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   // The resource must be this tenant's (RLS hides others'): without this check an
   // upsert for another tenant's resource id created a stray row under ours that
   // then blocked that resource's own credential.
-  const site = await db.site.findUnique({ where: { id }, select: { connectorId: true, accessMode: true } });
+  const site = await db.site.findUnique({ where: { id }, select: { connectorId: true, connectorGroupId: true, accessMode: true } });
   if (!site) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (site.accessMode !== "GATEWAY") return NextResponse.json({ error: "not_remote_desktop" }, { status: 400 });
   try {
-    await setVaultCredential({ siteId: id, connectorId: site.connectorId, protocol, targetHost, targetPort: port, username, secret, secretKind, guacParams: parseGuacParams(b.guacParams) });
+    await setVaultCredential({ siteId: id, connectorId: site.connectorId, connectorGroupId: site.connectorGroupId, protocol, targetHost, targetPort: port, username, secret, secretKind, guacParams: parseGuacParams(b.guacParams) });
   } catch (e) {
     if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
     throw e;

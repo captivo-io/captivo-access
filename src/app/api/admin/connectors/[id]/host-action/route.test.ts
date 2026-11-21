@@ -10,6 +10,7 @@ vi.mock("@/lib/version", () => ({ managerVersion: () => "2.41.0" }));
 vi.mock("@/lib/connector/telemetry", () => ({ getConnectorTelemetry: vi.fn() }));
 vi.mock("@/lib/connector/dataplane", () => ({ kickConnector: vi.fn(async () => { order.push("kick"); }) }));
 vi.mock("@/lib/connector/host-action-send", () => ({ sendHostAction: vi.fn(async () => { order.push("send"); return { ok: true }; }) }));
+vi.mock("@/lib/connector/groups", () => ({ releaseConnectorFromGroups: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: { connector: { findUnique: vi.fn(), update: vi.fn(async () => { order.push("update"); return {}; }) } },
 }));
