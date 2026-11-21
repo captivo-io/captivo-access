@@ -25,7 +25,7 @@ export function checkIsStale(enabled: boolean, lastCheckedAt: string | null, now
 
 export type ConnectorVersionState = "current" | "outdated" | "unknown";
 
-/** The Connectors page's rule: outdated when strictly older than this console. */
+/** The Connectors page's rule: outdated when older than the last connector change (semver.ts). */
 export function connectorVersionState(version: string | null | undefined, manager: string): ConnectorVersionState {
   if (compareSemver(version, manager) === null) return "unknown";
   return isConnectorOutdated(version, manager) ? "outdated" : "current";

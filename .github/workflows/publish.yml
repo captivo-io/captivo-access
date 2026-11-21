@@ -11,7 +11,19 @@ permissions:
   packages: write
 
 jobs:
+  # The console calls a connector outdated only when it is older than the last
+  # release that changed connector code (src/lib/updates/connector-release.ts).
+  # A release that changes it without raising that marker is not published.
+  connector-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: scripts/check-connector-release.sh
+
   build-and-push:
+    needs: connector-release
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
