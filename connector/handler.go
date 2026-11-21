@@ -91,6 +91,10 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleReseal(st, reqBytes)
 		return
 	}
+	if peek.Kind == "rotate" {
+		handleRotate(st, allow, reqBytes)
+		return
+	}
 	if peek.Kind == "logforward" {
 		handleLogForward(st, allow, reqBytes)
 		return

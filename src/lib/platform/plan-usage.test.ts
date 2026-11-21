@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { planUsageText } from "./plan-usage";
+import { planAddBlocked, planUsageHeadline, planUsageLevel, planUsageText } from "./plan-usage";
 
 describe("allowance line", () => {
   it("states the allowance as a fact below the cap", () => {
@@ -51,8 +51,32 @@ describe("what the pages count", () => {
     expect(SITES).toMatch(/planUsage\("maxSites", sites\.length\)/);
   });
 
-  it("renders the note on both pages", () => {
-    expect(CONN).toMatch(/<PlanUsageNote usage=\{connectorUsage\} noun="connectors" \/>/);
-    expect(SITES).toMatch(/<PlanUsageNote usage=\{siteUsage\} noun="resources" \/>/);
+  it("renders the note on both pages, and turns Add off at the cap", () => {
+    expect(CONN).toMatch(/<PlanUsageNote usage=\{connectorUsage\} noun="connectors" one="connector" \/>/);
+    expect(SITES).toMatch(/<PlanUsageNote usage=\{siteUsage\} noun="resources" one="resource" \/>/);
+    expect(CONN).toMatch(/<AddConnectorScroll blockedReason=\{planAddBlocked\(connectorUsage, "connector"\)\} \/>/);
+    expect(SITES).toMatch(/blockedReason=\{planAddBlocked\(siteUsage, "resource"\)\}/);
+  });
+});
+
+describe("the band", () => {
+  it("is quiet with room, speaks one before the cap and at it", () => {
+    expect(planUsageLevel({ used: 2, max: 5, plan: "free" })).toBe("ok");
+    expect(planUsageLevel({ used: 4, max: 5, plan: "free" })).toBe("last");
+    expect(planUsageLevel({ used: 5, max: 5, plan: "free" })).toBe("full");
+    expect(planUsageLevel({ used: 7, max: 5, plan: "free" })).toBe("full");
+    // A cap of one is full or empty: "one left" would be every empty workspace.
+    expect(planUsageLevel({ used: 0, max: 1, plan: "free" })).toBe("ok");
+    expect(planUsageHeadline({ used: 2, max: 5, plan: "free" }, "resources", "resource")).toBeNull();
+    expect(planUsageHeadline({ used: 4, max: 5, plan: "free" }, "resources", "resource")).toBe("One resource left on the Free plan.");
+    expect(planUsageHeadline({ used: 1, max: 1, plan: "free" }, "connectors", "connector")).toBe("The Free plan includes 1 connector, and it's in use.");
+    expect(planUsageHeadline({ used: 5, max: 5, plan: "standard" }, "resources", "resource")).toBe("You've used all 5 resources on your plan.");
+  });
+
+  it("says why Add is off only at the cap", () => {
+    expect(planAddBlocked(null, "resource")).toBeNull();
+    expect(planAddBlocked({ used: 4, max: 5, plan: "free" }, "resource")).toBeNull();
+    expect(planAddBlocked({ used: 5, max: 5, plan: "free" }, "resource")).toContain("allows 5 resources");
+    expect(planAddBlocked({ used: 1, max: 1, plan: "free" }, "connector")).toContain("allows 1 connector.");
   });
 });

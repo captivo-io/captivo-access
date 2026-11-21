@@ -1,3 +1,4 @@
+import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { encrypt, decrypt } from "@/lib/crypto";
@@ -81,6 +82,11 @@ export async function saveDirectoryConfig(input: {
   const secretProvided = typeof input.bindPassword === "string" && input.bindPassword.length > 0;
   const encSecret = secretProvided ? encrypt(input.bindPassword!.trim()) : undefined;
 
+  // The reset account is sealed for this directory's host and port: another
+  // directory needs it entered again.
+  const prev = await db.directoryConfig.findUnique({ where: { tenantId: currentTenantId() }, select: { host: true, port: true } });
+  const moved = !!prev && (prev.host !== host || prev.port !== port);
+
   await db.directoryConfig.upsert({
     where: { tenantId: currentTenantId() },
     create: {
@@ -91,6 +97,7 @@ export async function saveDirectoryConfig(input: {
       enabled: input.enabled, connectorId, host, port, security,
       insecureSkipVerify: input.insecureSkipVerify, caCertPem, baseDN, bindDN,
       ...(encSecret !== undefined ? { bindPassword: encSecret } : {}),
+      ...(moved ? { resetUsername: "", resetSeals: Prisma.DbNull } : {}),
     },
   });
 }

@@ -77,6 +77,13 @@ func reseal(k *ecdh.PrivateKey, req tunnel.ResealRequest) tunnel.ResealResponse 
 			continue
 		}
 		aad := vaultTargetAAD(it.Host, it.Port, it.Username)
+		if it.Purpose == "reconcile" {
+			aad = vaultReconcileAAD(it.Host, it.Port, it.Username)
+		} else if it.Purpose != "" {
+			res.Error = "unknown purpose"
+			out.Items = append(out.Items, res)
+			continue
+		}
 		plain, err := openSealed(k, it.Sealed, aad)
 		if err != nil {
 			res.Error = "does not open"

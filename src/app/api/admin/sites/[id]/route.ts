@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
-import { keptSecretStillOpens, sealLegacyCredentials, storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
+import { keptSecretStillOpens, rotationColumnsForNewSecret, sealLegacyCredentials, storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import { resolveConnectorChoice } from "@/lib/connector/groups";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
@@ -20,6 +20,7 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { reshareGroupSecrets } from "@/lib/vault/reshare";
+import { rotationOn } from "@/lib/vault/rotation";
 
 export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -92,6 +93,11 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
 
   // GATEWAY update: a first-time credential must include a secret.
   const hadVault = (await db.vaultCredential.count({ where: { siteId: id } })) > 0;
+  // A native client signs in with a password the user types; a rotated one nobody knows.
+  if (v.nativeRdp || v.nativeSsh) {
+    const rot = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { rotateAfterSession: true, rotateEveryDays: true } });
+    if (rot && rotationOn(rot)) return NextResponse.json({ error: "native_with_rotation" }, { status: 400 });
+  }
   if (!hadVault && !v.secret) return NextResponse.json({ error: "remote_desktop_fields_required" }, { status: 400 });
 
   const target = { host: v.targetHost, port: v.targetPort, username: v.username };
@@ -101,9 +107,11 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
   }
   let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = {}; // set whenever there was no credential (checked above)
+  let rotationUpdate: ReturnType<typeof rotationColumnsForNewSecret> | Record<string, never> = {};
   if (v.secret) {
     try {
       secretUpdate = storedSecretColumns(await storedSecretFor(holder, v.secret, target));
+      rotationUpdate = rotationColumnsForNewSecret(await db.vaultCredential.findUnique({ where: { siteId: id }, select: { targetHost: true, targetPort: true } }), target);
     } catch (e) {
       if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
       throw e;
@@ -114,7 +122,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     // Not an upsert: Prisma validates the create branch even when the row
     // exists, and a kept secret leaves it without the required `secret`.
     const fields = { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, guacParams: v.guacParams as Prisma.InputJsonValue };
-    if (hadVault) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate } });
+    if (hadVault) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate, ...rotationUpdate } });
     else await tx.vaultCredential.create({ data: { siteId: id, ...fields, ...(secretUpdate as ReturnType<typeof storedSecretColumns>), secretKind: "PASSWORD" } });
   });
   // A kept legacy secret is sealed for the (possibly new) target right away.

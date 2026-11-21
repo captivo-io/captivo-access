@@ -94,6 +94,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "isolation_disabled": return "The isolated browser is not enabled on this installation.";
     case "vault_secret_required": return "Enter the password again: it was encrypted for the previous address, username or connector.";
     case "vault_key_changed": return "The connector's encryption key changed. Reload the page and enter the password again.";
+    case "native_with_rotation": return "This resource rotates its password, so nobody knows it to type into a native client. Turn rotation off first.";
     case "invalid_sealed_secret": case "vault_unsupported_browser": return "This browser can't encrypt the password for the connector. Use a current Chrome, Edge, Firefox or Safari.";
     case "invalid_egress_hosts": return "Allowed hosts must be host names (sso.example.local, *.okta.com) or IP addresses, at most 50.";
     case "logo_too_large": return "The logo must be 512 KB or smaller.";

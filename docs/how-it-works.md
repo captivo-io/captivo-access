@@ -98,6 +98,51 @@ choose the group on a resource instead of a single connector.
   a group that still serves resources cannot be deleted.
 - Not yet covered: the directory (AD/LDAP) connection still uses one connector.
 
+## Password rotation
+
+A remote-desktop or SSH resource can have its saved password changed by the
+connector, so that nobody, Captivo included, knows the password in use.
+
+- **Who changes it.** A connector that serves the resource (on 2.45.0 or later)
+  generates a random 24-character password, changes it on the target and seals
+  it to every connector key that serves the resource. The cloud receives and
+  stores only sealed values.
+- **How.** A Linux account changes its own password with `passwd` over SSH. A
+  domain account used for RDP changes its own in Active Directory over LDAPS or
+  StartTLS, through the directory configured under Settings › Directory. VNC
+  passwords and SSH keys are not rotated, and neither are local Windows
+  accounts yet.
+- **When.** Off by default. Per resource: a minute after the last session on it
+  ends (a session still open holds it), on a schedule (7, 30 or 90 days), and
+  with "Rotate now". "Check it daily" signs in once a day with the saved
+  password and reports a password changed outside Captivo.
+- **No lockout.** The new password's seals are stored as *pending* before the
+  target is touched, and become the saved password only once the connector has
+  seen the target accept them. If the answer is lost, both are kept and the next
+  attempt asks the target which one it takes. A failed attempt is retried after
+  5 minutes, 15 minutes, an hour, then every 6 hours, and the first failure
+  notifies the admins.
+- **Reconcile account.** When the account cannot change its own password (Active
+  Directory allows one change a day by default; history and policy rules) or
+  its saved password no longer matches, a privileged account resets it: root or
+  a sudo account on the Linux host (password or SSH key), or a directory account
+  with the *Reset password* right (Settings › Directory). It is sealed for
+  `reconcile,<host>,<port>,<user>`, so the gateway can never sign a session in
+  with it, and a connector uses it only against that host. Members of a group
+  that come later get a copy the same way as resource passwords.
+- **Reveal.** An admin can see the password once, with a reason: the browser
+  makes a one-off key pair, the connector seals the password to it, and only
+  that page opens it. The reveal and its reason are in the audit log, and the
+  password rotates again two hours later.
+- **When Captivo cannot be reached.** The connector that rotated a password
+  keeps its own sealed copy of it (`/data/rotated.json`, next to its key); the
+  resource page names that connector. On its host:
+  `docker exec access-connector connector show-password "<resource>"`.
+- **Native clients.** A resource that rotates cannot offer the native RDP or SSH
+  client: the user would need a password nobody knows.
+- Every rotation, failure, reveal and settings change is in the admin audit log
+  and in the connector's history.
+
 ---
 
 ## The journey of a single request

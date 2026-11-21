@@ -38,3 +38,29 @@ func TestResealRoundTripsOneStream(t *testing.T) {
 		t.Fatal("offline connector: error")
 	}
 }
+
+func TestRotateRoundTripsOneStream(t *testing.T) {
+	a, b := net.Pipe()
+	dp, _ := yamux.Client(a, nil)
+	conn, _ := yamux.Server(b, nil)
+	t.Cleanup(func() { dp.Close(); conn.Close() })
+	go func() {
+		st, err := conn.AcceptStream()
+		if err != nil {
+			return
+		}
+		defer st.Close()
+		f, _ := tunnel.ReadFrame(st)
+		var req tunnel.RotateRequest
+		_ = json.Unmarshal(f, &req)
+		out, _ := json.Marshal(tunnel.RotateResponse{Outcome: req.Kind + ":" + req.Op + ":" + req.Host})
+		_ = tunnel.WriteFrame(st, out)
+	}()
+	res, err := Rotate(&Session{mux: dp}, tunnel.RotateRequest{Op: "apply", Host: "h"})
+	if err != nil || res.Outcome != "rotate:apply:h" {
+		t.Fatalf("got %+v %v", res, err)
+	}
+	if _, err := Rotate(nil, tunnel.RotateRequest{}); err == nil {
+		t.Fatal("offline connector: error")
+	}
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSealedValue, isVaultPublicKey, sealSecret, targetAAD, SEALED_PREFIX } from "./seal";
+import { isSealedValue, isVaultPublicKey, openSealedSecret, revealKeyPair, sealSecret, targetAAD, SEALED_PREFIX } from "./seal";
 
 const subtle = globalThis.crypto.subtle;
 const b64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
@@ -37,6 +37,23 @@ describe("vault sealing", () => {
     // Another connector: does not open.
     const k2 = await connectorKey();
     await expect(open(k2.priv, k2.pubRaw, sealed, targetAAD(target))).rejects.toThrow();
+  });
+
+  it("seals a reconcile account for rotations only, never as a session secret", async () => {
+    const k = await connectorKey();
+    const target = { host: "10.0.0.5", port: 22, username: "root" };
+    const sealed = await sealSecret(k.pub, "r00t", target, "reconcile");
+    expect(new TextDecoder().decode(targetAAD(target, "reconcile"))).toBe("9.reconcile,8.10.0.0.5,2.22,4.root;");
+    expect(await open(k.priv, k.pubRaw, sealed, targetAAD(target, "reconcile"))).toBe("r00t");
+    await expect(open(k.priv, k.pubRaw, sealed, targetAAD(target))).rejects.toThrow();
+  });
+
+  it("opens what was sealed to a one-off browser key (reveal)", async () => {
+    const own = await revealKeyPair();
+    const target = { host: "db1", port: 22, username: "alice" };
+    const sealed = await sealSecret(own.publicKey, "Shown-once", target);
+    expect(await openSealedSecret(own, sealed, target)).toBe("Shown-once");
+    await expect(openSealedSecret(own, sealed, { ...target, host: "db2" })).rejects.toThrow();
   });
 
   it("binds the target exactly as the data-plane sends it (trimmed, code-point lengths)", () => {

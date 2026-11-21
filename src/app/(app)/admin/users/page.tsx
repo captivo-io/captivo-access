@@ -1,3 +1,5 @@
+import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
+import { planUsage, planUsageLevel } from "@/lib/platform/plan-usage";
 import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { ASSIGNABLE_ROLES } from "@/lib/auth/roles";
@@ -102,8 +104,11 @@ async function PeoplePageImpl({ searchParams }: { searchParams: Promise<{ q?: st
   }));
 
   const tab = TABS.includes(sp.tab as PeopleTab) ? (sp.tab as PeopleTab) : "users";
+  // Counted the way the invite gate counts (api/admin/invites: every user row).
+  const userUsage = await planUsage("maxUsers", users.length);
   return (
     <main>
+      {userUsage && planUsageLevel(userUsage) !== "ok" && <PlanUsageNote usage={userUsage} noun="users" one="user" />}
       <PeopleView
         workspace={ws.slug}
         initialTab={tab}

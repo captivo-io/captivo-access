@@ -59,3 +59,35 @@ export function planUsageText(usage: PlanUsage, noun: string): string {
   const head = `${label}: ${usage.used} of ${usage.max} ${noun} used`;
   return atCap ? `${head} — remove one or upgrade to add another.` : head;
 }
+
+/** Where an allowance stands: room to spare, one left, or none (the next add fails). */
+export type PlanUsageLevel = "ok" | "last" | "full";
+
+export function planUsageLevel(usage: PlanUsage): PlanUsageLevel {
+  if (usage.used >= usage.max) return "full";
+  return usage.max - usage.used === 1 && usage.max > 1 ? "last" : "ok";
+}
+
+/** The band's headline at the cap and one before it; null at rest (the meter speaks). */
+export function planUsageHeadline(usage: PlanUsage, noun: string, one: string): string | null {
+  const label = usage.plan === "free" ? "the Free plan" : "your plan";
+  switch (planUsageLevel(usage)) {
+    case "full":
+      return usage.max === 1
+        ? `${usage.plan === "free" ? "The Free plan" : "Your plan"} includes 1 ${one}, and it's in use.`
+        : `You've used all ${usage.max} ${noun} on ${label}.`;
+    case "last":
+      return `One ${one} left on ${label}.`;
+    default:
+      return null;
+  }
+}
+
+/** Why "Add" is off, for its tooltip; null while there is room. */
+export function planAddBlocked(usage: PlanUsage | null, one: string): string | null {
+  if (!usage || planUsageLevel(usage) !== "full") return null;
+  return `Your plan allows ${usage.max} ${usage.max === 1 ? one : `${one}s`}. Remove one or upgrade to add another.`;
+}
+
+/** Where "See plans" goes. */
+export const PLANS_URL = "https://captivo.io/en/pricing#access";

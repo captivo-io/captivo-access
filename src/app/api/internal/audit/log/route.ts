@@ -3,6 +3,17 @@ import { appendAuditEvents, type AuditInput } from "@/lib/audit/append";
 import { requireDataplaneSecret, resolveTenantBySite, resolveTenantByHostname } from "@/lib/tenant/internal";
 import { withTenant } from "@/lib/tenant/scope";
 import { multiTenantEnabled } from "@/lib/tenant/enabled";
+import { noteSessionsClosed } from "@/lib/vault/rotation-pass";
+
+// Resources whose session just ended: password rotation may be due (lib/vault/rotation-pass.ts).
+function closedSites(events: AuditInput[]): string[] {
+  return events.filter((e) => e.siteId && e.reason?.startsWith("session_close")).map((e) => e.siteId!);
+}
+
+async function noteClosed(events: AuditInput[]): Promise<void> {
+  const ids = closedSites(events);
+  if (ids.length) await noteSessionsClosed(ids).catch((e) => console.error("vault: noting closed sessions failed", e));
+}
 
 // The hosted data-plane is shared across ALL tenants, so a single batch can
 // interleave events from many of them — unlike the other internal/* endpoints
@@ -29,6 +40,7 @@ async function handler(req: NextRequest) {
   // resolution.
   if (!multiTenantEnabled()) {
     const inserted = await appendAuditEvents(events);
+    await noteClosed(events);
     return NextResponse.json({ inserted });
   }
 
@@ -47,7 +59,11 @@ async function handler(req: NextRequest) {
 
   let inserted = 0;
   for (const [tid, group] of groups) {
-    inserted += await withTenant(tid, () => appendAuditEvents(group));
+    inserted += await withTenant(tid, async () => {
+      const n = await appendAuditEvents(group);
+      await noteClosed(group);
+      return n;
+    });
   }
 
   return NextResponse.json({ inserted, dropped });

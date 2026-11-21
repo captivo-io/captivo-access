@@ -54,3 +54,27 @@ func TestResealRefusesWithoutAKeyAndBadRecipients(t *testing.T) {
 		t.Fatal("too many recipients: refused")
 	}
 }
+
+func TestResealReconcilePurposeKeepsItsOwnBinding(t *testing.T) {
+	k := newVaultTestKey(t)
+	to := newVaultTestKey(t)
+	sealed, _ := sealToKey(vaultPublicKeyB64(k), "root-pass", vaultReconcileAAD("10.0.0.5", "22", "root"))
+	req := tunnel.ResealRequest{Items: []tunnel.ResealItem{{ID: "r1", Sealed: sealed, Host: "10.0.0.5", Port: "22", Username: "root", To: []string{vaultPublicKeyB64(to)}, Purpose: "reconcile"}}}
+	res := reseal(k, req)
+	copy := res.Items[0].Seals[vaultPublicKeyB64(to)]
+	if got, err := openSealed(to, copy, vaultReconcileAAD("10.0.0.5", "22", "root")); err != nil || got != "root-pass" {
+		t.Fatalf("reconcile copy: %q %v %+v", got, err, res)
+	}
+	if _, err := openSealed(to, copy, vaultTargetAAD("10.0.0.5", "22", "root")); err == nil {
+		t.Fatal("a reconcile copy opened as a session secret")
+	}
+	// Asked as a resource secret, the reconcile seal does not open.
+	req.Items[0].Purpose = ""
+	if r := reseal(k, req); r.Items[0].Error == "" {
+		t.Fatal("reconcile seal copied as a resource secret")
+	}
+	req.Items[0].Purpose = "other"
+	if r := reseal(k, req); r.Items[0].Error != "unknown purpose" {
+		t.Fatalf("unknown purpose: %+v", r)
+	}
+}

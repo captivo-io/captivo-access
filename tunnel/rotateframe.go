@@ -1,0 +1,72 @@
+package tunnel
+
+// RotateRequest asks a connector to work on a resource's saved password
+// (connector/rotate.go). The connector opens every seal with its own vault key
+// for the target named here, so the control plane can only ever point it at
+// the host, port and user the password was entered for, and it gets back only
+// sealed values. Kind is "rotate".
+//
+// Ops:
+//
+//	prepare  generate the next password and seal it to every key in To
+//	apply    make the target use Pending (the connector's own seal of the
+//	         prepared password) instead of Current, then check it signs in
+//	verify   check Current still signs in
+//	reveal   seal Current to the one key in To (an admin's browser)
+type RotateRequest struct {
+	Kind     string   `json:"kind"` // "rotate"
+	Op       string   `json:"op"`
+	Method   string   `json:"method"` // "linux" (SSH) | "ad" (directory account)
+	Host     string   `json:"host"`
+	Port     string   `json:"port"`
+	Username string   `json:"username"`
+	Current  string   `json:"current"`
+	Pending  string   `json:"pending,omitempty"`
+	To       []string `json:"to,omitempty"`
+	// Linux: the target's SSH host key as first seen ("SHA256:..."); empty
+	// trusts and reports the key on this first contact.
+	SSHHostKey string `json:"sshHostKey,omitempty"`
+	// The privileged account that resets the password when the account cannot
+	// change its own (it no longer matches, or the target refuses the change).
+	Reconcile *RotateReconcile `json:"reconcile,omitempty"`
+	// AD: the domain controller the account lives in.
+	Directory *RotateDirectory `json:"directory,omitempty"`
+	// Shown in the connector's own record of rotated passwords (show-password).
+	Label string `json:"label,omitempty"`
+}
+
+// RotateReconcile is sealed for "reconcile,<host>,<port>,<username>": the
+// gateway never opens it, so it can sign in only through a rotation.
+type RotateReconcile struct {
+	Host      string `json:"host"`
+	Port      string `json:"port"`
+	Username  string `json:"username"`
+	Sealed    string `json:"sealed"`
+	SecretKey bool   `json:"secretKey,omitempty"` // a private key, not a password
+}
+
+type RotateDirectory struct {
+	Host               string `json:"host"`
+	Port               string `json:"port"`
+	Security           string `json:"security"` // LDAPS | STARTTLS (PLAIN is refused)
+	CACertPEM          string `json:"caCertPem,omitempty"`
+	InsecureSkipVerify bool   `json:"insecureSkipVerify,omitempty"`
+	BaseDN             string `json:"baseDn"`
+	// The resource's domain, for a user name without one ("alice").
+	Domain string `json:"domain,omitempty"`
+}
+
+// RotateResponse. Outcome for apply: "rotated" (the target now uses the new
+// password), "already" (it already did: an earlier apply got through),
+// "failed" (it still uses the current one), "unknown" (it may use either; the
+// next apply finds out). For verify: "ok", "pending" (the prepared one works,
+// not the current one) or "mismatch" (neither).
+type RotateResponse struct {
+	Seals      map[string]string `json:"seals,omitempty"`
+	Outcome    string            `json:"outcome,omitempty"`
+	Reconciled bool              `json:"reconciled,omitempty"` // the reconcile account set it
+	OutOfSync  bool              `json:"outOfSync,omitempty"`  // the saved password no longer signed in
+	SSHHostKey string            `json:"sshHostKey,omitempty"`
+	Detail     string            `json:"detail,omitempty"`
+	Error      string            `json:"error,omitempty"`
+}

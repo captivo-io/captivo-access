@@ -8,6 +8,7 @@ import { resourceContext } from "./context";
 import { resolvedRecordingMode, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
 import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
+import { planAddBlocked } from "@/lib/platform/plan-usage";
 import { SitesView, type SiteRow } from "./sites-view";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -107,9 +108,9 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
             A resource is an internal upstream reached through a connector. Send a live test to verify the
             tunnel works end to end.
           </p>
-          <PlanUsageNote usage={siteUsage} noun="resources" />
+          <PlanUsageNote usage={siteUsage} noun="resources" one="resource" />
         </div>
-        <div className="row-actions"><span id="rs-head-actions" className="rs-head-actions" />{connectors.length > 0 && <AddSiteButton ctx={await resourceContext()} initialOpen={sp.new === "1"} />}</div>
+        <div className="row-actions"><span id="rs-head-actions" className="rs-head-actions" />{connectors.length > 0 && <AddSiteButton ctx={await resourceContext()} initialOpen={sp.new === "1"} blockedReason={planAddBlocked(siteUsage, "resource")} />}</div>
       </div>
 
       {sites.length === 0 ? (
