@@ -23,6 +23,8 @@ export interface CardVM {
   rdpHref: string | null;
   /** Where to get a command for the user's own SSH client, when the resource allows one. */
   sshHref: string | null;
+  /** Where to get connection details for the user's own database client (a DATABASE resource). */
+  dbHref?: string | null;
   time: Remaining;
   whenIso?: string | null; // upcoming cards only: start instant (rendered in the display timezone); null = "Scheduled"
 }

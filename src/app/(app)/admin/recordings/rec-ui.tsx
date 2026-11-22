@@ -58,7 +58,14 @@ export async function downloadRecording(id: string, fileName: string, onProgress
 }
 
 /** The thumbnail art per kind: abstract, never a picture of the session. */
-export function Thumb({ kind }: { kind: "web" | "rdp" | "ssh" }) {
+export function Thumb({ kind }: { kind: "web" | "rdp" | "ssh" | "sql" }) {
+  if (kind === "sql") {
+    return (
+      <span className="rc-art sql" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((i) => <span key={i} className={i === 0 ? "h" : undefined}><b /><b /><b /></span>)}
+      </span>
+    );
+  }
   if (kind === "web") {
     return (
       <span className="rc-art web" aria-hidden="true">

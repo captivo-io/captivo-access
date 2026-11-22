@@ -184,7 +184,7 @@ function missingCopies(m: GroupMemberRow, g: { members: { connector: GroupMember
   const waiting: string[] = [];
   const noSeal: string[] = [];
   for (const s of g.sites) {
-    if (s.accessMode !== "GATEWAY" || !s.vaultCredential?.sealedTo) continue;
+    if ((s.accessMode !== "GATEWAY" && s.accessMode !== "DATABASE") || !s.vaultCredential?.sealedTo) continue;
     const seals = sealsOf(s.vaultCredential);
     if (m.vaultPublicKey && seals[m.vaultPublicKey]) continue;
     const holders = g.members.map((x) => x.connector).filter((o) => o.status !== "REVOKED" && o.vaultPublicKey && seals[o.vaultPublicKey]);

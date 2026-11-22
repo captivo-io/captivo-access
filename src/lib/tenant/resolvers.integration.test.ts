@@ -37,6 +37,8 @@ const recordingKeyA = `rv-key-a-${suffix}`;
 const recordingKeyB = `rv-key-b-${suffix}`;
 const pairingA = `rvpair-a-${suffix}`;
 const pairingB = `rvpair-b-${suffix}`;
+const dbTicketA = `rvdbt-a-${suffix}`;
+const dbTicketHashA = `rv-dbt-hash-a-${suffix}`;
 
 beforeAll(async () => {
   if (!HAS_DB) return;
@@ -90,10 +92,17 @@ beforeAll(async () => {
        ($4,$5,'rv-pair-hash-b','Pairing B',$6, now() + interval '1 hour', now())`,
     pairingA, tenantA.id, connectorA, pairingB, tenantB.id, connectorB,
   );
+
+  await owner.$executeRawUnsafe(
+    `INSERT INTO "DbTicket"(id,"tenantId","codeHash","userId","siteId","sessionId","expiresAt","createdAt") VALUES
+       ($1,$2,$3,$4,$5,$6, now() + interval '1 hour', now())`,
+    dbTicketA, tenantA.id, dbTicketHashA, userA, siteA, sessionA,
+  );
 });
 
 afterAll(async () => {
   if (!HAS_DB) return;
+  await owner.$executeRawUnsafe(`DELETE FROM "DbTicket" WHERE id = $1`, dbTicketA);
   await owner.$executeRawUnsafe(`DELETE FROM "ConnectorPairing" WHERE id IN ($1,$2)`, pairingA, pairingB);
   await owner.$executeRawUnsafe(`DELETE FROM "SessionRecording" WHERE id IN ($1,$2)`, recordingA, recordingB);
   await owner.$executeRawUnsafe(`DELETE FROM "Session" WHERE id IN ($1,$2)`, sessionA, sessionB);
@@ -149,6 +158,13 @@ d("SECURITY DEFINER resolvers for non-request contexts", () => {
     const missing = await owner.$queryRawUnsafe<{ id: string | null }[]>(
       `SELECT resolve_tenant_by_connector($1) AS id`, "nope-connector",
     );
+    expect(missing[0].id).toBeNull();
+  });
+
+  it("resolve_tenant_by_db_ticket: real hash -> tenant, unknown hash -> null", async () => {
+    const a = await owner.$queryRawUnsafe<{ id: string | null }[]>(`SELECT resolve_tenant_by_db_ticket($1) AS id`, dbTicketHashA);
+    expect(a[0].id).toBe(tenantA.id);
+    const missing = await owner.$queryRawUnsafe<{ id: string | null }[]>(`SELECT resolve_tenant_by_db_ticket($1) AS id`, "nope-hash");
     expect(missing[0].id).toBeNull();
   });
 

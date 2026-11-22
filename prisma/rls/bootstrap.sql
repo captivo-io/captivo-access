@@ -29,7 +29,7 @@ BEGIN
     'DirectoryConfig','GroupMapping','SessionPolicy','CronRun','PlatformSettings',
     'UpdateCheckConfig','SessionRecording','RecordingChunk','SessionKeyEvent','AdminAuditEvent',
     'SupportHandoff','MobileDevice','ConnectorDay','ConnectorEvent','PasskeyReset',
-    'LogDestination','ConnectorGroup','ConnectorGroupMember'
+    'LogDestination','ConnectorGroup','ConnectorGroupMember','DbTicket'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
@@ -70,7 +70,7 @@ BEGIN
     'DirectoryConfig','GroupMapping','SessionPolicy','CronRun','PlatformSettings',
     'UpdateCheckConfig','SessionRecording','RecordingChunk','SessionKeyEvent','AdminAuditEvent',
     'SupportHandoff','MobileDevice','ConnectorDay','ConnectorEvent','PasskeyReset',
-    'LogDestination','ConnectorGroup','ConnectorGroupMember'
+    'LogDestination','ConnectorGroup','ConnectorGroupMember','DbTicket'
   ] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS trg_tenant_from_guc ON %I', t);
     EXECUTE format('CREATE TRIGGER trg_tenant_from_guc BEFORE INSERT ON %I FOR EACH ROW EXECUTE FUNCTION set_tenant_from_guc()', t);
@@ -181,6 +181,9 @@ RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
 CREATE OR REPLACE FUNCTION resolve_tenant_by_connector(p_id text)
 RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
   SELECT "tenantId" FROM "Connector" WHERE id = p_id $$;
+CREATE OR REPLACE FUNCTION resolve_tenant_by_db_ticket(p_hash text)
+RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
+  SELECT "tenantId" FROM "DbTicket" WHERE "codeHash" = p_hash $$;
 
 CREATE OR REPLACE FUNCTION list_active_tenant_ids()
 RETURNS SETOF text LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
@@ -200,6 +203,7 @@ REVOKE ALL ON FUNCTION resolve_tenant_by_site(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION resolve_tenant_by_session_token(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION resolve_tenant_by_recording_key(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION resolve_tenant_by_connector(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION resolve_tenant_by_db_ticket(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION list_active_tenant_ids() FROM PUBLIC;
 REVOKE ALL ON FUNCTION list_connector_token_candidates() FROM PUBLIC;
 REVOKE ALL ON FUNCTION list_pairing_candidates() FROM PUBLIC;
@@ -211,6 +215,7 @@ GRANT EXECUTE ON FUNCTION resolve_tenant_by_site(text) TO app;
 GRANT EXECUTE ON FUNCTION resolve_tenant_by_session_token(text) TO app;
 GRANT EXECUTE ON FUNCTION resolve_tenant_by_recording_key(text) TO app;
 GRANT EXECUTE ON FUNCTION resolve_tenant_by_connector(text) TO app;
+GRANT EXECUTE ON FUNCTION resolve_tenant_by_db_ticket(text) TO app;
 GRANT EXECUTE ON FUNCTION list_active_tenant_ids() TO app;
 GRANT EXECUTE ON FUNCTION list_connector_token_candidates() TO app;
 GRANT EXECUTE ON FUNCTION list_pairing_candidates() TO app;

@@ -21,7 +21,7 @@ interface IngestBody {
   recordingKey?: string;
   seq?: number;
   bytes?: number;
-  /** "rrweb" | "guac" | "video" -- which player can replay this recording. */
+  /** "rrweb" | "guac" | "video" | "sql" -- which player can replay this recording. */
   format?: string;
   /** "ssh" | "rdp" | "vnc" for gateway sessions; absent for web. */
   protocol?: string;
@@ -30,6 +30,8 @@ interface IngestBody {
    * on. A report of its own, with no chunk behind it: it moves no counters.
    */
   truncated?: boolean;
+  /** The connector the bytes went to (a connector group's carrying member). */
+  connectorId?: string;
 }
 
 async function tenantFromReq(req: NextRequest): Promise<string | null> {
@@ -55,9 +57,10 @@ async function handler(req: NextRequest) {
     // The format decides which player the UI offers, so it has to reach the index.
     // Defaults to RRWEB because that is the only source that omitted it historically.
     const format =
-      body.format === "guac" ? "GUAC" : body.format === "video" ? "VIDEO" : "RRWEB";
+      body.format === "guac" ? "GUAC" : body.format === "video" ? "VIDEO" : body.format === "sql" ? "SQL" : "RRWEB";
 
     const truncated = body.truncated === true;
+    const connectorId = typeof body.connectorId === "string" && body.connectorId ? body.connectorId : null;
 
     await db.$transaction(async (tx) => {
       await tx.sessionRecording.upsert({
@@ -75,6 +78,7 @@ async function handler(req: NextRequest) {
           // not hold. Kept true so replay knows the payload is sealed.
           encrypted: true,
           truncated,
+          connectorId,
           lastEventAt: new Date(),
         },
         // A truncation report carries no chunk: it marks the row and leaves the

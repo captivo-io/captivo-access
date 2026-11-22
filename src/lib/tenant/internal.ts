@@ -21,6 +21,7 @@ export const resolveTenantBySite = (id: string) => callResolver("resolve_tenant_
 export const resolveTenantBySessionToken = (h: string) => callResolver("resolve_tenant_by_session_token", h);
 export const resolveTenantByRecordingKey = (k: string) => callResolver("resolve_tenant_by_recording_key", k);
 export const resolveTenantByConnector = (id: string) => callResolver("resolve_tenant_by_connector", id);
+export const resolveTenantByDbTicket = (hash: string) => callResolver("resolve_tenant_by_db_ticket", hash);
 // Hostnames are stored/matched lowercased+trimmed (mirrors resolveTenantByHostname in resolve.ts).
 export const resolveTenantByHostname = (host: string) => callResolver("resolve_tenant_by_hostname", host.toLowerCase().trim());
 

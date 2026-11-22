@@ -40,7 +40,7 @@ export const POST = withTenantRoute(async (_req: NextRequest, { params }: { para
     // alive, never proxy to a connector we've already revoked.
     return NextResponse.json({ error: "connector_revoked" });
   }
-  if (site.accessMode === "GATEWAY") {
+  if (site.accessMode === "GATEWAY" || site.accessMode === "DATABASE") {
     if (!site.vaultCredential) {
       return NextResponse.json({ error: "no_upstream_url" });
     }

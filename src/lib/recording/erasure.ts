@@ -28,7 +28,7 @@ export async function requestErasure(id: string): Promise<boolean> {
 export async function pendingErasuresByConnector(): Promise<Map<string, string[]>> {
   const pending = await db.sessionRecording.findMany({
     where: { purgePendingAt: { not: null } },
-    select: { recordingKey: true, siteId: true },
+    select: { recordingKey: true, siteId: true, connectorId: true },
   });
   if (pending.length === 0) return new Map();
 
@@ -40,7 +40,8 @@ export async function pendingErasuresByConnector(): Promise<Map<string, string[]
 
   const out = new Map<string, string[]>();
   for (const p of pending) {
-    const connectorId = connectorBySite.get(p.siteId);
+    // A connector group's recording is on the member that carried it.
+    const connectorId = p.connectorId ?? connectorBySite.get(p.siteId);
     // A recording whose site or connector is gone can never be confirmed erased.
     // It stays pending on purpose: silently dropping it would report an erasure
     // that no one performed.

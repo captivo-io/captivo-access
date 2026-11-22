@@ -105,7 +105,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     return NextResponse.json({ id: site.id });
   }
 
-  // GATEWAY (remote desktop): the site (null hostname/upstream) + its credential, atomically.
+  // GATEWAY (remote desktop) or DATABASE: the site (null hostname/upstream) + its credential, atomically.
   let stored;
   try {
     stored = await storedSecretFor({ connectorId: v.connectorId, connectorGroupId }, v.secret!, { host: v.targetHost, port: v.targetPort, username: v.username });
@@ -113,13 +113,19 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
     throw e;
   }
+  // A database password opens only on a connector: the proxy never holds one.
+  if (v.mode === "DATABASE" && !storedSecretColumns(stored).sealedTo) return NextResponse.json({ error: "vault_connector_key_required" }, { status: 409 });
   const id = await db.$transaction(async (tx) => {
     const site = await tx.site.create({
-      data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData },
+      data: v.mode === "DATABASE"
+        ? { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, accessMode: "DATABASE", ...logoData }
+        : { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData },
       select: { id: true },
     });
     await tx.vaultCredential.create({
-      data: { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
+      data: v.mode === "DATABASE"
+        ? { siteId: site.id, protocol: "POSTGRES", targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", dbParams: v.dbParams as Prisma.InputJsonValue }
+        : { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
     });
     return site.id;
   });

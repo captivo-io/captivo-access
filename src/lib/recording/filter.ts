@@ -1,10 +1,10 @@
 import type { Prisma } from "@/generated/prisma/client";
 
-export type RecordingType = "web" | "rdp" | "ssh";
+export type RecordingType = "web" | "rdp" | "ssh" | "sql";
 
 export interface RecordingFilter {
   q?: string;
-  /** Web (web app, isolated browser), RDP (RDP and VNC desktops) or SSH (SSH, telnet). */
+  /** Web (web app, isolated browser), RDP (RDP and VNC desktops), SSH (SSH, telnet) or a database's query log. */
   type?: RecordingType;
   /** Only sessions that closed at once (under a second, as measured by the connector). */
   empty?: boolean;
@@ -21,6 +21,7 @@ const TERMINAL = ["ssh", "telnet"];
 
 /** The Web / RDP / SSH tab a recording falls under. */
 export function recordingType(r: { format: string; protocol: string | null }): RecordingType {
+  if (r.format === "SQL") return "sql";
   if (r.format !== "GUAC") return "web";
   return r.protocol && TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp";
 }
@@ -35,6 +36,7 @@ export function buildRecordingWhere(
   const and: Prisma.SessionRecordingWhereInput[] = [];
   if (filter.type === "web") where.format = { in: ["RRWEB", "VIDEO"] };
   if (filter.type === "ssh") { where.format = "GUAC"; where.protocol = { in: TERMINAL }; }
+  if (filter.type === "sql") where.format = "SQL";
   if (filter.type === "rdp") {
     where.format = "GUAC";
     and.push({ OR: [{ protocol: null }, { protocol: { notIn: TERMINAL } }] });
@@ -72,7 +74,7 @@ export function parseRecordingFilter(
 ): RecordingFilter {
   const q = sp.get("q")?.trim() || undefined;
   const typeParam = sp.get("type");
-  const type = typeParam === "web" || typeParam === "rdp" || typeParam === "ssh" ? typeParam : undefined;
+  const type = typeParam === "web" || typeParam === "rdp" || typeParam === "ssh" || typeParam === "sql" ? typeParam : undefined;
   const empty = sp.get("empty") === "1" || undefined;
   const cmd = sp.get("cmd")?.trim() || undefined;
   const userId = sp.get("userId")?.trim() || undefined;

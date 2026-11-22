@@ -5,6 +5,7 @@ import type { CardVM } from "./portal-home";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { ResourceIcon } from "@/components/resource-icon";
 import { SshCommandButton } from "./ssh-command";
+import { DbConnectButton } from "./db-connect";
 
 type TypeFilter = "all" | "web" | "remote";
 const PAGE_SIZE = 25;
@@ -22,7 +23,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return cards.filter((c) => {
-      const remote = c.accessMode === "GATEWAY";
+      const remote = c.accessMode === "GATEWAY" || c.accessMode === "DATABASE";
       if (type === "web" && remote) return false;
       if (type === "remote" && !remote) return false;
       return !s || c.siteName.toLowerCase().includes(s) || c.hostname.toLowerCase().includes(s);
@@ -41,7 +42,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
           <input type="search" placeholder="Search resources…" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} aria-label="Search resources" />
         </label>
         <div className="seg" role="group" aria-label="Type">
-          {([["all", "All"], ["web", "Web"], ["remote", "Remote desktop"]] as const).map(([k, l]) => (
+          {([["all", "All"], ["web", "Web"], ["remote", cards.some((c) => c.accessMode === "DATABASE") ? "Remote & databases" : "Remote desktop"]] as const).map(([k, l]) => (
             <button key={k} type="button" className={type === k ? "seg-opt on" : "seg-opt"} aria-pressed={type === k} onClick={() => { setType(k); setPage(0); }}>{l}</button>
           ))}
         </div>
@@ -55,6 +56,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
           </div>
         ) : shown.map((c) => {
           const remote = c.accessMode === "GATEWAY";
+          const isDb = c.accessMode === "DATABASE";
           // A window with an end depletes; permanent and recurring ones do not.
           const timed = c.time.tone !== "schedule" && c.time.text !== "Permanent";
           const low = c.time.pct < 20;
@@ -63,7 +65,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
               <span className="ma-res">
                 <ResourceIcon name={c.tile.icon} color={c.tile.color} logoUrl={c.tile.logoUrl} logoBg={c.tile.logoBg} size={40} />
                 <span className="ma-res-main">
-                  <span className="ma-res-t"><b>{c.siteName}</b><span className={remote ? "chip violet" : "chip"}>{remote ? "REMOTE" : "WEB"}</span></span>
+                  <span className="ma-res-t"><b>{c.siteName}</b><span className={isDb ? "chip green" : remote ? "chip violet" : "chip"}>{isDb ? "DATABASE" : remote ? "REMOTE" : "WEB"}</span></span>
                   {c.hostname && <span className="mono t-muted ma-host">{c.hostname}</span>}
                 </span>
               </span>
@@ -83,7 +85,9 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                   <a className="btn sm" href={c.rdpHref} download title="Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.">.rdp file</a>
                 )}
                 {c.status === "active" && c.sshHref && <SshCommandButton href={c.sshHref} siteId={c.siteId} siteName={c.siteName} />}
-                {c.status === "active"
+                {isDb
+                  ? (c.status === "active" && c.dbHref ? <DbConnectButton href={c.dbHref} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This database's connector needs an update first." : undefined}>Connect</span>)
+                  : c.status === "active"
                   ? <a className="btn ink sm" href={c.href} target="_blank" rel="noopener noreferrer">Open ↗</a>
                   : <span className="btn sm" aria-disabled="true">Open</span>}
               </span>

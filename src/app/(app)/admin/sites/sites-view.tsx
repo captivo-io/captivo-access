@@ -19,7 +19,7 @@ export interface SiteRow {
   /** RDP / SSH / VNC / TELNET for a remote session; null otherwise. */
   protocol: string | null;
   description: string | null;
-  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED";
+  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE";
   hasLogo: boolean;
   iconName: string | null;
   iconColor: string | null;
@@ -55,10 +55,11 @@ const STORE_KEY = "captivo:sites-view";
 /** HTTPS / HTTP for a web app or isolated browser, the session protocol for a remote one. */
 function protocolOf(s: SiteRow): string {
   if (s.accessMode === "GATEWAY") return s.protocol ?? "REMOTE";
+  if (s.accessMode === "DATABASE") return "POSTGRESQL";
   const u = s.upstreamUrl ?? "";
   return u.startsWith("http://") ? "HTTP" : "HTTPS";
 }
-const isRemote = (s: SiteRow) => s.accessMode === "GATEWAY";
+const isRemote = (s: SiteRow) => s.accessMode === "GATEWAY" || s.accessMode === "DATABASE";
 const target = (s: SiteRow) => s.upstreamUrl ?? (s.gatewayTarget ? `${(s.protocol ?? "").toLowerCase() || "tcp"}://${s.gatewayTarget}` : null);
 const stripScheme = (u: string) => u.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "");
 function targetHost(s: SiteRow): string | null {
@@ -219,7 +220,7 @@ export function SitesView({
   });
   const avg = counts.avg == null ? "—" : counts.avg < 10 ? counts.avg.toFixed(1) : String(Math.round(counts.avg));
   // Recorded, but typed keys not logged: easy to miss when the resource was set up.
-  const keysOff = (s: SiteRow) => recordingEnabled && keystrokeMode === "per_resource"
+  const keysOff = (s: SiteRow) => recordingEnabled && keystrokeMode === "per_resource" && s.accessMode !== "DATABASE"
     && (recordingMode === "required" || (recordingMode !== "off" && s.recordSessions)) && !s.keystrokeLogging;
   const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, keysOff, selected, onSelect: select, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
   const allShown = shown.length > 0 && shown.every((s) => selected.has(s.id));
@@ -397,7 +398,7 @@ function BulkMove({ sites, connectors, groups, onCancel, onDone }: { sites: Site
   const dest = options.find((o) => o.value === to);
   const there = (s: SiteRow) => (s.connectorGroupId ? `g:${s.connectorGroupId}` : s.connectorId) === to;
   // A sealed password moves only where one of its seals still opens.
-  const sealed = sites.filter((s) => s.accessMode === "GATEWAY" && s.sealed && !there(s) && !s.sealedKeys.some((k) => dest?.keys.includes(k)));
+  const sealed = sites.filter((s) => (s.accessMode === "GATEWAY" || s.accessMode === "DATABASE") && s.sealed && !there(s) && !s.sealedKeys.some((k) => dest?.keys.includes(k)));
   const movable = sites.filter((s) => !there(s) && !sealed.includes(s));
   async function go() {
     setBusy(true);
@@ -585,6 +586,7 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
             <b title={s.name}>{s.name}</b>
             {s.accessMode === "GATEWAY" && <span className="rs-mode">GATEWAY</span>}
             {s.accessMode === "ISOLATED" && <span className="rs-mode">ISOLATED</span>}
+            {s.accessMode === "DATABASE" && <span className="rs-mode">DATABASE</span>}
           </div>
           <div className="rs-host">
             <span className="rs-proto-l">{proto}</span><span className="t-muted"> · </span>

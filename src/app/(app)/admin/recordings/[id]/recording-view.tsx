@@ -15,6 +15,7 @@ import { RecordingPlayer } from "./recording-player";
 import { GuacRecordingPlayer } from "./guac-recording-player";
 import { VideoRecordingPlayer } from "./video-recording-player";
 import { PreparingRecording } from "./preparing-recording";
+import { QueryLog } from "./query-log";
 
 export interface RecordingInfo {
   id: string;
@@ -54,7 +55,8 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
   const kind = recordingType(rec);
   const empty = rec.measured && rec.lengthMs < 1000;
   const [wide, setWide] = useState(false);
-  const [tab, setTab] = useState<"events" | "details">("events");
+  const sql = rec.format === "SQL";
+  const [tab, setTab] = useState<"events" | "details">(sql ? "details" : "events");
   const [clock, setClock] = useState<Clock>({ position: startMs ?? 0, total: rec.lengthMs, playing: false, ready: false, speed: 1 });
   const [keys, setKeys] = useState<KeystrokeEvent[]>([]);
   const [keysState, setKeysState] = useState<"loading" | "ok" | "unreachable">("loading");
@@ -162,7 +164,9 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
 
       <div className="rv-grid">
         <div className="rv-stage">
-          {empty ? (
+          {sql ? (
+            <QueryLog events={keys} state={keysState} startedAt={rec.startedAt} />
+          ) : empty ? (
             <div className="rv-empty">
               <b>Empty session</b>
               <span>The connection closed at once. There is nothing to replay.</span>
@@ -181,7 +185,7 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
         {!wide && (
           <aside className="rv-side">
             <div className="rv-tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={tab === "events"} className={tab === "events" ? "on" : ""} onClick={() => setTab("events")}>Events</button>
+              {!sql && <button type="button" role="tab" aria-selected={tab === "events"} className={tab === "events" ? "on" : ""} onClick={() => setTab("events")}>Events</button>}
               <button type="button" role="tab" aria-selected={tab === "details"} className={tab === "details" ? "on" : ""} onClick={() => setTab("details")}>Details</button>
             </div>
             {tab === "events" ? (

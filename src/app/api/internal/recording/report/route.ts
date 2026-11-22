@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { connectorForRecording } from "@/lib/recording/connector-of";
 import { currentTenantId } from "@/lib/tenant/context";
 import { requireDataplaneSecret, resolveTenantByConnector, withTenantFrom } from "@/lib/tenant/internal";
 
@@ -40,11 +41,11 @@ async function handler(req: NextRequest) {
     if (it.tenantId !== tenantId) continue;
     const rec = await db.sessionRecording.findUnique({
       where: { tenantId_recordingKey: { tenantId, recordingKey: it.recordingKey } },
-      select: { id: true, siteId: true, format: true },
+      select: { id: true, siteId: true, format: true, connectorId: true },
     });
     if (!rec) continue;
-    const site = await db.site.findUnique({ where: { id: rec.siteId }, select: { connectorId: true } });
-    if (!site || site.connectorId !== connectorId) continue;
+    // Only the connector holding it reports on it: on a group, the member that carried the session.
+    if ((await connectorForRecording(rec)) !== connectorId) continue;
     await db.sessionRecording.update({
       where: { id: rec.id },
       data: {
