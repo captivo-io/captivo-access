@@ -11,6 +11,10 @@ import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { DecisionButtons } from "./decision-buttons";
 import { GrantsView } from "./grants-view";
 import { withRequestTenant } from "@/lib/tenant/request";
+import { TicketChip } from "@/app/(app)/_shell/ticket-chip";
+import { checksTickets, loadTicketSystem, systemLabel } from "@/lib/ticketing/system";
+import { effectiveMode } from "@/lib/ticketing/rules";
+import type { GrantTickets } from "./grant-dialog";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Grants" };
@@ -22,7 +26,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
   const canConfigure = can(user.role, "configure");
   const now = new Date();
 
-  const [ws, users, sites, rows, pending, maxGrantDays] = await Promise.all([
+  const [ws, users, sites, rows, pending, maxGrantDays, ticketSys, ticketModes] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findMany({
       select: { id: true, name: true, email: true, role: true, company: true, status: true },
@@ -32,7 +36,15 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
     grantRows(now),
     listPendingGrants(),
     resolvedMaxGrantDays(),
+    loadTicketSystem(),
+    db.site.findMany({ select: { id: true, ticketMode: true } }),
   ]);
+  const tickets: GrantTickets = {
+    modes: Object.fromEntries(ticketModes.map((s) => [s.id, effectiveMode(s.ticketMode, ticketSys)])),
+    system: systemLabel(ticketSys),
+    kind: ticketSys?.kind ?? "none",
+    checked: checksTickets(ticketSys),
+  };
   const tiles = sites.map(siteTile);
   const initialFilter: GrantFilter = GRANT_FILTERS.includes(sp.status as GrantFilter) ? (sp.status as GrantFilter) : "all";
 
@@ -52,7 +64,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
           <div key={p.id} className="gr-pending-row">
             <span className="gr-pending-who"><b>{p.user.name}</b><span className="mono t-muted">{p.user.email}</span></span>
             <span className="gr-pending-what">
-              <b>{p.site.name}</b>
+              <b>{p.site.name}{p.ticketRef && <> <TicketChip ticketRef={p.ticketRef} ticket={p.ticket} verified={p.ticketVerified} /></>}</b>
               <span className="cell-sub">
                 {p.startsAt ? <LocalTime iso={p.startsAt.toISOString()} /> : "Now"} → {p.endsAt ? <LocalTime iso={p.endsAt.toISOString()} /> : "Permanent"}
                 {s && <> · {formatSchedule(s)}</>}
@@ -81,6 +93,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
         initialFilter={initialFilter}
         openNew={sp.new === "1"}
         openUser={typeof sp.user === "string" ? sp.user : null}
+        tickets={tickets}
       />
     </main>
   );

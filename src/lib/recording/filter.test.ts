@@ -12,9 +12,9 @@ describe("buildRecordingWhere", () => {
     const w = buildRecordingWhere({ from, to, limit: 50, offset: 0 });
     expect(w.startedAt).toEqual({ gte: from, lte: to });
   });
-  it("matches q against the host and the resources and people found by name", () => {
+  it("matches q against the host, a ticket number and the resources and people found by name", () => {
     const w = buildRecordingWhere({ q: "prox", limit: 50, offset: 0 }, { siteIds: ["s1"], userIds: [] });
-    expect(w.AND).toEqual([{ OR: [{ host: { contains: "prox", mode: "insensitive" } }, { siteId: { in: ["s1"] } }] }]);
+    expect(w.AND).toEqual([{ OR: [{ host: { contains: "prox", mode: "insensitive" } }, { ticketRef: { equals: "prox", mode: "insensitive" } }, { siteId: { in: ["s1"] } }] }]);
   });
   it("ignores q shorter than 2 chars", () => {
     const w = buildRecordingWhere({ q: "p", limit: 50, offset: 0 });

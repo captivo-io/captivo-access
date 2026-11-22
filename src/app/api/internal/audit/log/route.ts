@@ -4,6 +4,7 @@ import { requireDataplaneSecret, resolveTenantBySite, resolveTenantByHostname } 
 import { withTenant } from "@/lib/tenant/scope";
 import { multiTenantEnabled } from "@/lib/tenant/enabled";
 import { noteSessionsClosed } from "@/lib/vault/rotation-pass";
+import { deliverTicketNotes, queueSessionNotes } from "@/lib/ticketing/notes";
 
 // Resources whose session just ended: password rotation may be due (lib/vault/rotation-pass.ts).
 function closedSites(events: AuditInput[]): string[] {
@@ -13,6 +14,15 @@ function closedSites(events: AuditInput[]): string[] {
 async function noteClosed(events: AuditInput[]): Promise<void> {
   const ids = closedSites(events);
   if (ids.length) await noteSessionsClosed(ids).catch((e) => console.error("vault: noting closed sessions failed", e));
+}
+
+/** Work notes for ticketed sessions: queued in the scope, sent after it (not awaited). */
+async function noteTickets(events: AuditInput[]): Promise<boolean> {
+  return (await queueSessionNotes(events).catch((e) => { console.error("ticketing: queueing notes failed", e); return 0; })) > 0;
+}
+
+function sendTicketNotes(tenantId: string | null): void {
+  void deliverTicketNotes(tenantId).catch((e) => console.error("ticketing: sending notes failed", e));
 }
 
 // The hosted data-plane is shared across ALL tenants, so a single batch can
@@ -41,6 +51,7 @@ async function handler(req: NextRequest) {
   if (!multiTenantEnabled()) {
     const inserted = await appendAuditEvents(events);
     await noteClosed(events);
+    if (await noteTickets(events)) sendTicketNotes(null);
     return NextResponse.json({ inserted });
   }
 
@@ -59,11 +70,14 @@ async function handler(req: NextRequest) {
 
   let inserted = 0;
   for (const [tid, group] of groups) {
+    let notes = false;
     inserted += await withTenant(tid, async () => {
       const n = await appendAuditEvents(group);
       await noteClosed(group);
+      notes = await noteTickets(group);
       return n;
     });
+    if (notes) sendTicketNotes(tid);
   }
 
   return NextResponse.json({ inserted, dropped });

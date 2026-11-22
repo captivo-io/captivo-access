@@ -1,0 +1,44 @@
+/* Ticketing: builds on the email/SSO and log forwarding pages */
+.tk-page{display:flex;flex-direction:column;gap:18px;}
+.lf-kind.tk-servicenow{background:#293e40;}
+.lf-kind.tk-jira{background:#0c66e4;}
+.lf-kind.tk-https{background:var(--a);}
+.lf-kind.tk-none{background:rgba(var(--ink-rgb),.45);font-size:13px;}
+.em-chip.warn{background:rgba(var(--warn-rgb),.14);color:var(--warn);}
+.tk-checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,190px),1fr));gap:6px 14px;}
+.tk-check{display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;}
+.tk-states{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 8px;border:1px solid var(--line);border-radius:10px;background:var(--card);min-height:40px;}
+.tk-state{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 9px;border-radius:99px;background:rgba(var(--ink-rgb),.07);font-size:12.5px;}
+.tk-state button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:0 4px;border-radius:99px;}
+.tk-state button:hover{color:var(--bad);}
+.tk-state-input{flex:1 1 120px;min-width:100px;border:0;outline:none;background:transparent;font:inherit;font-size:13px;color:var(--fg);padding:2px 4px;}
+.tk-modes{flex-wrap:wrap;}
+.tk-test-row{display:flex;gap:8px;flex-wrap:wrap;}
+.tk-test-row .input{flex:1 1 160px;min-width:0;}
+.tk-found{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);}
+.tk-found-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.tk-found-link{margin-left:auto;font-size:13px;}
+.tk-found-title{font-size:14px;font-weight:500;overflow-wrap:anywhere;}
+.tk-found-dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;margin:0;}
+.tk-found-dl dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+.tk-found-dl dd{margin:2px 0 0;font-size:13px;overflow-wrap:anywhere;}
+.tk-notes{margin-left:auto;}
+.tk-how{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:10px;font-size:13.5px;line-height:1.5;}
+.tk-how b{font-weight:600;}
+.tk-contract{border:1px solid var(--line);border-radius:12px;max-height:none;}
+.tk-res{overflow:hidden;}
+.tk-res .em-card-head{flex-wrap:wrap;gap:12px;}
+.tk-res-q{flex:0 1 260px;min-width:0;}
+.tk-res-wrap{overflow-x:auto;}
+.tk-res-tbl td{vertical-align:middle;}
+.tk-res-tbl .num{text-align:right;}
+.tk-mode-chip{margin-left:8px;}
+/* The ticket on a grant, a request or a recording */
+.tk-ref{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:6px;background:rgba(var(--a-rgb),.1);color:var(--fg);font-family:var(--mono);font-size:11.5px;font-weight:600;white-space:nowrap;text-decoration:none;}
+.tk-ref:hover{text-decoration:underline;}
+.tk-ref.unverified{background:rgba(var(--warn-rgb),.14);}
+.tk-ref-state{font-family:var(--sans);font-weight:500;color:var(--muted);}
+.tk-res .em-card-t{flex:1 1 320px;}
+.tk-res-tbl .select{width:auto;max-width:280px;}
+.tk-res-tbl td:nth-child(3){white-space:nowrap;}
+.rc-ticket{display:flex;margin-top:6px;}

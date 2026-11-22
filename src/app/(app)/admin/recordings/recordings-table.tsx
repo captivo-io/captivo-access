@@ -36,6 +36,8 @@ export interface RecordingRowJSON {
   /** An erasure was asked for; the card stays until the connector confirms. */
   purgePending: boolean;
   videoReady: boolean;
+  /** The ticket of the grant the session ran under. */
+  ticketRef?: string | null;
 }
 
 type Opt = { id: string; name: string | null; email?: string | null };
@@ -214,7 +216,7 @@ export function RecordingsTable({
       <div className="rs-tools rc-tools">
         <label className="ma-search rc-search">
           <NavIcon name="search" size={16} />
-          <input type="search" placeholder="Resource, host or user" value={filters.q} onChange={(e) => typed("q", e.target.value)} aria-label="Search recordings" />
+          <input type="search" placeholder="Resource, host, user or ticket" value={filters.q} onChange={(e) => typed("q", e.target.value)} aria-label="Search recordings" />
         </label>
         <label className={filters.cmd ? "ma-search rc-cmd on" : "ma-search rc-cmd"}>
           <span className="rc-prompt" aria-hidden="true">&gt;_</span>
@@ -324,6 +326,7 @@ function Card({ r, c }: { r: RecordingRowJSON; c: CardCtx }) {
           <span className="rc-user"><span className="au-av sm" aria-hidden="true">{initials(name)}</span><span>{name}</span></span>
           <span className="mono rc-size">{humanBytes(r.bytes)}</span>
         </div>
+        {r.ticketRef && <div className="rc-ticket"><span className="tk-ref" title="The ticket the session ran under">{r.ticketRef}</span></div>}
         {hit ? (
           <button type="button" className="rc-hit" onClick={() => c.open(r.id, hit.atMs)} title="Open the recording at this moment">
             <span className="mono">{clockOf(hit.atMs)}</span><span className="mono rc-hit-t">$ {hit.text}</span>

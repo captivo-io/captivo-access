@@ -19,7 +19,11 @@ export function DecisionButtons({ grantId }: { grantId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(decision === "deny" ? { decision, reason } : { decision }),
       });
-      if (!res.ok) { setError("Action failed."); return; }
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        setError(b.error === "ticket_refused" && b.message ? `The ticket can't be used: ${b.message}` : b.error === "not_pending" ? "Already decided." : "Action failed.");
+        return;
+      }
       router.refresh();
     } catch {
       setError("Action failed.");

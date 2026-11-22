@@ -13,6 +13,10 @@ import { withTenantRoute } from "@/lib/tenant/request";
 import { consoleBaseUrl } from "@/lib/tenant/console-url";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { pushToCapability } from "@/lib/mobile/push";
+import { gateTicket } from "@/lib/ticketing/system";
+import { ticketApprovalAudit } from "@/lib/ticketing/audit";
+import { accessDecisionEmail } from "@/lib/email/templates";
+import { workspaceView } from "@/lib/mobile/views";
 
 function parseDate(value: unknown): { ok: true; value: Date | null } | { ok: false } {
   if (value === undefined || value === null || value === "") return { ok: true, value: null };
@@ -52,7 +56,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     schedule = v.schedule;
   }
 
-  const site = await db.site.findUnique({ where: { id: siteId }, select: { id: true, name: true } });
+  const site = await db.site.findUnique({ where: { id: siteId }, select: { id: true, name: true, ticketMode: true } });
   if (!site) return NextResponse.json({ error: "invalid_site" }, { status: 400 });
 
   // Guard against requesting a site the user already holds (active/upcoming/pending/
@@ -62,15 +66,44 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   );
   if (held) return NextResponse.json({ error: "already_have_access" }, { status: 409 });
 
+  // The ticket, when the resource asks for one (or one was given): checked in
+  // the workspace's ticket system, the times fitted into its change window.
+  const ws = await workspaceView().catch(() => ({ slug: null as string | null }));
+  const gate = await gateTicket({
+    ref: body.ticket, sites: [site], who: { email: user.email, name: user.name },
+    startsAt: startsAt.value, endsAt: endsAt.value, workspace: ws.slug ?? "default",
+  });
+  if (!gate.ok) return NextResponse.json({ error: gate.error, message: gate.message }, { status: gate.status });
+  if (gate.startsAt && gate.endsAt && gate.startsAt >= gate.endsAt) {
+    return NextResponse.json({ error: "ticket_window_over", message: "The ticket's change window ends before the access would start." }, { status: 400 });
+  }
+
   const result = await createAccessRequest({
     userId: user.id,
     siteId,
-    startsAt: startsAt.value,
-    endsAt: endsAt.value,
+    startsAt: gate.startsAt,
+    endsAt: gate.endsAt,
     note,
     schedule,
+    ticket: gate.ticket,
+    approvedByTicket: gate.approvedByTicket,
   });
   if (!result.ok) return NextResponse.json({ error: result.reason }, { status: 409 });
+
+  const window = { startsAt: gate.startsAt?.toISOString() ?? null, endsAt: gate.endsAt?.toISOString() ?? null, clamped: gate.clamped };
+  if (gate.approvedByTicket && gate.ticket) {
+    // Approved where the change was approved: no second approval here.
+    await ticketApprovalAudit(result.id, gate.ticket.ticketRef, gate.system, `${user.name ?? user.email} → ${site.name}`);
+    if (await notifyEmailEnabled("access_decisions")) {
+      try {
+        const m = accessDecisionEmail({ decision: "approved", siteName: site.name, consoleUrl: await consoleBaseUrl() });
+        await sendMail({ to: user.email, subject: m.subject, html: m.html, text: m.text });
+      } catch {
+        // Best-effort.
+      }
+    }
+    return NextResponse.json({ id: result.id, approved: true, system: gate.system, ...window }, { status: 201 });
+  }
 
   if (await notifyEmailEnabled("access_requests")) {
     try {
@@ -80,6 +113,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
           vendorName: user.name,
           vendorEmail: user.email,
           siteName: site.name,
+          ticket: gate.ticket ? { ref: gate.ticket.ticketRef, verified: gate.ticket.ticketVerified } : null,
           consoleUrl: await consoleBaseUrl(),
         });
         await sendMail({ to: admins, subject: m.subject, html: m.html, text: m.text });
@@ -94,7 +128,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   try {
     await pushToCapability("approve_grants", {
       title: "Access request",
-      body: `${user.name} asks for ${site.name}`,
+      body: `${user.name} asks for ${site.name}${gate.ticket ? ` (${gate.ticket.ticketRef})` : ""}`,
       data: { type: "access_request", grantId: result.id, origin: await consoleBaseUrl() },
       // Approve / Deny buttons on the notification (Captivo Admin 1.4.0+; older apps show it plain).
       categoryId: "access_request",
@@ -103,5 +137,5 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     // Best-effort: a push never decides anything.
   }
 
-  return NextResponse.json({ id: result.id }, { status: 201 });
+  return NextResponse.json({ id: result.id, approved: false, unverified: gate.unverified, ...window }, { status: 201 });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

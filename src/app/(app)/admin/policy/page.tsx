@@ -26,6 +26,7 @@ const JOB_LABEL: Record<CronJob, string> = {
   "recording-retention": "Recording retention",
   "audit-anchor": "External anchor",
   "access-reviews": "Access reviews",
+  tickets: "Ticket checks",
 };
 
 // The server's list, so the first browser render matches the HTML.

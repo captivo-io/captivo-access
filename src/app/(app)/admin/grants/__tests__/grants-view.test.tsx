@@ -14,7 +14,8 @@ const NOW = Date.parse("2026-11-18T12:00:00Z");
 const grant = (over: Partial<GrantRowJSON>): GrantRowJSON => ({
   id: "g", userId: "admin", siteId: "rdp", kind: "permanent", state: "active", reason: "allow",
   startsAt: null, endsAt: null, createdAt: "2026-08-02T09:00:00.000Z", endedAt: null,
-  days: null, hours: null, zone: null, nextStart: null, note: null, denyReason: null, permanent: true, soon: false, ...over,
+  days: null, hours: null, zone: null, nextStart: null, note: null, denyReason: null, permanent: true, soon: false,
+  ticketRef: null, ticket: null, ticketVerified: false, revokeReason: null, ...over,
 });
 const rows: GrantRowJSON[] = [
   ...Array.from({ length: 5 }, (_, i) => grant({ id: `p${i}` })),

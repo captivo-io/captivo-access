@@ -10,6 +10,9 @@ import { ResourceIcon } from "@/components/resource-icon";
 import { grantCovers, type CoverWindow } from "@/lib/access/grant-cover";
 import type { Role } from "@/generated/prisma/enums";
 
+/** What each resource asks for in tickets ("off" when it isn't listed), and the ticket system. */
+export type GrantTickets = { modes: Record<string, "off" | "required" | "itsm">; system: string; kind: string; checked: boolean };
+
 export type GrantUser = { id: string; name: string; email: string; role: Role; company?: string | null; status?: string };
 /** A live grant the person already has, described ("access until Nov 20, 18:00", "permanent access"). */
 export type ExistingGrant = CoverWindow & { userId: string; siteId: string; label: string };
@@ -53,6 +56,7 @@ function errorMessage(code: string | undefined): string {
     case "grant_exceeds_max": return "This grant is longer than the maximum duration the policy allows.";
     case "forbidden": return "You can't grant access.";
     case "already_covered": return "An existing grant already covers this whole window for one of these resources.";
+    case "ticket_window_over": return "The ticket's change window ends before this access would start.";
     default: return "Couldn't grant access. Try again.";
   }
 }
@@ -62,7 +66,7 @@ function errorMessage(code: string | undefined): string {
  * resources, a window and optional recurring hours. One grant per resource.
  */
 export function GrantDialogBody({
-  users, sites, existing, maxGrantDays, initialUserId, initialSiteIds, onDone, onClose,
+  users, sites, existing, maxGrantDays, initialUserId, initialSiteIds, onDone, onClose, tickets,
 }: {
   users: GrantUser[];
   sites: SiteTile[];
@@ -73,6 +77,7 @@ export function GrantDialogBody({
   initialSiteIds?: string[];
   onDone: (n: number, userId: string) => void;
   onClose: () => void;
+  tickets?: GrantTickets;
 }) {
   const tz = useTimezone();
   const zone = tz ?? browserZone();
@@ -91,6 +96,9 @@ export function GrantDialogBody({
   const [start, setStart] = useState("09:00");
   const [end, setEnd] = useState("18:00");
   const [note, setNote] = useState("");
+  const [ticket, setTicket] = useState("");
+  // The ticket system didn't answer: the admin may grant anyway, marked "not checked".
+  const [unverifiable, setUnverifiable] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,15 +125,18 @@ export function GrantDialogBody({
   const mine = (siteId: string) => existing.filter((g) => g.userId === userId && g.siteId === siteId);
   const coveredBy = (siteId: string) => mine(siteId).find((g) => grantCovers(g, proposed, openedAt));
   const coveredPicks = siteIds.filter((id) => coveredBy(id));
-  const ready = !!user && siteIds.length > 0 && coveredPicks.length === 0;
+  const ticketSites = siteIds.filter((id) => (tickets?.modes[id] ?? "off") !== "off");
+  const needsTicket = ticketSites.length > 0;
+  const ready = !!user && siteIds.length > 0 && coveredPicks.length === 0 && (!needsTicket || ticket.trim() !== "");
   const summary = coveredPicks.length
     ? `${coveredPicks.map((id) => sites.find((x) => x.id === id)?.name).join(", ")}: already covered by an existing grant. Untick it, or change the window.`
     : ready
     ? `${user!.name || user!.email} · ${siteIds.length} ${siteIds.length === 1 ? "resource" : "resources"} · ${durLabel} · ${later ? "starts later" : "starts now"}`
-    : "Pick a user and at least one resource.";
+    : needsTicket && user && siteIds.length > 0 && !ticket.trim() ? "Enter the ticket number." : "Pick a user and at least one resource.";
 
-  async function submit() {
+  async function submit(override = false) {
     setError(null);
+    if (!override) setUnverifiable(null);
     const startsAt = later ? parseDatetimeLocal(from, tz) : null;
     if (later && !startsAt) { setError("Pick when the access starts."); return; }
     const base = startsAt ?? new Date();
@@ -149,9 +160,13 @@ export function GrantDialogBody({
           endsAt: endsAt?.toISOString() ?? null,
           note: note.trim() || undefined,
           schedule,
+          ticket: ticket.trim() || undefined,
+          ticketOverride: override || undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
+      if (body?.error === "ticket_unverifiable") { setUnverifiable(body.message ?? "The ticket system did not answer."); return; }
+      if (typeof body?.error === "string" && body.error.startsWith("ticket_") && body.message) { setError(body.message); return; }
       if (!res.ok || !Array.isArray(body?.ids)) { setError(errorMessage(body?.error)); return; }
       onDone(body.ids.length, userId!);
     } catch {
@@ -296,9 +311,29 @@ export function GrantDialogBody({
         )}
       </div>
 
+      {(needsTicket || tickets?.checked) && (
+        <label className="rq-sec">
+          <span className="rq-label">
+            <span>Ticket {!needsTicket && <span className="t-muted gd-opt">(optional)</span>}</span>
+            <span className="mono t-muted">{tickets?.checked ? `checked in ${tickets.system}` : needsTicket ? `${ticketSites.length === siteIds.length ? "required" : `required by ${ticketSites.length} of them`}` : ""}</span>
+          </span>
+          <input className="input mono" value={ticket} onChange={(e) => { setTicket(e.target.value); setUnverifiable(null); }} placeholder={tickets?.kind === "jira" ? "OPS-123" : "CHG0030001"} spellCheck={false} autoComplete="off" />
+          {tickets?.checked && <span className="cell-sub">Checked for {user ? (user.name || user.email) : "the person"}: the access fits its change window and ends when it closes.</span>}
+        </label>
+      )}
+
+      {unverifiable && (
+        <div className="gd-warn" role="alert">
+          <b>!</b>
+          <span>{tickets?.system ?? "The ticket system"} couldn&apos;t check the ticket: {unverifiable} You can still grant it; the grant and the log will say it wasn&apos;t checked, and it is checked again every 5 minutes.
+            {" "}<button type="button" className="btn sm" disabled={busy} onClick={() => void submit(true)}>Grant without checking</button>
+          </span>
+        </div>
+      )}
+
       <label className="rq-sec">
         <span className="rq-label"><span>Note <span className="t-muted gd-opt">(optional)</span></span></span>
-        <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="e.g. ticket number, task…" />
+        <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="e.g. task, contact…" />
       </label>
 
       {error && <p className="notice error" role="alert">{error}</p>}

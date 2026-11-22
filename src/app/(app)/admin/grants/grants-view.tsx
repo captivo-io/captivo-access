@@ -5,7 +5,8 @@ import { Modal } from "@/app/(app)/_shell/modal";
 import { useZone, fmt, hm, dayKey } from "@/app/(app)/admin/audit/audit-zone";
 import { grantKpis, matchesFilter, limitDays, PERMANENT_HINT_AT, type GrantFilter } from "@/lib/access/grant-view";
 import type { GrantRowJSON, SiteTile } from "@/lib/access/grant-rows";
-import { GrantDialogBody, RoleChip, initials, type GrantUser, type ExistingGrant } from "./grant-dialog";
+import { GrantDialogBody, RoleChip, initials, type GrantUser, type ExistingGrant, type GrantTickets } from "./grant-dialog";
+import { TicketChip } from "../../_shell/ticket-chip";
 import { EditGrantBody } from "./edit-grant-dialog";
 import { TestAccessWidget } from "./test-access-widget";
 import { ResourceIcon } from "@/components/resource-icon";
@@ -25,7 +26,7 @@ type Dialog = { userId?: string; siteIds?: string[] } | null;
 type Toast = { msg: string; ok: boolean } | null;
 
 export function GrantsView({
-  head, pending, rows, users, sites, canApprove, canConfigure, maxGrantDays, serverNow, initialFilter, openNew, openUser = null,
+  head, pending, rows, users, sites, canApprove, canConfigure, maxGrantDays, serverNow, initialFilter, openNew, openUser = null, tickets,
 }: {
   /** The page title block, and the pending-requests card shown under the header. */
   head: React.ReactNode;
@@ -41,6 +42,8 @@ export function GrantsView({
   openNew: boolean;
   /** Preselect this user when the dialog opens on arrival (People → Grant access). */
   openUser?: string | null;
+  /** What each resource asks for in tickets, and the workspace's ticket system. */
+  tickets?: GrantTickets;
 }) {
   const router = useRouter();
   const zone = useZone();
@@ -86,7 +89,7 @@ export function GrantsView({
       if (!t) return true;
       const u = userMap.get(r.userId);
       const s = siteMap.get(r.siteId);
-      return [u?.name, u?.email, s?.name, s?.host, r.note].some((v) => v?.toLowerCase().includes(t));
+      return [u?.name, u?.email, s?.name, s?.host, r.note, r.ticketRef].some((v) => v?.toLowerCase().includes(t));
     });
   }, [rows, filter, q, userMap, siteMap]);
 
@@ -212,7 +215,7 @@ export function GrantsView({
       <div className="gr-tools">
         <label className="ma-search">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search user, resource or note…" aria-label="Search grants" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search user, resource, note or ticket…" aria-label="Search grants" />
         </label>
         <div className="seg" role="group" aria-label="Status">
           {SEG.map((f) => (
@@ -287,7 +290,7 @@ export function GrantsView({
 
       <Modal open={dialog !== null} onClose={() => setDialog(null)} title="New grant" subtitle="The user can reach these resources within this window. Every grant is logged." size="md">
         {dialog && (
-          <GrantDialogBody users={users} sites={sites} existing={existing} maxGrantDays={maxGrantDays}
+          <GrantDialogBody users={users} sites={sites} existing={existing} maxGrantDays={maxGrantDays} tickets={tickets}
             initialUserId={dialog.userId} initialSiteIds={dialog.siteIds}
             onClose={() => setDialog(null)}
             onDone={(n, userId) => {
@@ -345,7 +348,11 @@ function Row({ r, c }: { r: GrantRowJSON; c: RowCtx }) {
         <span className="gr-res-t"><b>{s?.name ?? "Deleted resource"}</b>{s && <span className="mono t-muted"><span className="rs-proto-l">{s.proto}</span>{s.host ? ` · ${s.host}` : ""}</span>}</span>
       </span>
       <Window r={r} zone={c.zone} now={c.now} />
-      <span className={r.note ? "gr-note" : "gr-note none"} title={r.note ?? undefined}>{r.note || "—"}</span>
+      <span className={r.note || r.ticketRef ? "gr-note" : "gr-note none"} title={r.note ?? undefined}>
+        {r.ticketRef && <TicketChip ticketRef={r.ticketRef} ticket={r.ticket} verified={r.ticketVerified} showState={r.state !== "ended"} />}
+        {r.ticketRef && r.note ? " " : null}
+        {r.note || (r.ticketRef ? null : "—")}
+      </span>
       <span className={`gr-st ${STATUS[r.state].cls}`}><span aria-hidden="true" />{STATUS[r.state].label}</span>
       <RowMenu r={r} c={c} />
     </div>
@@ -379,7 +386,8 @@ function Window({ r, zone, now }: { r: GrantRowJSON; zone: string; now: number }
   const startIso = r.startsAt ?? r.createdAt;
   if (r.state === "ended") {
     icon = "–"; tone = "muted";
-    const verb = r.reason === "revoked" ? "Revoked" : r.reason === "denied" ? "Denied" : "Ended";
+    const byTicket = r.revokeReason?.startsWith("ticket:");
+    const verb = r.reason === "revoked" ? (byTicket ? "Ended by its ticket" : "Revoked") : r.reason === "denied" ? "Denied" : "Ended";
     main = r.endedAt ? `${verb} ${date(r.endedAt, zone, now)}` : verb;
     sub = r.reason === "denied" ? r.denyReason || "request declined"
       : r.reason === "expired" && r.endsAt ? `lasted ${span(Date.parse(r.endsAt) - Date.parse(startIso))}`

@@ -10,6 +10,9 @@ import { resolvedMaxGrantDays } from "@/lib/settings/platform";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
+import { gateTicket } from "@/lib/ticketing/system";
+import { workspaceView } from "@/lib/mobile/views";
 
 const MAX_SITES = 50;
 
@@ -64,15 +67,31 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     schedule = v.schedule;
   }
 
-  const [user, siteCount] = await Promise.all([
-    db.user.findUnique({ where: { id: userId }, select: { id: true } }),
-    db.site.count({ where: { id: { in: siteIds } } }),
+  const [user, sites] = await Promise.all([
+    db.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true } }),
+    db.site.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true, ticketMode: true } }),
   ]);
   if (!user) {
     return NextResponse.json({ error: "invalid_user" }, { status: 400 });
   }
-  if (siteCount !== siteIds.length) {
+  if (sites.length !== siteIds.length) {
     return NextResponse.json({ error: "invalid_site" }, { status: 400 });
+  }
+
+  // A resource that needs a ticket needs one on an admin's grant too; it is
+  // checked for the person getting the access. When the ticket system doesn't
+  // answer, the admin can still give it, and the log says it wasn't checked.
+  const ws = await workspaceView().catch(() => ({ slug: null as string | null }));
+  const gate = await gateTicket({
+    ref: body.ticket, sites, who: { email: user.email, name: user.name },
+    startsAt: startsAt.value, endsAt: endsAt.value, workspace: ws.slug ?? "default",
+  });
+  if (!gate.ok) return NextResponse.json({ error: gate.error, message: gate.message }, { status: gate.status });
+  if (gate.unverified && body.ticketOverride !== true) {
+    return NextResponse.json({ error: "ticket_unverifiable", message: gate.ticket?.ticket.error ?? "The ticket system did not answer." }, { status: 502 });
+  }
+  if (gate.startsAt && gate.endsAt && gate.startsAt >= gate.endsAt) {
+    return NextResponse.json({ error: "ticket_window_over", message: "The ticket's change window ends before the access would start." }, { status: 400 });
   }
 
   // A grant the person already has that covers the whole new window makes the
@@ -93,24 +112,25 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     const { id } = await createGrant({
       userId,
       siteId,
-      startsAt: startsAt.value,
-      endsAt: endsAt.value,
+      startsAt: gate.startsAt,
+      endsAt: gate.endsAt,
       note,
       createdById: admin.id,
       schedule,
+      ticket: gate.ticket,
     });
     ids.push(id);
     await recordAdminAction({
       actor: { id: admin.id, email: admin.email },
       action: "grant.create",
       targetType: "grant", targetId: id,
-      summary: `Created access grant ${id}`,
-      metadata: { userId, siteId },
+      summary: `Created access grant ${id}${gate.ticket ? ` for ticket ${gate.ticket.ticketRef}${gate.unverified ? " (not checked: the ticket system did not answer)" : ""}` : ""}`,
+      metadata: { userId, siteId, ...(gate.ticket ? { ticket: gate.ticket.ticketRef, ticketVerified: gate.ticket.ticketVerified } : {}) },
       clientIp: clientIp(req.headers) ?? null,
     });
   }
-  return NextResponse.json({ id: ids[0], ids }, { status: 201 });
-});
+  return NextResponse.json({ id: ids[0], ids, startsAt: gate.startsAt?.toISOString() ?? null, endsAt: gate.endsAt?.toISOString() ?? null, clamped: gate.clamped }, { status: 201 });
+}, { budgetMs: SLOW_SCOPE_BUDGET_MS });
 
 export const GET = withTenantRoute(async () => {
   const admin = await getCurrentUser();

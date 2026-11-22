@@ -18,6 +18,7 @@ const RECORDING_SELECT = {
   durationMs: true,
   purgePendingAt: true,
   videoReady: true,
+  ticketRef: true,
 } as const;
 
 export interface RecordingRow {
@@ -38,6 +39,7 @@ export interface RecordingRow {
   /** An erasure was asked for; the row goes when its connector confirms. */
   purgePendingAt: Date | null;
   videoReady: boolean;
+  ticketRef: string | null;
 }
 
 // A free-text search also finds recordings by their resource's or person's name.
