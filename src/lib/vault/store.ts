@@ -188,7 +188,7 @@ export async function hasVaultCredential(siteId: string): Promise<boolean> {
 export async function getVaultCredentialMeta(siteId: string) {
   const c = await db.vaultCredential.findUnique({
     where: { siteId },
-    select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, sealedTo: true, secret: true, extraSeals: true, site: { select: holderSelect } },
+    select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true, sealedTo: true, secret: true, extraSeals: true, site: { select: holderSelect } },
   });
   if (!c) return null;
   const { sealedTo, secret, extraSeals, site, ...rest } = c;

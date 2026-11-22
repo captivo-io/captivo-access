@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/yamux"
@@ -131,5 +132,27 @@ func TestPushPolicyCarriesTheRecordingFields(t *testing.T) {
 	p := <-got
 	if p.TenantID != "acme" || p.RecordingRetentionDays != 30 || len(p.PurgeRecordingKeys) != 1 {
 		t.Fatalf("policy lost its recording fields: %+v", p)
+	}
+}
+
+func TestRecIndexReportsTheHoldingConnector(t *testing.T) {
+	// On a connector group the member that carried the session holds the bytes;
+	// without its id in the index, replay and erasure go to the site's first
+	// member and find nothing.
+	var got map[string]any
+	r := &recIndexReporter{format: "sql", proto: "postgres", connectorID: "c2", send: func(_, _, _ string, body []byte) error {
+		return json.Unmarshal(body, &got)
+	}}
+	r.report("k", 0, 10)
+	if got["connectorId"] != "c2" {
+		t.Fatalf("index body %v", got)
+	}
+	got = nil
+	r.reportTruncated("k")
+	if got["connectorId"] != "c2" {
+		t.Fatalf("truncation body %v", got)
+	}
+	if b := mustIndexJSON("k", 1, 5, "c3"); !strings.Contains(string(b), `"connectorId":"c3"`) {
+		t.Fatalf("web index %s", b)
 	}
 }

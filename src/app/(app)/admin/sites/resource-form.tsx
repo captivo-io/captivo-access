@@ -12,11 +12,12 @@ import { recordToggleLock } from "@/lib/recording/mode";
 import { compareSemver } from "@/lib/updates/semver";
 import { NATIVE_RDP_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
 import { NATIVE_SSH_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
+import { DATABASE_MIN_CONNECTOR, parseDbParams } from "@/lib/database/params";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { IconPicker, lookBody, type Look } from "./icon-picker";
 
-type Kind = "web" | "isolated" | "remote" | "ssh";
+type Kind = "web" | "isolated" | "remote" | "ssh" | "database";
 type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: string };
 
 export interface ResourceContext {
@@ -61,7 +62,7 @@ export interface ResourceInitial {
   egressMode: string | null;
   egressHosts: string[];
   egressReportOnlyUntil: string | null;
-  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED";
+  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE";
   hasLogo: boolean;
   customDomain: boolean;
   domainVerifiedAt: string | null;
@@ -69,7 +70,7 @@ export interface ResourceInitial {
   iconColor: string | null;
   logoBg: string | null;
 }
-export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[] }
+export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[] }
 export type EgressEvent = { dest: string; blocked: boolean; reason: string; count: number; last: string };
 
 const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: string; color: IconColor }[] = [
@@ -77,7 +78,9 @@ const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: strin
   { kind: "isolated", title: "Isolated browser", tag: "HTTPS", desc: "The app opens in an isolated browser on the server; no data lands on the device.", icon: "shield", color: "blue" },
   { kind: "remote", title: "Remote desktop", tag: "RDP", desc: "A Windows desktop in the browser; no client install.", icon: "desktop", color: "violet" },
   { kind: "ssh", title: "SSH terminal", tag: "SSH", desc: "A terminal in the browser; credentials are never shown to the user.", icon: "terminal", color: "violet" },
+  { kind: "database", title: "Database", tag: "PostgreSQL", desc: "Users connect with their own client (psql, DBeaver); every query is logged.", icon: "database", color: "green" },
 ];
+const DB_TLS: [string, string][] = [["require", "Encrypted"], ["verify-full", "Encrypted + verified"], ["disable", "Off"]];
 const CLIP: [string, string][] = [["allow", "Copy & paste"], ["no_copy", "Paste only"], ["no_paste", "Copy only"], ["none", "Block"]];
 const FT: [string, string][] = [["allow", "Upload & download"], ["no_download", "Upload only"], ["no_upload", "Download only"], ["none", "Block"]];
 const EGRESS: Record<string, string> = { internet: "The resource and the internet", strict: "Only the resource and listed hosts", open: "Unrestricted" };
@@ -99,18 +102,22 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "invalid_egress_hosts": return "Allowed hosts must be host names (sso.example.local, *.okta.com) or IP addresses, at most 50.";
     case "logo_too_large": return "The logo must be 512 KB or smaller.";
     case "invalid_logo_type": case "invalid_logo": return "Use a PNG, SVG, JPG or WebP logo.";
+    case "invalid_database": return "Database names can't have spaces or quotes, at most 63 characters, at most 50 of them.";
+    case "invalid_ca_cert": return "Paste the CA certificate in PEM form (-----BEGIN CERTIFICATE-----).";
+    case "vault_connector_key_required": return "A database password is sealed to its connector, and this connector has no vault key yet. Update it to 2.46.0 or later.";
     case "limit_reached": return "Your plan's resource limit is reached. Ask your platform operator to raise it.";
     default: return edit ? "Couldn't save the resource. Try again." : "Couldn't add the resource. Try again.";
   }
 }
 
-const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : 3389);
+const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : 3389);
 const WEB_RE = /^https?:\/\/[^\s/:]+(:\d{1,5})?(\/\S*)?$/i;
 const HOSTPORT_RE = /^(\[[0-9a-f:]+\]|[^\s/:[\]]+)(:\d{1,5})?$/i;
 
 function kindOfInitial(site: ResourceInitial | undefined, vault: VaultMeta | undefined): { kind: Kind; protocol: "RDP" | "VNC" | "SSH" } {
   if (!site) return { kind: "web", protocol: "RDP" };
   if (site.accessMode === "ISOLATED") return { kind: "isolated", protocol: "RDP" };
+  if (site.accessMode === "DATABASE") return { kind: "database", protocol: "RDP" };
   if (site.accessMode === "GATEWAY") {
     const p = (vault?.protocol ?? "RDP").toUpperCase();
     return p === "SSH" ? { kind: "ssh", protocol: "SSH" } : { kind: "remote", protocol: p === "VNC" ? "VNC" : "RDP" };
@@ -167,7 +174,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [hostState, setHostState] = useState<{ host: string; available: boolean } | null>(null);
   // Internal address.
   const [address, setAddress] = useState(
-    site?.accessMode === "GATEWAY" && vault ? `${vault.targetHost}${vault.targetPort === defaultPort(vault.protocol.toUpperCase()) ? "" : `:${vault.targetPort}`}` : site?.upstreamUrl ?? "",
+    (site?.accessMode === "GATEWAY" || site?.accessMode === "DATABASE") && vault ? `${vault.targetHost}${vault.targetPort === defaultPort(vault.protocol.toUpperCase()) ? "" : `:${vault.targetPort}`}` : site?.upstreamUrl ?? "",
   );
   const [addrTouched, setAddrTouched] = useState(false);
   const [probe, setProbe] = useState<Probe>({ state: "idle" });
@@ -192,6 +199,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [lookState, setLookState] = useState<Look>(initialLook);
   // The colour follows the type until one is picked (null = not picked).
   const [colorPick, setColorPick] = useState<IconColor | null>((site?.iconColor as IconColor) ?? null);
+  // Database resources.
+  const initDb = parseDbParams(vault?.dbParams);
+  const [dbName, setDbName] = useState(vault?.dbParams ? initDb.database : "");
+  const [dbList, setDbList] = useState(initDb.databases.join(", "));
+  const [dbTls, setDbTls] = useState<string>(initDb.tls);
+  const [dbCa, setDbCa] = useState(initDb.caCertPem ?? "");
   const [description, setDescription] = useState(site?.description ?? "");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -199,7 +212,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
   const rkind: ResourceKind = kind === "remote" ? (protocol === "VNC" ? "vnc" : "rdp") : kind;
   const remote = kind === "remote" || kind === "ssh";
+  const isDb = kind === "database";
+  // A saved account the connector signs in with: remote desktops and databases.
+  const cred = remote || isDb;
+  const portProto = isDb ? "POSTGRES" : protocol;
   const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : protoLabel(rkind, address.trim());
+  const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim());
   const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
   // The connectors that would carry this resource, and the keys its password is sealed to.
@@ -234,10 +252,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const addrOk = kind === "web" || kind === "isolated" ? WEB_RE.test(addr) : HOSTPORT_RE.test(addr);
   const hostPort = useMemo(() => {
     const m = HOSTPORT_RE.exec(addr);
-    if (!m || !remote) return null;
-    const port = m[2] ? Number(m[2].slice(1)) : defaultPort(protocol);
+    if (!m || !cred) return null;
+    const port = m[2] ? Number(m[2].slice(1)) : defaultPort(portProto);
     return { host: m[1].replace(/^\[|\]$/g, ""), port };
-  }, [addr, remote, protocol]);
+  }, [addr, cred, portProto]);
   const https = (kind === "web" || kind === "isolated") && /^https:\/\//i.test(addr);
   const vaultKey = routeKeys[0] ?? null;
   // The saved password still opens where the resource now goes when one of its seals is for a connector there.
@@ -246,13 +264,15 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
   const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
-  const needSecret = remote && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged);
+  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES"));
 
   function pickKind(k: Kind) {
     if (k === kind) return;
     setKind(k);
     if (k === "ssh") setProtocol("SSH");
     else if (k === "remote" && protocol === "SSH") setProtocol("RDP");
+    // A new database resource logs its queries unless the admin turns it off.
+    if (k === "database" && !edit) setRecord(true);
     setAddress("");
     setAddrTouched(false);
     setProbe({ state: "idle" });
@@ -272,7 +292,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     try {
       const res = await fetch("/api/admin/sites/probe", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ connectorId: id, target: addr, port: defaultPort(protocol) }),
+        body: JSON.stringify({ connectorId: id, target: addr, port: defaultPort(portProto) }),
       });
       const r = await res.json().catch(() => ({}));
       return r.ok ? { ok: true, ms: r.ms } : { ok: false, error: r.error ?? "unreachable" };
@@ -302,9 +322,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (!addrOk) missing.push("internal address");
   if (kind === "web" && !(customDomain ? domainOk : labelOk || !suffix)) missing.push("public address");
   if (kind === "web" && hostState && hostState.host === publicHost && !hostState.available) missing.push("a free public address");
-  if (remote && !username.trim()) missing.push("username");
-  if (remote && needSecret && !secret) missing.push("password");
-  const ready = missing.length === 0 && (kind !== "isolated" || ctx.isolationEnabled) && (!remote || ctx.nativeGateway);
+  if (cred && !username.trim()) missing.push("username");
+  if (cred && needSecret && !secret) missing.push("password");
+  if (isDb && !dbNameOk) missing.push("database name");
+  const ready = missing.length === 0 && (kind !== "isolated" || ctx.isolationEnabled) && (!cred || ctx.nativeGateway);
   const kindTitle = KINDS.find((k) => k.kind === kind)!.title;
   const summary = ready
     ? `${kindTitle} · ${publicHost || "only through Captivo"} → ${addr}`
@@ -312,7 +333,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
   const recordLock = recordToggleLock(ctx.recordingMode);
   const effRecord = recordLock.locked ? !!recordLock.forcedValue : record;
-  const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off";
+  const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off" && kind !== "database";
   const keystrokes = keystrokeChoice ?? remote;
   const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
   // Native RDP: a session in the user's own client can't be recorded, so a recorded resource doesn't offer it.
@@ -325,6 +346,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const nativeSshShown = kind === "ssh";
   const nativeSshOn = nativeSshShown && nativeSsh && !nativeRdpLocked;
   const nativeSshOldConnector = nativeSshOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_SSH_MIN_CONNECTOR) === -1);
+  const dbOldConnector = isDb && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, DATABASE_MIN_CONNECTOR) === -1);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -333,7 +355,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     setBusy(true);
     try {
       let secretBody: Record<string, unknown> = {};
-      if (remote && secret && hostPort) {
+      if (cred && secret && hostPort) {
         try {
           // Sealed in this browser to every connector that may carry the session.
           const target = { host: hostPort.host, port: hostPort.port, username: username.trim() };
@@ -346,11 +368,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           return;
         }
       }
-      const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : "GATEWAY";
+      const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : isDb ? "DATABASE" : "GATEWAY";
       const body: Record<string, unknown> = {
         connectorId, connectorGroupId: groupId ?? undefined, name: name.trim(), accessMode,
         hostname: customDomain ? domain.trim().toLowerCase() : label, customDomain,
-        upstreamUrl: remote ? undefined : addr,
+        upstreamUrl: cred ? undefined : addr,
         description: description.trim() || undefined,
         insecureSkipVerify: https && insecure,
         recordSessions: record, keystrokeLogging: keystrokes,
@@ -361,6 +383,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         fileTransferMode: remote ? undefined : ftWeb,
         ...(kind === "isolated" ? { egressMode, egressHosts } : {}),
         ...(remote && hostPort ? { protocol, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, guacParams: guacFieldsToParams(guac) } : {}),
+        ...(isDb && hostPort ? { engine: "POSTGRES", targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
       };
       const res = await fetch(site ? `/api/admin/sites/${site.id}` : "/api/admin/sites", {
@@ -380,14 +403,15 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   }
 
   const chips: { text: string; tone: string }[] = [];
-  if (effRecord && ctx.recordingEnabled) chips.push({ text: "Recording on", tone: "bad" });
+  if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : "Recording on", tone: "bad" });
+  if (isDb && dbTls === "disable") chips.push({ text: "No TLS to the server", tone: "warn" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
   if (nativeRdpOn) chips.push({ text: "Native RDP client", tone: "warn" });
   if (nativeSshOn) chips.push({ text: "Native SSH client", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
-  if (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault)) chips.push({ text: "Watermark", tone: "violet" });
-  if (clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
-  if (ftMode !== "inherit") chips.push({ text: `Files: ${FT.find(([v]) => v === ftMode)?.[1]}`, tone: "p" });
+  if (!isDb && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
+  if (!isDb && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
+  if (!isDb && ftMode !== "inherit") chips.push({ text: `Files: ${FT.find(([v]) => v === ftMode)?.[1]}`, tone: "p" });
   const logoUrl = look.logo === "keep" ? storedLogoUrl : look.logo === null ? null : look.logo.previewUrl;
   const tile = <ResourceIcon name={look.iconName ?? autoName} color={look.iconColor} logoUrl={logoUrl} logoBg={look.logoBg} size={42} />;
 
@@ -404,7 +428,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <span className="rq-label"><span>Resource type</span></span>
             <div className="rf-kinds" role="radiogroup" aria-label="Resource type">
               {KINDS.map((k) => {
-                const off = (k.kind === "isolated" && !ctx.isolationEnabled) || ((k.kind === "remote" || k.kind === "ssh") && !ctx.nativeGateway);
+                const off = (k.kind === "isolated" && !ctx.isolationEnabled) || ((k.kind === "remote" || k.kind === "ssh" || k.kind === "database") && !ctx.nativeGateway);
                 return (
                   <button key={k.kind} type="button" role="radio" aria-checked={kind === k.kind} disabled={off} title={off ? "Not enabled on this installation" : undefined}
                     className={kind === k.kind ? "rf-kind on" : "rf-kind"} onClick={() => pickKind(k.kind)}>
@@ -480,14 +504,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               )}
             </div>
           ) : (
-            <p className="rf-dotnote"><span aria-hidden="true" />No public address: users reach it through {kind === "isolated" ? "the Captivo portal" : "the Captivo gateway"}.</p>
+            <p className="rf-dotnote"><span aria-hidden="true" />No public address: users reach it through {kind === "isolated" ? "the Captivo portal" : isDb ? "Captivo's database proxy, with a ticket from the portal" : "the Captivo gateway"}.</p>
           )}
           <div className="rq-sec">
-            <span className="rq-label"><span>Internal address</span><span className="mono t-muted">{kind === "web" || kind === "isolated" ? "http(s)://ip:port" : `ip:${defaultPort(protocol)}`}</span></span>
+            <span className="rq-label"><span>Internal address</span><span className="mono t-muted">{kind === "web" || kind === "isolated" ? "http(s)://ip:port" : `ip:${defaultPort(portProto)}`}</span></span>
             <div className="rf-addr">
               <input className={addrTouched && addr && !addrOk ? "input mono bad" : probe.state === "ok" ? "input mono good" : "input mono"} value={address}
                 onChange={(e) => changeAddress(e.target.value)} onBlur={() => setAddrTouched(true)}
-                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : `10.0.0.2${kind === "ssh" ? ":22" : ""}`} aria-label="Internal address" />
+                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? ":5432" : ""}`} aria-label="Internal address" />
               <button type="button" className="btn rf-probe" disabled={!addrOk || !connectorId || probe.state === "busy"} onClick={() => void runProbe()}>
                 {probe.state === "busy" ? <span className="rf-spin" aria-hidden="true" /> : <PulseIcon />}Test connection
               </button>
@@ -504,25 +528,44 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 <span className="cell-sub">{insecure ? "Certificate checks are off for this resource. You're not protected against a man in the middle." : "Only for an internal app whose certificate isn't from a public authority."}</span></span>
             </label>
           )}
-          {remote && (
+          {cred && (
             <div className="rf-creds">
               <label className="rq-sec"><span className="rq-label"><span>Username</span></span>
-                <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : "Administrator"} /></label>
+                <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : isDb ? "app_readonly" : "Administrator"} /></label>
               <label className="rq-sec"><span className="rq-label"><span>Password</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>
-              <p className="rf-hint rf-wide">Users never see these; the gateway signs in for them. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}</p>
+              <p className="rf-hint rf-wide">Users never see these; {isDb ? "the connector signs in to the database for them" : "the gateway signs in for them"}. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}{isDb ? " What users can do is what this account can do: for read-only access, save an account with only SELECT rights." : ""}</p>
               {!needSecret && unsealedMembers.length > 0 && (
                 <p className="rf-msg warn rf-wide">{unsealedMembers.map((m) => m.name).join(", ")} {unsealedMembers.length === 1 ? "has" : "have"} no copy of the saved password yet, so sessions skip {unsealedMembers.length === 1 ? "it" : "them"} for now. A member on 2.44 or later that has it copies it over within a few minutes; entering the password again includes {unsealedMembers.length === 1 ? "it" : "them"} at once.</p>
               )}
             </div>
           )}
 
+          {isDb && (
+            <div className="rf-creds">
+              <label className="rq-sec"><span className="rq-label"><span>Default database</span></span>
+                <input className={dbName && !dbNameOk ? "input mono bad" : "input mono"} value={dbName} onChange={(e) => setDbName(e.target.value)} autoComplete="off" placeholder="crm" /></label>
+              <label className="rq-sec"><span className="rq-label"><span>Allowed databases <span className="t-muted rf-opt">(optional)</span></span></span>
+                <input className="input mono" value={dbList} onChange={(e) => setDbList(e.target.value)} autoComplete="off" placeholder="any the account can open" /></label>
+              <p className="rf-hint rf-wide">A client that names no database lands in the default one. With a list, only those open; without one, any database the account can open.</p>
+              <div className="rq-sec rf-wide">
+                <span className="rq-label"><span>TLS from the connector to the server</span></span>
+                <Pills value={dbTls} onChange={setDbTls} options={DB_TLS} label="TLS to the server" />
+                {dbTls === "verify-full" && (
+                  <textarea className="textarea mono" rows={3} value={dbCa} onChange={(e) => setDbCa(e.target.value)} placeholder={"-----BEGIN CERTIFICATE-----\n(the server's CA; empty = the system's)"} />
+                )}
+                <p className="rf-hint">{dbTls === "disable" ? "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires." : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
+              </div>
+              {dbOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; database access needs {DATABASE_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+            </div>
+          )}
+
           <Sec n="03" title="Session rules" />
           <p className="rf-sub">Every setting left on “Policy” follows the Policy page.</p>
           {ctx.recordingEnabled && (
-            <Row title="Record sessions" custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
-              <button type="button" role="switch" aria-checked={effRecord} aria-label="Record sessions" disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
+            <Row title={isDb ? "Query log" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
+              <button type="button" role="switch" aria-checked={effRecord} aria-label={isDb ? "Query log" : "Record sessions"} disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
             </Row>
           )}
           {showKeystrokes && (
@@ -547,6 +590,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             </Row>
           )}
           {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+          {!isDb && (
+            <>
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
             <Pills value={clipboard} onChange={setClipboard} options={[["inherit", `Policy (${CLIP.find(([v]) => v === ctx.clipboardDefault)?.[1] ?? ctx.clipboardDefault})`], ...CLIP]} label="Clipboard" />
           </Row>
@@ -556,6 +601,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           <Row title="Screen watermark" custom={watermark !== "inherit"} desc="The user's email and the time are drawn over the session; they show in screenshots and photos.">
             <Pills value={watermark} onChange={(v) => setWatermark(v as "inherit" | "on" | "off")} options={[["inherit", `Policy (${ctx.watermarkDefault ? "On" : "Off"})`], ["on", "On"], ["off", "Off"]]} label="Screen watermark" />
           </Row>
+            </>
+          )}
 
           <Sec n="04" title="Appearance" />
           <IconPicker look={look} onChange={setLook} autoName={autoName} storedLogoUrl={storedLogoUrl} name={name} proto={proto} />
@@ -622,7 +669,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           <div className="rf-portal">
             <ResourceIcon name={look.iconName ?? autoName} color={look.iconColor} logoUrl={logoUrl} logoBg={look.logoBg} size={44} />
             <span className="rf-portal-t"><b>{name || "New resource"}</b><span className="cell-sub">{description.trim() || "No description"}</span></span>
-            <span className="rf-open">Open</span>
+            <span className="rf-open">{isDb ? "Connect" : "Open"}</span>
           </div>
           <p className="rf-hint">The icon, name and description show in the portal of the people who get access.</p>
         </aside>

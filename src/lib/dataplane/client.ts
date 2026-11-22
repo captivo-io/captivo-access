@@ -20,7 +20,7 @@ export interface ActiveSession {
   sessionId: string;
   siteId: string;
   userId: string;
-  kind: "gateway" | "isolated";
+  kind: "gateway" | "isolated" | "database";
   protocol: string;
   host: string;
   startedAt: string;

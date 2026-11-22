@@ -69,7 +69,7 @@ async function AdminSitesPageImpl({ searchParams }: { searchParams: Promise<{ q?
     description: s.description,
     accessMode: s.accessMode,
     gatewayTarget: s.vaultCredential ? `${s.vaultCredential.targetHost}:${s.vaultCredential.targetPort}` : null,
-    protocol: s.accessMode === "GATEWAY" && s.vaultCredential ? String(s.vaultCredential.protocol).toUpperCase() : null,
+    protocol: (s.accessMode === "GATEWAY" || s.accessMode === "DATABASE") && s.vaultCredential ? String(s.vaultCredential.protocol).toUpperCase() : null,
     hasLogo: s.logoType != null,
     iconName: s.iconName,
     iconColor: s.iconColor,

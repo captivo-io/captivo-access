@@ -44,6 +44,8 @@ const REASONS: Record<string, string> = {
   off_schedule: "Outside the grant's hours",
   pending_approval: "Grant waiting for approval",
   ip_not_allowed: "Network not on the IP allowlist",
+  database_not_allowed: "Database not open on this resource",
+  session_end_policy: "Session ended by policy",
 };
 
 // Words after the code that are themselves codes (dataplane/rdpgw.go writes
@@ -51,6 +53,9 @@ const REASONS: Record<string, string> = {
 const REASON_DETAILS: Record<string, string> = {
   native_rdp: "own RDP app",
   native_ssh: "own SSH app",
+  database: "own database client",
+  ticket_ended: "connection ticket ended",
+  grant_inactive: "grant no longer active",
 };
 
 export function accessReasonLabel(reason: string | null): string | null {
@@ -78,4 +83,10 @@ export function isNativeRdpMethod(method: string): boolean {
 // this method: there is no HTTP request behind it.
 export function isNativeSshMethod(method: string): boolean {
   return method === "SSH";
+}
+
+// A database session through the proxy (dataplane/pgproxy.go); its path is
+// the database ("/crm").
+export function isDatabaseMethod(method: string): boolean {
+  return method === "DB";
 }

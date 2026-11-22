@@ -27,9 +27,9 @@ type FeedEvent = { at: string; type: string; text: string };
 
 const TERMINAL = ["ssh", "telnet"];
 const keyOf = (r: LiveRow) => (r.kind === "web" ? `web:${r.liveKey ?? `${r.userId}:${r.siteId}`}` : r.sessionId);
-const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" => (r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
+const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" | "sql" => (r.database ? "sql" : r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
 const nativeApp = (r: LiveRow) => (r.kind === "gateway" && r.protocol === "ssh" ? "SSH" : "Remote Desktop");
-const labelOf = (r: LiveRow) => (r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
+const labelOf = (r: LiveRow) => (r.database ? "POSTGRESQL" : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
 const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);
@@ -179,7 +179,7 @@ function Sparkline({ values }: { values?: number[] }) {
 function useTail(r: LiveRow): string[] {
   const [tail, setTail] = useState<string[]>([]);
   const id = sessionIdOf(r);
-  const want = !!id && kindOf(r) === "ssh" && !!r.keystrokes;
+  const want = !!id && ((kindOf(r) === "ssh" && !!r.keystrokes) || !!r.database);
   const activity = r.activity?.join(",");
   useEffect(() => {
     if (!want || !id) return;
@@ -203,11 +203,11 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
   const src = watchSrc(r);
   return (
     <article className={watching ? "sv-card on" : "sv-card"}>
-      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.native ? `A session in the user's own ${nativeApp(r)} app can't be watched` : "This web app does not record, so it can't be watched"}>
+      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : r.native ? `A session in the user's own ${nativeApp(r)} app can't be watched` : "This web app does not record, so it can't be watched"}>
         {tail.length ? (
           <span className="rc-art ssh sv-term" aria-hidden="true">
-            {tail.map((t, i) => <span key={i} className="mono">$ {t}</span>)}
-            <span className="mono">$ <i className="sv-caret" /></span>
+            {tail.map((t, i) => <span key={i} className="mono">{r.database ? "›" : "$"} {t}</span>)}
+            <span className="mono">{r.database ? "›" : "$"} <i className="sv-caret" /></span>
           </span>
         ) : <Thumb kind={kind} />}
         <span className="sv-live"><i aria-hidden="true" />LIVE · {labelOf(r)}</span>
@@ -224,7 +224,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
         </div>
         <div className="sv-line">
           <span className="cell-sub">Started {hm(r.startedAt, zone)}</span>
-          {r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
+          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
         </div>
         <Actions r={r} canTerminate={canTerminate} onWatch={src ? onWatch : undefined} onEnded={onEnded} />
       </div>

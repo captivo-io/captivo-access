@@ -370,3 +370,41 @@ func (c *ControlClient) post(path string, body any, out any) error {
 type httpError struct{ code int }
 
 func (e *httpError) Error() string { return "control-plane returned non-200" }
+
+// dbTarget is a database resource as the proxy needs it (pgproxy.go): who
+// the ticket is for, where the server is, and each connector that may carry
+// the connection with the password sealed to its own key.
+type dbTarget struct {
+	TenantID   string           `json:"tenantId"`
+	SiteID     string           `json:"siteId"`
+	UserID     string           `json:"userId"`
+	SiteName   string           `json:"siteName"`
+	Engine     string           `json:"engine"`
+	Host       string           `json:"targetHost"`
+	Port       int              `json:"targetPort"`
+	Username   string           `json:"username"`
+	Database   string           `json:"database"`
+	Databases  []string         `json:"databases"`
+	TLS        string           `json:"tls"`
+	CACertPEM  string           `json:"caCertPem"`
+	Connectors []routeCandidate `json:"connectors"`
+	Record     bool             `json:"record"`
+}
+
+// DatabaseTarget resolves a connection ticket (the user name a database
+// client signs in with). The manager refuses with a status: 404 an unknown or
+// expired ticket (or its browser session ended), 403 no active grant, 409 a
+// resource that can't be reached as a database now.
+func (c *ControlClient) DatabaseTarget(ticket, clientIP string) (dbTarget, error) {
+	var out dbTarget
+	err := c.post("/api/internal/gateway/database", map[string]string{"ticket": ticket, "clientIp": clientIP}, &out)
+	return out, err
+}
+
+// httpStatus is the control plane's answer code in err, or 0 when it did not answer.
+func httpStatus(err error) int {
+	if e, ok := err.(*httpError); ok {
+		return e.code
+	}
+	return 0
+}

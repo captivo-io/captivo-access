@@ -72,6 +72,7 @@ model Tenant {
   recordingChunks    RecordingChunk[]
   sessionKeyEvents   SessionKeyEvent[]
   adminAuditEvents   AdminAuditEvent[]
+  dbTickets          DbTicket[]
 }
 
 enum Role {
@@ -111,13 +112,14 @@ model User {
   grantsApproved AccessGrant[]  @relation("GrantApprover")
   grantsCreated  AccessGrant[]  @relation("GrantCreator")
 
-  directoryManaged        Boolean   @default(false)
+  directoryManaged        Boolean    @default(false)
   directoryLastVerifiedAt DateTime?
   // The organisation role Captivo ID last reported for this user (OWNER /
   // ADMIN / MEMBER), null for an account the centre never spoke about. Set
   // means the centre manages this user: role ceiling, removal and status
   // follow the centre (lib/auth/center-role.ts).
   centerRole              String?
+  dbTickets               DbTicket[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -224,6 +226,7 @@ model Session {
   /// PKCE verifier; the code is the token until redeemed. Null once live.
   mobileChallenge String?
   devices         MobileDevice[]
+  dbTickets       DbTicket[]
 
   @@unique([tenantId, tokenHash])
   @@index([userId])
@@ -261,6 +264,7 @@ enum SiteAccessMode {
   TRANSPARENT
   GATEWAY
   ISOLATED
+  DATABASE // a database server for the user's own client, through the data plane's proxy (dataplane/pgproxy.go)
 }
 
 model Connector {
@@ -412,6 +416,7 @@ model Site {
   grants             AccessGrant[]
   groupMappings      GroupMapping[]
   vaultCredential    VaultCredential?
+  dbTickets          DbTicket[]
 
   @@unique([tenantId, hostname])
   @@index([tenantId])
@@ -421,6 +426,7 @@ enum VaultProtocol {
   RDP
   SSH
   VNC
+  POSTGRES
 }
 
 enum VaultSecretKind {
@@ -445,6 +451,7 @@ model VaultCredential {
   extraSeals Json? // group resources: { [vaultPublicKey]: sealed } for the other members' keys (src/lib/vault/store.ts)
   secretKind VaultSecretKind @default(PASSWORD)
   guacParams Json? // curated per-resource Guacamole connection params (validated allowlist)
+  dbParams   Json? // DATABASE resources: { database, databases[], tls, caCertPem } (src/lib/database/params.ts)
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
@@ -787,6 +794,7 @@ enum RecordingFormat {
   RRWEB
   GUAC
   VIDEO
+  SQL // a database session's query log ("keys" chunks of statements), nothing to replay on screen
 }
 
 model SessionRecording {
@@ -826,6 +834,10 @@ model SessionRecording {
   // the session (converted, or kept as it is). Null: not yet; an RDP/VNC
   // recording then shows that its video is being prepared.
   reportedAt     DateTime?
+  // The connector holding the bytes: on a connector group, the member that
+  // carried the session. Null on rows from before 2.46.0, which are on the
+  // site's own connector (src/lib/recording/connector-of.ts).
+  connectorId    String?
   chunks         RecordingChunk[]
 
   @@unique([tenantId, recordingKey])
@@ -976,4 +988,28 @@ model LogDestination {
   updatedAt           DateTime  @updatedAt
 
   @@index([tenantId])
+}
+
+/// A database connection ticket: the user name a database client signs in to
+/// the data plane's proxy with (dataplane/pgproxy.go). It starts connections
+/// for hours, so it lives here rather than in the data plane's memory, and it
+/// belongs to the browser session that asked for it: signing out ends it.
+model DbTicket {
+  id         String    @id @default(cuid())
+  tenantId   String    @default("default")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  codeHash   String    @unique // sha256 of the ticket
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  siteId     String
+  site       Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  sessionId  String
+  session    Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([tenantId])
+  @@index([userId, siteId])
+  @@index([expiresAt])
 }

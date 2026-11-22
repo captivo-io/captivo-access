@@ -35,7 +35,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
   }
   const [ctx, vault, egressEvents, rotation] = await Promise.all([
     resourceContext(),
-    site.accessMode === "GATEWAY" ? getVaultCredentialMeta(site.id) : Promise.resolve(null),
+    site.accessMode === "GATEWAY" || site.accessMode === "DATABASE" ? getVaultCredentialMeta(site.id) : Promise.resolve(null),
     site.accessMode === "ISOLATED" ? recentEgressEvents(site.id) : Promise.resolve(undefined),
     site.accessMode === "GATEWAY" ? rotationStatus(site.id) : Promise.resolve(null),
   ]);

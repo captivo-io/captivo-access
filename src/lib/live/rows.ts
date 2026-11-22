@@ -19,6 +19,8 @@ export interface LiveExtra {
   site?: SiteTile;
   /** A native RDP client on the RD Gateway: it can be ended, not watched. */
   native?: boolean;
+  /** A database session (the user's own client through the proxy): its queries show in the feed. */
+  database?: boolean;
   /** A connector-group resource: the member carrying this session. */
   via?: string | null;
 }
@@ -82,6 +84,7 @@ export async function liveRows(): Promise<LiveRow[]> {
     ...extra(s.userId, s.siteId),
     clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
     native: !!s.native,
+    database: s.kind === "database",
     via: via(s),
   }));
   const isolatedRows: LiveRow[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({

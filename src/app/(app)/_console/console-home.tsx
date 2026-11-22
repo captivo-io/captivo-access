@@ -189,7 +189,7 @@ function OutdatedAlert({ names, version }: { names: string[]; version: string })
 }
 
 function LiveRow({ s, onDone }: { s: LiveCard; onDone: (msg: string) => void }) {
-  const kind = s.kind === "gateway" ? (s.native ? `${s.protocol.toUpperCase()} · NATIVE` : s.protocol.toUpperCase()) : s.kind === "isolated" ? "ISOLATED" : "WEB";
+  const kind = s.kind === "gateway" && s.protocol === "postgres" ? "POSTGRESQL" : s.kind === "gateway" ? (s.native ? `${s.protocol.toUpperCase()} · NATIVE` : s.protocol.toUpperCase()) : s.kind === "isolated" ? "ISOLATED" : "WEB";
   const name = s.siteName;
   const recorded = s.kind !== "web" && s.recorded;
   // The Sessions page's watch window, with the session's activity and actions beside it.

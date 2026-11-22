@@ -65,6 +65,9 @@ type recIndexReporter struct {
 	send                func(userID, siteID, host string, body []byte) error
 	userID, siteID      string
 	host, format, proto string
+	// The connector holding the bytes: on a connector group, the member that
+	// carried the session, which replay and erasure must reach.
+	connectorID string
 }
 
 func (r *recIndexReporter) report(recordingKey string, seq, bytes int) {
@@ -77,6 +80,7 @@ func (r *recIndexReporter) report(recordingKey string, seq, bytes int) {
 		"bytes":        bytes,
 		"format":       r.format,
 		"protocol":     r.proto,
+		"connectorId":  r.connectorID,
 	})
 	if err != nil {
 		return
@@ -100,6 +104,7 @@ func (r *recIndexReporter) reportTruncated(recordingKey string) {
 		"truncated":    true,
 		"format":       r.format,
 		"protocol":     r.proto,
+		"connectorId":  r.connectorID,
 	})
 	if err != nil {
 		return

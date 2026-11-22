@@ -78,6 +78,9 @@ services:
       # Where users' own SSH clients reach the jump host (native SSH resources).
       SSH_PUBLIC_PORT: ${SSH_PUBLIC_PORT:-2222}
       SSH_PUBLIC_HOST: ${SSH_PUBLIC_HOST:-}
+      # Where users' own database clients reach the database proxy (database resources).
+      DB_PUBLIC_PORT: ${DB_PUBLIC_PORT:-15432}
+      DB_PUBLIC_HOST: ${DB_PUBLIC_HOST:-}
       DATAPLANE_SECRET: ${DATAPLANE_SECRET:?required}
       # Cross-subdomain SSO cookie domain — must be a leading-dot domain
       # covering both the Manager and every vendor site subdomain, e.g.
@@ -144,12 +147,21 @@ services:
       # The SSH jump host for users' own SSH clients (native SSH resources).
       # SSH_ADDR=off turns it off; then publish nothing below.
       SSH_ADDR: ${SSH_ADDR:-:2222}
+      # The PostgreSQL proxy for users' own database clients (database
+      # resources). It terminates TLS itself; without DB_TLS_CERT/DB_TLS_KEY it
+      # keeps a self-signed certificate in /data, which clients accept with
+      # sslmode=require. DB_ADDR=off turns it off; then publish nothing below.
+      DB_ADDR: ${DB_ADDR:-:15432}
+      DB_TLS_CERT: ${DB_TLS_CERT:-}
+      DB_TLS_KEY: ${DB_TLS_KEY:-}
     volumes:
-      - access_dataplane:/data   # the jump host's key: keep it across updates
-    # The SSH jump host is the one port published raw: SSH is its own
-    # encryption. Set SSH_PUBLIC_PORT on the manager if you map it elsewhere.
+      - access_dataplane:/data   # the jump host's key and the proxy's certificate: keep them across updates
+    # The SSH jump host and the database proxy are published raw: SSH is its
+    # own encryption and the proxy requires TLS. Set SSH_PUBLIC_PORT /
+    # DB_PUBLIC_PORT on the manager if you map them elsewhere.
     ports:
       - "${SSH_PUBLIC_PORT:-2222}:2222"
+      - "${DB_PUBLIC_PORT:-15432}:15432"
     # No other data-plane port is published to the host. Caddy terminates
     # TLS and reverse-proxies to them by service name on the compose network:
     #   connect.<ACCESS_DOMAIN> -> :3101  (connector WSS tunnel)

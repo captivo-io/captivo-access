@@ -221,7 +221,7 @@ export function RecordingsTable({
           <input type="search" placeholder="Search commands: rm -rf, systemctl…" value={filters.cmd} onChange={(e) => typed("cmd", e.target.value)} aria-label="Search typed commands" />
         </label>
         <div className="seg" role="group" aria-label="Type">
-          {([["", "All", kpis.byType.all], ["web", "Web", kpis.byType.web], ["rdp", "RDP", kpis.byType.rdp], ["ssh", "SSH", kpis.byType.ssh]] as const).map(([k, l, n]) => (
+          {([["", "All", kpis.byType.all], ["web", "Web", kpis.byType.web], ["rdp", "RDP", kpis.byType.rdp], ["ssh", "SSH", kpis.byType.ssh], ...(kpis.byType.sql ? [["sql", "Database", kpis.byType.sql]] as const : [])] as const).map(([k, l, n]) => (
             <button key={k} type="button" className={filters.type === k ? "seg-opt on" : "seg-opt"} aria-pressed={filters.type === k} onClick={() => set("type", k)}>{l} <span className="rs-n">{n}</span></button>
           ))}
         </div>

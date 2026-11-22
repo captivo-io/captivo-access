@@ -12,7 +12,7 @@ export interface RecordingKpis {
   /** Sessions that closed at once, any time. */
   empty: number;
   /** Per tab, for the type filter's counts. */
-  byType: { all: number; web: number; rdp: number; ssh: number };
+  byType: { all: number; web: number; rdp: number; ssh: number; sql: number };
 }
 
 export async function recordingKpis(now: Date = new Date()): Promise<RecordingKpis> {
@@ -27,16 +27,17 @@ export async function recordingKpis(now: Date = new Date()): Promise<RecordingKp
       SELECT SUM("bytes")::bigint AS bytes FROM "SessionRecording" WHERE "tenantId" = ${tenant} AND "purgePendingAt" IS NULL`,
     db.sessionRecording.count({ where: { durationMs: { lt: 1000 } } }),
     db.$queryRaw<{ t: string; n: bigint }[]>`
-      SELECT CASE WHEN "format" <> 'GUAC' THEN 'web'
+      SELECT CASE WHEN "format" = 'SQL' THEN 'sql'
+                  WHEN "format" <> 'GUAC' THEN 'web'
                   WHEN LOWER(COALESCE("protocol", '')) IN ('ssh', 'telnet') THEN 'ssh'
                   ELSE 'rdp' END AS t, COUNT(*) AS n
       FROM "SessionRecording" WHERE "tenantId" = ${tenant} GROUP BY 1`,
   ]);
-  const byType = { all: 0, web: 0, rdp: 0, ssh: 0 };
+  const byType = { all: 0, web: 0, rdp: 0, ssh: 0, sql: 0 };
   for (const r of types) {
     const n = Number(r.n);
     byType.all += n;
-    if (r.t === "web" || r.t === "rdp" || r.t === "ssh") byType[r.t] += n;
+    if (r.t === "web" || r.t === "rdp" || r.t === "ssh" || r.t === "sql") byType[r.t] += n;
   }
   return {
     week: Number(week[0]?.n ?? 0),

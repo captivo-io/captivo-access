@@ -22,13 +22,13 @@ type SiteFacts = {
 };
 
 export function siteTile(s: SiteFacts): SiteTile {
-  const remote = s.accessMode === "GATEWAY";
+  const remote = s.accessMode === "GATEWAY" || s.accessMode === "DATABASE";
   const v = s.vaultCredential;
   const target = remote ? v?.targetHost ?? null : s.upstreamUrl;
   const ic = resolveIcon({ name: s.name, target, kind: kindOf({ accessMode: s.accessMode, protocol: v?.protocol }), iconName: s.iconName, iconColor: s.iconColor });
   const look = { icon: ic.name, color: ic.color, logoUrl: s.logoType ? `/api/sites/${s.id}/logo` : null, logoBg: s.logoBg ?? null };
   if (remote) {
-    return { id: s.id, name: s.name, remote, proto: v ? String(v.protocol).toUpperCase() : "REMOTE", host: v ? (v.targetPort ? `${v.targetHost}:${v.targetPort}` : v.targetHost) : null, ...look };
+    return { id: s.id, name: s.name, remote, proto: s.accessMode === "DATABASE" ? "POSTGRESQL" : v ? String(v.protocol).toUpperCase() : "REMOTE", host: v ? (v.targetPort ? `${v.targetHost}:${v.targetPort}` : v.targetHost) : null, ...look };
   }
   const u = s.upstreamUrl ?? "";
   return { id: s.id, name: s.name, remote, proto: u.startsWith("http://") ? "HTTP" : "HTTPS", host: u ? u.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "") : null, ...look };

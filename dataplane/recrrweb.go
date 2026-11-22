@@ -49,7 +49,7 @@ func (p *BrowserProxy) sendRrwebToConnector(connectorID, tenantID, userID, siteI
 
 	// Index only -- no event payload. len(Events) is what the connector was asked
 	// to store, which is the honest number for the byte counter.
-	_ = p.ctrl.SendRecording(userID, siteID, host, mustIndexJSON(batch.RecordingKey, batch.Seq, len(batch.Events)))
+	_ = p.ctrl.SendRecording(userID, siteID, host, mustIndexJSON(batch.RecordingKey, batch.Seq, len(batch.Events), connectorID))
 }
 
 // maxKeyBatchBytes caps one POST /__captivo/keys body. A batch is a few
@@ -110,8 +110,8 @@ func webKeyChunk(tenantID string, body []byte) (tunnel.RecWriteRequest, bool) {
 	}, true
 }
 
-func mustIndexJSON(key string, seq, bytes int) []byte {
-	b, err := json.Marshal(map[string]any{"recordingKey": key, "seq": seq, "bytes": bytes})
+func mustIndexJSON(key string, seq, bytes int, connectorID string) []byte {
+	b, err := json.Marshal(map[string]any{"recordingKey": key, "seq": seq, "bytes": bytes, "connectorId": connectorID})
 	if err != nil {
 		return []byte("{}")
 	}

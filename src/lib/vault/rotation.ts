@@ -56,6 +56,7 @@ export function rotationMethod(c: { protocol: string; secretKind: string }, dir:
     if (dir.security !== "LDAPS" && dir.security !== "STARTTLS") return { unsupported: "Active Directory changes passwords only over an encrypted connection. Set the directory to LDAPS or StartTLS." };
     return { method: "ad" };
   }
+  if (c.protocol === "POSTGRES") return { unsupported: "Database passwords are not rotated yet." };
   return { unsupported: "VNC passwords are not rotated." };
 }
 

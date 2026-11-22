@@ -32,11 +32,11 @@ export const GET = withTenantRoute(async (_req: Request, { params }: { params: P
   const { id } = await params;
   const rec = await db.sessionRecording.findUnique({
     where: { id },
-    select: { recordingKey: true, siteId: true },
+    select: { recordingKey: true, siteId: true, connectorId: true },
   });
   if (!rec) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const connectorId = await connectorForRecording(rec.siteId);
+  const connectorId = await connectorForRecording(rec);
   if (!connectorId) {
     return NextResponse.json(
       { error: "no_connector", detail: "this recording's site has no connector, so its keystroke timeline cannot be reached" },

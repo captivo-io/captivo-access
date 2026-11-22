@@ -9,11 +9,13 @@ import { db } from "@/lib/db";
  * than unreachable, and those are different answers.
  */
 export async function connectorForRecording(
-  siteId: string
+  rec: { siteId: string; connectorId?: string | null }
 ): Promise<string | null> {
-  if (!siteId) return null;
+  // On a connector group the member that carried the session holds it.
+  if (rec.connectorId) return rec.connectorId;
+  if (!rec.siteId) return null;
   const site = await db.site.findUnique({
-    where: { id: siteId },
+    where: { id: rec.siteId },
     select: { connectorId: true },
   });
   return site?.connectorId ?? null;

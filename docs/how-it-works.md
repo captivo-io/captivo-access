@@ -398,6 +398,66 @@ same reason:
   (`SSH_PUBLIC_PORT` changes the published port, `SSH_PUBLIC_HOST` the name in the
   command, `SSH_ADDR=off` turns the jump host off).
 
+## Database resources (your own client, every query logged)
+
+A **Database** Resource is a PostgreSQL server that users reach with their own
+client (psql, DBeaver, DataGrip, pgAdmin) through the data plane's **database
+proxy** on port 15432. **Connect** on the resource in My access gives the
+connection details; the user name is a **ticket**:
+
+```
+psql "host=<console host> port=15432 user=<ticket> dbname=<database> sslmode=require"
+```
+
+```mermaid
+flowchart LR
+    F["My access<br/>Connect · ticket"] --> C["User's client<br/>psql · DBeaver"]
+    C -->|"PostgreSQL over TLS · 15432"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
+    D -->|outbound tunnel| CN["Connector<br/>signs in with the saved account"]
+    CN -->|"5432 · TLS per resource"| S["PostgreSQL"]
+```
+
+- **The password never leaves the connector.** The saved account's password is
+  sealed to the connectors that serve the resource, like a remote desktop's. The
+  connector signs in (SCRAM-SHA-256, md5 or password, as the server asks) and
+  hands the proxy a connection already past authentication. The user never needs
+  or sees it; if a client asks for one, it is left empty.
+- **The ticket** starts connections for up to eight hours, never past the grant's
+  end or the browser sign-in that asked for it: signing out ends it. It is stored
+  hashed. A client's connections from one ticket and address are one session in
+  the console, so tools that open several (and reconnect after idling) don't
+  flood the Sessions page.
+- **The query log.** With the resource's **Query log** on (the recording toggle,
+  on by default for a new database resource), the proxy reads each statement
+  and stores it with its time, duration, row count and error, on the connector
+  that carried the session, next to keystroke timelines (so recording search
+  finds statements by their text). Results and bind parameter values are never
+  stored; password literals (`PASSWORD '...'`) are masked. The recording page
+  shows it as a table, with failed statements and ones worth review (DROP,
+  TRUNCATE, DELETE or UPDATE without WHERE, GRANT, ALTER ROLE) marked. Admins see
+  the statements live on the Sessions page and can end the session.
+- **Access holds while it is used:** the grant, schedule, user status and vendor
+  IP allowlist are checked at every new connection and every minute; a session
+  whose access ends, or whose ticket ends, is closed.
+- **What a session can do is what the account can do.** The proxy does not parse
+  SQL to block writes (that is easy to get around and gives false comfort); for
+  read-only access, save an account with only SELECT rights. The resource can
+  also limit which databases open (a client naming no database lands in the
+  default one).
+- **TLS** is required from the client (the proxy refuses plaintext), including
+  PostgreSQL 17's direct TLS. From the connector to the server it is per resource:
+  Off, Encrypted, or Encrypted + verified against the server's CA.
+- **Cancel** (Ctrl+C in psql, Cancel in DBeaver) reaches the server: the proxy
+  gives the client its own cancel key and forwards a cancel to the right server.
+- **Requirements:** a connector on 2.46.0 or later (it signs in), the database's
+  `host:port` in the connector's `ALLOWED_TARGETS` if that is set, and port 15432
+  reachable on the console's host. Self-hosted installs publish it from the
+  data-plane (`DB_PUBLIC_PORT` changes the published port, `DB_PUBLIC_HOST` the
+  name in the details, `DB_ADDR=off` turns the proxy off). Without
+  `DB_TLS_CERT`/`DB_TLS_KEY` the proxy keeps a self-signed certificate in the
+  data-plane's `/data` volume, which `sslmode=require` accepts.
+- **Not yet:** MySQL and SQL Server, rotating database passwords.
+
 ## The isolated-browser path (isolated)
 
 An **Isolated browser** Resource passes the same first two gates, but its tail
