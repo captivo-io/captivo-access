@@ -1,3 +1,8 @@
+// Samba AD's own TLS certificate carries a negative serial number, which Go
+// refuses to parse since 1.23; password rotation reaches Samba DCs over LDAPS
+// (rotate_ad.go). This only relaxes parsing, not verification.
+//go:debug x509negativeserial=1
+
 // Command connector is the captivo-access connector agent: it runs inside
 // the customer's data center, enrolls with the Manager using a pairing code,
 // dials out to the data-plane over WSS, and proxies HTTP requests to
@@ -14,6 +19,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "show-password" {
+		os.Exit(showPassword(os.Stdout, os.Args[2:]))
+	}
 	// Keep stderr (docker logs) and also capture recent lines for the console tail.
 	log.SetOutput(io.MultiWriter(os.Stderr, logRingBuf))
 	// Initial threshold from env; the Manager can override it live via policy.

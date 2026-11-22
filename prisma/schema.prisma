@@ -448,7 +448,30 @@ model VaultCredential {
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
+  // Password rotation (src/lib/vault/rotation.ts). Off unless one of the two
+  // triggers is on; "Rotate now" works either way.
+  rotateAfterSession Boolean          @default(false) // a minute after the resource's last session ends
+  rotateEveryDays    Int? // and/or on a schedule
+  rotateVerifyDaily  Boolean          @default(false) // sign in with the saved password once a day
+  rotateDueAt        DateTime? // the next attempt (session end, schedule, "Rotate now", retry)
+  rotatedAt          DateTime?
+  verifiedAt         DateTime?
+  rotationState      String? // null | "ok" | "failed" | "unknown" | "out_of_sync"
+  rotationDetail     String?
+  rotationFailures   Int              @default(0)
+  // The prepared next password, { [vaultPublicKey]: sealed }, stored BEFORE the
+  // target changes so a lost answer never leaves a password nobody has.
+  pendingSeals       Json?
+  pendingAt          DateTime?
+  sshHostKey         String? // the SSH host key first seen by a rotation ("SHA256:...")
+  // The account that resets this one when it cannot change its own (Linux:
+  // root or sudo on this host). Sealed for "reconcile,<host>,<port>,<user>".
+  reconcileUsername  String?
+  reconcileKind      VaultSecretKind?
+  reconcileSeals     Json? // { [vaultPublicKey]: sealed }
+
   @@index([tenantId])
+  @@index([rotateDueAt])
 }
 
 enum GrantStatus {
@@ -528,12 +551,12 @@ model AuditEvent {
 
 // Per-tenant, per-scope tamper-evidence chain head (scope: "access" | "admin").
 model AuditChainState {
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  scope     String // "access" | "admin"
-  lastSeq   BigInt   @default(0)
-  lastHash  String   @default("")
-  updatedAt DateTime @updatedAt
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  scope      String // "access" | "admin"
+  lastSeq    BigInt    @default(0)
+  lastHash   String    @default("")
+  updatedAt  DateTime  @updatedAt
   // The last full verification from the console (Audit page), shared by all admins.
   verifiedAt DateTime?
   verifiedOk Boolean?
@@ -653,6 +676,11 @@ model DirectoryConfig {
   baseDN             String     @default("")
   bindDN             String     @default("")
   bindPassword       String     @default("") // encrypted at rest (lib/crypto)
+  // The account with the "Reset password" right that password rotation uses
+  // when a directory account cannot change its own. Sealed to the connectors
+  // for "reconcile,<host>,<port>,<user>" (src/lib/vault/rotation.ts).
+  resetUsername      String     @default("")
+  resetSeals         Json?
   lastTestedAt       DateTime?
   lastTestOk         Boolean?
   lastTestDetail     String?

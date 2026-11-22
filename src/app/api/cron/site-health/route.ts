@@ -10,6 +10,8 @@ import { reconcilePendingErasures } from "@/lib/connector/policy";
 import { notifyPlatformAlerts } from "@/lib/platform/alert-push";
 import { probeConnectors, recordConnectorEvent, writeConnectorSamples } from "@/lib/connector/history";
 import { pumpTenant } from "@/lib/logforward/pump";
+import { runRotationPass } from "@/lib/vault/rotation-pass";
+import { planReconcileCopies, runReconcileCopies, saveReconcileCopies } from "@/lib/vault/reconcile-reshare";
 import { planGroupReshare, runGroupReshare, saveGroupReshare } from "@/lib/vault/reshare";
 
 // The group fields a resource is probed through (probeThrough below).
@@ -200,6 +202,12 @@ export async function POST(req: NextRequest) {
         const copied = await runGroupReshare(plan);
         await inTenant(tenantId, () => saveGroupReshare(plan, copied, null));
       }
+      // The reconcile accounts of password rotation, the same way.
+      const rplan = await inTenant(tenantId, () => planReconcileCopies());
+      if (rplan.length) {
+        const got = await runReconcileCopies(rplan);
+        await inTenant(tenantId, () => saveReconcileCopies(rplan, got));
+      }
     } catch (e) {
       console.error("vault: copying secrets to group members failed", e);
     }
@@ -208,6 +216,10 @@ export async function POST(req: NextRequest) {
     // (new records start their own pump). Not awaited: a slow SIEM must not hold
     // the health pass.
     void pumpTenant(tenantId).catch((e) => console.error("log forwarding: catch-up failed", e));
+
+    // 8. PASSWORD ROTATION -- due rotations, retries and daily checks
+    // (lib/vault/rotation.ts). Not awaited: a change takes seconds per resource.
+    void runRotationPass(tenantId).catch((e) => console.error("vault: rotation pass failed", e));
 
     return {
       checked: toProbe.length + gwToProbe.length,

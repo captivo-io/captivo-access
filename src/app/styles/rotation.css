@@ -1,0 +1,23 @@
+/* Password rotation (resource edit page, rotation-panel.tsx). */
+.rot{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 22px 20px;display:flex;flex-direction:column;gap:14px;}
+.rot-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.rot-head h2{font-size:16px;letter-spacing:-.01em;margin:0 0 4px;}
+.rot-head .cell-sub{margin:0;max-width:72ch;}
+.rot-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;background:rgba(var(--ink-rgb),.06);color:var(--muted);}
+.rot-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;}
+.rot-pill.ok{background:rgba(var(--ok-rgb),.12);color:var(--ok);}
+.rot-pill.warn{background:rgba(var(--warn-rgb),.14);color:var(--warn);}
+.rot-pill.bad{background:rgba(var(--bad-rgb),.12);color:var(--bad);}
+.rot-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:10px;margin:0;}
+.rot-facts div{padding:10px 12px;border-radius:10px;background:rgba(var(--ink-rgb),.03);min-width:0;}
+.rot-facts dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
+.rot-facts dd{margin:0;font-size:13px;overflow-wrap:anywhere;}
+.rot-rec{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;border:1px dashed var(--line-strong);}
+.rot-rec .cell-sub{margin:0;}
+.rot-rec-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:10px;align-items:end;}
+.rot-wide{grid-column:1/-1;}
+.rot-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.rot-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px solid var(--line);}
+.rot-modal{display:flex;flex-direction:column;gap:12px;}
+.rot-modal .rot-actions{justify-content:flex-end;}
+.rot-secret{padding:12px 14px;border-radius:10px;background:rgba(var(--ink-rgb),.05);font-size:15px;letter-spacing:.02em;overflow-wrap:anywhere;user-select:all;}

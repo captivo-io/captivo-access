@@ -69,6 +69,7 @@ jobs:
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/logforward/pump.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/connector/enrollment.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/connector/groups.integration.test.ts
+      - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/vault/rotation.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/cron/for-each-tenant.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/dashboard/insights.scope.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/app/api/admin/smtp/route.scope.integration.test.ts

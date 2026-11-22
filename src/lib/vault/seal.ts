@@ -33,8 +33,12 @@ function guacElement(s: string): string {
 
 // Must equal the values the data-plane puts in the connect instruction
 // (dataplane/guacproto.go buildConnect): trimmed host and username, decimal port.
-export function targetAAD(t: VaultTarget): Uint8Array<ArrayBuffer> {
-  const elems = ["target", t.host.trim(), String(t.port), t.username.trim()];
+// A reconcile account (password rotation) is sealed for "reconcile,...": the
+// connector opens it only inside a rotation, never for a session.
+export type SealPurpose = "target" | "reconcile";
+
+export function targetAAD(t: VaultTarget, purpose: SealPurpose = "target"): Uint8Array<ArrayBuffer> {
+  const elems = [purpose, t.host.trim(), String(t.port), t.username.trim()];
   return new TextEncoder().encode(elems.map(guacElement).join(",") + ";");
 }
 
@@ -55,7 +59,7 @@ function buf(b: Uint8Array): ArrayBuffer {
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 }
 
-export async function sealSecret(connectorPublicKey: string, secret: string, target: VaultTarget): Promise<string> {
+export async function sealSecret(connectorPublicKey: string, secret: string, target: VaultTarget, purpose: SealPurpose = "target"): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) throw new Error("vault_unsupported_browser");
   const recipientRaw = fromB64(connectorPublicKey);
@@ -76,7 +80,7 @@ export async function sealSecret(connectorPublicKey: string, secret: string, tar
   );
   const nonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(
-    await subtle.encrypt({ name: "AES-GCM", iv: buf(nonce), additionalData: buf(targetAAD(target)) }, key, buf(new TextEncoder().encode(secret))),
+    await subtle.encrypt({ name: "AES-GCM", iv: buf(nonce), additionalData: buf(targetAAD(target, purpose)) }, key, buf(new TextEncoder().encode(secret))),
   );
   const out = new Uint8Array(32 + 12 + ct.length);
   out.set(ephRaw, 0);
@@ -92,4 +96,38 @@ export function isSealedValue(v: unknown): v is string {
   const body = v.slice(SEALED_PREFIX.length);
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(body)) return false;
   return fromB64(body).length >= 32 + 12 + 16;
+}
+
+// Showing a saved password to an admin (password rotation's "Reveal"): the
+// browser makes a key pair for this one look, the connector seals the password
+// to its public half, and only this page can open the result.
+export async function revealKeyPair(): Promise<{ privateKey: CryptoKey; publicKey: string }> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("vault_unsupported_browser");
+  const pair = (await subtle.generateKey({ name: "X25519" }, false, ["deriveBits"])) as CryptoKeyPair;
+  return { privateKey: pair.privateKey, publicKey: toB64(new Uint8Array(await subtle.exportKey("raw", pair.publicKey))) };
+}
+
+export async function openSealedSecret(own: { privateKey: CryptoKey; publicKey: string }, sealed: string, target: VaultTarget): Promise<string> {
+  const subtle = globalThis.crypto.subtle;
+  if (!isSealedValue(sealed)) throw new Error("not_sealed");
+  const raw = fromB64(sealed.slice(SEALED_PREFIX.length));
+  const ephRaw = raw.slice(0, 32);
+  const nonce = raw.slice(32, 44);
+  const ct = raw.slice(44);
+  const eph = await subtle.importKey("raw", buf(ephRaw), { name: "X25519" }, false, []);
+  const shared = await subtle.deriveBits({ name: "X25519", public: eph } as unknown as AlgorithmIdentifier, own.privateKey, 256);
+  const salt = new Uint8Array(64);
+  salt.set(ephRaw, 0);
+  salt.set(fromB64(own.publicKey), 32);
+  const base = await subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+  const key = await subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: buf(salt), info: buf(new TextEncoder().encode(INFO)) },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"],
+  );
+  const pt = await subtle.decrypt({ name: "AES-GCM", iv: buf(nonce), additionalData: buf(targetAAD(target)) }, key, buf(ct));
+  return new TextDecoder().decode(pt);
 }

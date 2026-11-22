@@ -19,6 +19,9 @@ type ResealItem struct {
 	Port     string   `json:"port"`
 	Username string   `json:"username"`
 	To       []string `json:"to"`
+	// "reconcile": a reconcile account's seal ("reconcile,..." additional
+	// data, connector/rotate.go). Empty: a resource secret.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // ResealResponse carries the new seals by item and recipient key. An item the

@@ -4,6 +4,7 @@ import { listGroupMappings } from "@/lib/directory/mappings";
 import { db } from "@/lib/db";
 import { workspaceView } from "@/lib/mobile/views";
 import { DirectoryView } from "./directory-view";
+import { ResetAccount } from "./reset-account";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ async function AdminDirectoryPageImpl() {
     getDirectoryConfig(),
     db.connector.findMany({
       where: { status: { not: "REVOKED" } },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, vaultPublicKey: true },
       orderBy: { name: "asc" },
     }),
     listGroupMappings(),
@@ -35,6 +36,8 @@ async function AdminDirectoryPageImpl() {
     bindDN: cfg?.bindDN ?? "",
     hasBindPassword: cfg?.hasBindPassword ?? false,
   };
+  const reset = await db.directoryConfig.findFirst({ select: { resetUsername: true, resetSeals: true } });
+  const resetKeys = reset?.resetSeals && typeof reset.resetSeals === "object" ? Object.keys(reset.resetSeals as object) : [];
   const configured = !!(cfg && cfg.connectorId && cfg.host && cfg.baseDN && cfg.bindDN);
 
   return (
@@ -59,6 +62,11 @@ async function AdminDirectoryPageImpl() {
         mappings={mappings}
         sites={sites}
       />
+      {cfg && <ResetAccount
+        host={cfg.host} port={cfg.port} security={cfg.security} username={reset?.resetUsername ?? ""}
+        missingFor={reset?.resetUsername ? connectors.filter((c) => c.vaultPublicKey && !resetKeys.includes(c.vaultPublicKey)).map((c) => c.name) : []}
+        keys={connectors.filter((c) => c.vaultPublicKey).map((c) => ({ name: c.name, key: c.vaultPublicKey! }))}
+      />}
     </main>
   );
 }

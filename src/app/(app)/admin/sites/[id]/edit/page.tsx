@@ -6,6 +6,8 @@ import { egressReportOnlyUntil } from "@/lib/isolation/egress";
 import { recentEgressEvents } from "@/lib/isolation/egress-events";
 import { resourceContext } from "../../context";
 import { EditResource } from "./edit-resource";
+import { RotationPanel } from "./rotation-panel";
+import { rotationStatus } from "@/lib/vault/rotation-status";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -31,10 +33,11 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
       </main>
     );
   }
-  const [ctx, vault, egressEvents] = await Promise.all([
+  const [ctx, vault, egressEvents, rotation] = await Promise.all([
     resourceContext(),
     site.accessMode === "GATEWAY" ? getVaultCredentialMeta(site.id) : Promise.resolve(null),
     site.accessMode === "ISOLATED" ? recentEgressEvents(site.id) : Promise.resolve(undefined),
+    site.accessMode === "GATEWAY" ? rotationStatus(site.id) : Promise.resolve(null),
   ]);
 
   return (
@@ -78,6 +81,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
           logoBg: site.logoBg,
         }}
       />
+      {rotation && vault?.sealed && <RotationPanel siteId={site.id} siteName={site.name} initial={rotation} />}
     </main>
   );
 }

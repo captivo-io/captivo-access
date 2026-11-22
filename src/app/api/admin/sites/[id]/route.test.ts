@@ -15,7 +15,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     connector: { findUnique: async () => ({ id: "c1" }) },
     site: { findUnique: async () => ({ id: "s1", hostname: null }) },
-    vaultCredential: { count: vi.fn() },
+    vaultCredential: { count: vi.fn(), findUnique: vi.fn(async () => null) },
     $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
   },
 }));

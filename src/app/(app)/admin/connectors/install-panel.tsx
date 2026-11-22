@@ -19,11 +19,13 @@ function showPanel() {
 }
 
 /** The header's "Add connector": the install panel is on the page, so it scrolls there and lights it up. */
-export function AddConnectorScroll() {
+export function AddConnectorScroll({ blockedReason = null }: { blockedReason?: string | null }) {
   return (
     <button
       type="button"
       className="btn primary"
+      disabled={!!blockedReason}
+      title={blockedReason ?? undefined}
       onClick={showPanel}
     >
       + Add connector
@@ -37,7 +39,7 @@ export function AddConnectorScroll() {
  * the pairings still waiting for their host. While one waits, the page looks
  * again every 10 s so the new connector's card appears on its own.
  */
-export function InstallPanel({ first, pending }: { first: boolean; pending: { id: string; name: string; createdAt: string; expiresAt: string }[] }) {
+export function InstallPanel({ first, pending, blockedReason = null }: { first: boolean; pending: { id: string; name: string; createdAt: string; expiresAt: string }[]; blockedReason?: string | null }) {
   const router = useRouter();
   const [k, setK] = useState(0);
   const waiting = pending.filter((p) => Date.parse(p.expiresAt) > Date.now()).length;
@@ -60,7 +62,7 @@ export function InstallPanel({ first, pending }: { first: boolean; pending: { id
           <p>Runs on any Linux host with Docker inside the network. It dials out over TLS: no inbound ports, no VPN.</p>
         </div>
       </div>
-      <ConnectorForm key={k} onDone={() => { setK((n) => n + 1); router.refresh(); }} />
+      {blockedReason ? <p className="rf-msg warn">{blockedReason}</p> : <ConnectorForm key={k} onDone={() => { setK((n) => n + 1); router.refresh(); }} />}
       {pending.length > 0 && (
         <ul className="cn-pending">
           {pending.map((p) => {

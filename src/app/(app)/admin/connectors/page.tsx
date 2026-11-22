@@ -16,6 +16,7 @@ import { withRequestTenant } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { planUsage } from "@/lib/platform/plan-usage";
 import { PlanUsageNote } from "@/app/(app)/_shell/plan-usage-note";
+import { planAddBlocked } from "@/lib/platform/plan-usage";
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { getConnectorTelemetry } from "@/lib/connector/telemetry";
 import { liveHostAction, remoteControl, storedHostAction, updateTarget } from "@/lib/connector/host-action";
@@ -142,7 +143,7 @@ async function AdminConnectorsPageImpl() {
             A connector is a small agent inside your network. It dials out to Captivo, so no inbound ports are
             needed, and serves the resources you add on it.
           </p>
-          <PlanUsageNote usage={connectorUsage} noun="connectors" />
+          <PlanUsageNote usage={connectorUsage} noun="connectors" one="connector" />
         </div>
         <div className="row-actions">
           {connectors.length > 0 && (
@@ -150,7 +151,7 @@ async function AdminConnectorsPageImpl() {
               commands={{ keysBackup: buildKeysBackupCommand(), fullBackup: buildFullBackupCommand(), keysRestore: buildKeysRestoreCommand(), fullRestore: buildFullRestoreCommand() }}
             />
           )}
-          <AddConnectorScroll />
+          <AddConnectorScroll blockedReason={planAddBlocked(connectorUsage, "connector")} />
         </div>
       </div>
 
@@ -160,6 +161,7 @@ async function AdminConnectorsPageImpl() {
 
       <InstallPanel
         first={cards.length === 0}
+        blockedReason={planAddBlocked(connectorUsage, "connector")}
         pending={pendingPairings.map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt.toISOString(), expiresAt: p.expiresAt.toISOString() }))}
       />
     </main>

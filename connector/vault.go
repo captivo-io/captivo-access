@@ -94,6 +94,13 @@ func vaultTargetAAD(host, port, username string) []byte {
 	return encodeGuacInstruction([]string{"target", host, port, username})
 }
 
+// vaultReconcileAAD binds a reconcile account's secret: a different first
+// element than vaultTargetAAD, so the gateway (which opens only "target")
+// can never sign a session in with it.
+func vaultReconcileAAD(host, port, username string) []byte {
+	return encodeGuacInstruction([]string{"reconcile", host, port, username})
+}
+
 // openSealed opens a sealed secret addressed to k for the given target.
 func openSealed(k *ecdh.PrivateKey, sealed string, aad []byte) (string, error) {
 	if k == nil {

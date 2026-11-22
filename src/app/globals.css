@@ -763,20 +763,31 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .scp-item-label { font: 600 14px/1.2 sans-serif; }
 .scp-item-sub { font: 12px/1.2 sans-serif; color: #94a3b8; margin-top: 2px; }
 
-/* The allowance line under a page title (Connectors, Resources). Quiet at
-   rest; only the at-cap variant raises its voice, because that is the only
-   state where the next click fails. */
+/* The allowance under a page title (Connectors, Resources, People): a quiet
+   meter at rest, a band one before the cap and at it -- the only state where
+   the next click fails (_shell/plan-usage-note.tsx). */
 .plan-usage {
   margin-top: .35rem;
   font-size: .8125rem;
   color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.plan-usage-at-cap {
-  /* The repo's own warn token, which is redefined for the dark theme -- a
-     literal amber here would have been unreadable on the dark ground. */
-  color: var(--warn);
-  font-weight: 500;
-}
+.plan-meter { display: inline-block; width: 64px; height: 6px; border-radius: 999px; background: rgba(var(--ink-rgb), .1); overflow: hidden; flex: none; }
+.plan-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--p); }
+.plan-meter.lg { width: 120px; }
+.plan-band { margin-top: .7rem; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; border: 1px solid; max-width: 760px; }
+.plan-band.last { background: rgba(var(--warn-rgb), .1); border-color: rgba(var(--warn-rgb), .35); }
+.plan-band.full { background: rgba(var(--bad-rgb), .08); border-color: rgba(var(--bad-rgb), .35); }
+.plan-band-ic { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; flex: none; }
+.plan-band.last .plan-band-ic { background: var(--warn); }
+.plan-band.full .plan-band-ic { background: var(--bad); }
+.plan-band-t { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; color: var(--muted); }
+.plan-band-t b { color: var(--fg); font-size: 14px; }
+.plan-band.last .plan-meter > span { background: var(--warn); }
+.plan-band.full .plan-meter > span { background: var(--bad); }
+.plan-band-cta { flex: none; }
 
 /* ---- session shell (gateway + isolated): branded panel, notices, drop target ---- */
 .ss-handle { position: fixed; left: 0; top: 14px; z-index: 40; display: inline-flex; align-items: center; gap: 0; padding: 7px 8px 7px 7px; touch-action: none; background: linear-gradient(180deg, rgba(11,20,36,.94), rgba(14,27,48,.94)); color: #c7d2e0; border: 1px solid #1a2a44; border-left: 0; border-radius: 0 10px 10px 0; cursor: pointer; font: 600 12px/1 var(--display); letter-spacing: .02em; box-shadow: 0 8px 24px rgba(0,0,0,.35); transition: transform .18s ease, opacity .18s ease; }

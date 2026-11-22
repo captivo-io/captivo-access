@@ -118,9 +118,23 @@ export type VaultInput = {
   guacParams?: GuacParams;
 };
 
+/**
+ * Columns to write with a newly entered password: an admin's value replaces
+ * whatever a rotation had prepared. A new host or port also drops what was
+ * bound to the old one (its reconcile account, its SSH host key).
+ */
+export function rotationColumnsForNewSecret(prev: { targetHost: string; targetPort: number } | null, next: { host: string; port: number }) {
+  const moved = !prev || prev.targetHost !== next.host.trim() || prev.targetPort !== next.port;
+  return {
+    pendingSeals: Prisma.DbNull, pendingAt: null, rotationState: null, rotationDetail: null, rotationFailures: 0,
+    ...(moved ? { sshHostKey: null, reconcileUsername: null, reconcileKind: null, reconcileSeals: Prisma.DbNull } : {}),
+  };
+}
+
 export async function setVaultCredential(input: VaultInput): Promise<void> {
   const target = { host: input.targetHost, port: input.targetPort, username: input.username };
   const stored = await storedSecretFor({ connectorId: input.connectorId, connectorGroupId: input.connectorGroupId }, input.secret, target);
+  const prev = await db.vaultCredential.findUnique({ where: { siteId: input.siteId }, select: { targetHost: true, targetPort: true } });
   const data = {
     protocol: input.protocol,
     targetHost: input.targetHost.trim(),
@@ -133,7 +147,7 @@ export async function setVaultCredential(input: VaultInput): Promise<void> {
   await db.vaultCredential.upsert({
     where: { siteId: input.siteId },
     create: { siteId: input.siteId, ...data },
-    update: data,
+    update: { ...data, ...rotationColumnsForNewSecret(prev, target) },
   });
 }
 

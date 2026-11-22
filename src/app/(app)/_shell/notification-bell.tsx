@@ -6,7 +6,7 @@ import Link from "next/link";
 type Item = { id: string; type: string; siteName: string; detail: string | null; when: string };
 type Req = { id: string; who: string; siteName: string; when: string };
 
-const TITLE: Record<string, string> = { site_down: "Resource down", site_recovered: "Resource recovered" };
+const TITLE: Record<string, string> = { site_down: "Resource down", site_recovered: "Resource recovered", rotation_failed: "Password rotation failed", out_of_sync: "Password changed outside Captivo" };
 
 export function NotificationBell({ badge, open, onToggle }: { badge: number; open: boolean; onToggle: () => void }) {
   const router = useRouter();
@@ -82,7 +82,7 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
                 <div key={n.id} className="tn-notif-item">
                   <div className="tn-notif-body">
                     <div className="tn-notif-title">
-                      <span className={n.type === "site_down" ? "down" : n.type === "site_recovered" ? "up" : undefined}>{TITLE[n.type] ?? n.type}</span> — {n.siteName}
+                      <span className={n.type === "site_down" || n.type === "rotation_failed" || n.type === "out_of_sync" ? "down" : n.type === "site_recovered" ? "up" : undefined}>{TITLE[n.type] ?? n.type}</span> — {n.siteName}
                     </div>
                     {n.detail && <div className="tn-notif-detail">{n.detail}</div>}
                     <div className="tn-notif-when">{n.when}</div>

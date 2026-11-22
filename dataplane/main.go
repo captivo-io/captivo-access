@@ -1,3 +1,8 @@
+// Samba AD's own TLS certificate carries a negative serial number, which Go
+// refuses to parse since 1.23; the directory connection (ldap.go) reaches Samba
+// DCs over LDAPS. This only relaxes parsing, not verification.
+//go:debug x509negativeserial=1
+
 // Command dataplane is the captivo-access data-plane service: it accepts
 // connector WSS tunnels (each backed by a yamux session), and exposes an
 // internal /proxy API the control plane uses to round-trip HTTP requests
@@ -139,6 +144,26 @@ func main() {
 			return
 		}
 		res, err := Reseal(reg.Get(body.ConnectorID), tunnel.ResealRequest{Items: body.Items})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
+	in.HandleFunc("/vault-rotate", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			ConnectorID string               `json:"connectorId"`
+			Request     tunnel.RotateRequest `json:"request"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_body"})
+			return
+		}
+		res, err := Rotate(reg.Get(body.ConnectorID), body.Request)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
