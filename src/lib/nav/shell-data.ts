@@ -22,13 +22,14 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
   const soft = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
   const mgr = managerVersion();
 
-  const [pending, unread, connectors, unreachableResources, myPending, ws] = await Promise.all([
+  const [pending, unread, connectors, unreachableResources, myPending, ws, reviewPending] = await Promise.all([
     grants ? soft(countPendingGrants(), 0) : 0,
     read ? soft(countUnreadNotifications(), 0) : 0,
     config ? soft(db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { version: true } }), []) : [],
     config ? soft(db.site.count({ where: { probeOk: false } }), 0) : 0,
     soft(db.accessGrant.count({ where: { userId: user.id, status: "ACTIVE", requiresApproval: true, approvedAt: null } }), 0),
     soft(workspaceView(), { name: "Captivo Access", slug: null, origin: "" }),
+    grants ? soft(db.accessReviewItem.count({ where: { decision: null, review: { status: "open" }, userId: { not: user.id } } }), 0) : 0,
   ]);
   let host: string | null = null;
   try {
@@ -40,6 +41,7 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
     counts: {
       pending,
       unread,
+      reviewPending,
       outdatedConnectors: connectors.filter((c) => c.version && isConnectorOutdated(c.version, mgr)).length,
       unreachableResources,
       myPending,

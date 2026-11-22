@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { getPlatformSettings } from "@/lib/settings/platform";
 
-export type CronJob = "site-health" | "audit-retention" | "recording-retention" | "audit-anchor";
+export type CronJob = "site-health" | "audit-retention" | "recording-retention" | "audit-anchor" | "access-reviews";
 // Platform-level (Cloud) maintenance job; recorded under the platform tenant only.
 export type PlatformJob = "platform-ops";
 

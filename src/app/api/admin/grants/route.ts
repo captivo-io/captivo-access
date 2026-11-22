@@ -139,7 +139,7 @@ export const DELETE = withTenantRoute(async (req: NextRequest) => {
     return NextResponse.json({ error: "id_required" }, { status: 400 });
   }
 
-  await revokeGrant(id);
+  await revokeGrant(id, { userId: admin.id });
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "grant.revoke",

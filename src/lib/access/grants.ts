@@ -48,8 +48,11 @@ export async function listGrants() {
   });
 }
 
-export async function revokeGrant(id: string): Promise<void> {
-  await db.accessGrant.updateMany({ where: { id }, data: { status: "REVOKED" } });
+export async function revokeGrant(id: string, by?: { userId?: string | null; reason?: string | null }): Promise<void> {
+  await db.accessGrant.updateMany({
+    where: { id },
+    data: { status: "REVOKED", revokedAt: new Date(), revokedById: by?.userId ?? null, revokeReason: by?.reason ?? null },
+  });
 }
 
 export async function listUserGrants(userId: string) {

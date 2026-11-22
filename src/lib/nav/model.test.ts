@@ -9,7 +9,7 @@ describe("buildNavModel", () => {
     expect(buildNavModel("ADMIN", { pending: 0, unread: 0, unreachableResources: 5 }).admin[2].items[1])
       .toMatchObject({ badge: 5, badgeTone: "bad", badgeTitle: "5 unreachable" });
     expect(m.admin.map((s) => s.label)).toEqual(["Overview", "Operate", "Infrastructure", "Identity & access", "Platform"]);
-    expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Sessions", "Recordings", "Audit"]);
+    expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Access reviews", "Sessions", "Recordings", "Audit"]);
     const item = (label: string) => m.admin.flatMap((s) => s.items).find((i) => i.label === label);
     expect(item("Grants")).toMatchObject({ badge: 3, badgeTone: "warn" });
     expect(item("Sessions")).toMatchObject({ badge: 1, badgeTone: "ok" });
@@ -28,7 +28,7 @@ describe("buildNavModel", () => {
   it("OPERATOR: overview and operations, grants badge, no configuration", () => {
     const m = buildNavModel("OPERATOR", { pending: 2, unread: 0 });
     expect(m.admin.map((s) => s.label)).toEqual(["Overview", "Operate"]);
-    expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Sessions", "Audit"]);
+    expect(m.admin[1].items.map((i) => i.label)).toEqual(["Grants", "Access reviews", "Sessions", "Audit"]);
     expect(m.admin[1].items[0].badge).toBe(2);
   });
   it("AUDITOR: no grants badge", () => {
