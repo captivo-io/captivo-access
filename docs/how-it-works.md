@@ -480,8 +480,16 @@ flowchart LR
 - **Refused:** port forwarding (`-L`, `-R`, `-D`), agent and X11 forwarding, since
   they can't be recorded. VS Code Remote-SSH needs port forwarding, so it works
   only on resources that aren't recorded.
-- An admin can end the session from Sessions (`SSH · NATIVE`, "recorded"); watching
-  it live is not available yet. With a connector older than 2.49.0 a recorded
+- **Watching live:** on Sessions (`SSH · NATIVE`, "recorded") an admin can watch
+  the terminal as the user sees it, send a message or end the session. The jump
+  host streams the same output it records; an admin who joins late sees the
+  screen as it is now (rebuilt from the output since it was last cleared, with a
+  full-screen program such as vim drawn on top). Watching is view only. The user
+  gets a line in their terminal saying an admin is watching (once a minute at
+  most), and an admin's message arrives the same way; while a full-screen program
+  runs, both wait until it ends so they don't break its screen. Each line is
+  marked in the recording. Several terminals over one connection show as tabs.
+  This needs no connector update. With a connector older than 2.49.0 a recorded
   resource falls back to the unrecorded way, or, when the Policy requires
   recording, refuses native SSH until the connector is updated.
 

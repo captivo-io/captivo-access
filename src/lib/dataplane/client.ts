@@ -35,6 +35,8 @@ export interface ActiveSession {
   native?: boolean;
   /** The connector carrying it (2.44+). */
   connectorId?: string;
+  /** A native session that can still be watched: recorded native SSH (2.50+). */
+  watchable?: boolean;
 }
 
 export interface LiveFeedEvent { at: string; type: string; text: string }
@@ -152,8 +154,15 @@ export async function getSessionFeed(sessionId: string): Promise<LiveFeedEvent[]
   }
 }
 
+/**
+ * How a message reached a recorded native SSH session's terminal: at once,
+ * after the full-screen program running there ends, or not at all (no
+ * terminal open). Absent for sessions with a page that shows it.
+ */
+export type MessageDelivery = "shown" | "queued" | "none";
+
 /** Show a message on the user's screen in a live session of this workspace. */
-export async function sendSessionMessage(sessionId: string, text: string): Promise<LiveMessage | null> {
+export async function sendSessionMessage(sessionId: string, text: string): Promise<{ message: LiveMessage; delivery?: MessageDelivery } | null> {
   if (!(await findOwnSession(sessionId))) return null;
   try {
     const res = await fetchWithTimeout(`${BASE()}/sessions/message`, {
@@ -161,8 +170,8 @@ export async function sendSessionMessage(sessionId: string, text: string): Promi
       body: JSON.stringify({ sessionId, text }),
     });
     if (!res.ok) return null;
-    const body = (await res.json()) as { ok?: boolean; message?: LiveMessage };
-    return body.ok && body.message ? body.message : null;
+    const body = (await res.json()) as { ok?: boolean; message?: LiveMessage; delivery?: MessageDelivery };
+    return body.ok && body.message ? { message: body.message, delivery: body.delivery } : null;
   } catch {
     return null;
   }

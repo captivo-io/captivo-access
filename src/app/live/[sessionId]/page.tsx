@@ -6,6 +6,7 @@ import { appendAuditEvents } from "@/lib/audit/append";
 import { clientIp } from "@/lib/request-ip";
 import { LiveViewer } from "./live-viewer";
 import { KasmLiveViewer } from "./kasm-live-viewer";
+import { TermLiveViewer } from "./term-live-viewer";
 import { findOwnSession } from "@/lib/dataplane/client";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -38,6 +39,7 @@ async function LiveSessionPageImpl({ params }: { params: Promise<{ sessionId: st
 
   const match = await findOwnSession(sessionId);
   const canControl = can(user.role, "configure");
+  if (match?.native && match.watchable) return <TermLiveViewer sessionId={sessionId} />;
   return match?.kind === "isolated"
     ? <KasmLiveViewer sessionId={sessionId} canControl={canControl} label={match.host} />
     : <LiveViewer sessionId={sessionId} canControl={canControl} />;

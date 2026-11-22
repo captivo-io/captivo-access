@@ -179,6 +179,10 @@ func fakeShell(ch ssh.Channel, reqs <-chan *ssh.Request) {
 					case strings.HasPrefix(cmd, "sudo"):
 						secret = true
 						_, _ = io.WriteString(ch, "[sudo] password for ops: ")
+					case cmd == "vim":
+						_, _ = io.WriteString(ch, "\x1b[?1049h\x1b[HVIM SCREEN")
+					case cmd == ":q":
+						_, _ = io.WriteString(ch, "\x1b[?1049lops@box:~$ ")
 					case cmd == "exit":
 						_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
 						ch.Close()

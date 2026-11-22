@@ -40,6 +40,11 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	// A recorded native SSH session: its terminal is streamed from here.
+	if live, notify := ls.termHooks(); live != nil {
+		serveTermView(ls, live, notify, viewerUserID, w, r)
+		return
+	}
 	connID, connectorID, guacdAddr := ls.shareInfo()
 	if connID == "" {
 		http.Error(w, "session not ready", http.StatusConflict)
