@@ -1181,7 +1181,8 @@ a.hb-row:hover .hb-l{color:var(--p);}
 .ma-bar{height:4px;border-radius:99px;background:rgba(var(--ink-rgb),.08);overflow:hidden;}
 .ma-bar span{display:block;height:100%;border-radius:99px;background:var(--p);}
 .ma-bar span.warn{background:var(--warn);}
-.ma-act{display:flex;justify-content:flex-end;gap:6px;}
+.ma-act{display:flex;justify-content:flex-end;align-items:center;gap:6px;}
+.ma-norec{font:500 11px/1 var(--mono);letter-spacing:.04em;color:var(--warn);white-space:nowrap;}
 /* A resource that also offers an .rdp file needs room for the second button. */
 .ma-wide .ma-row{grid-template-columns:minmax(0,1fr) 180px 172px;}
 .ma-act .btn[aria-disabled]{opacity:.45;cursor:default;}

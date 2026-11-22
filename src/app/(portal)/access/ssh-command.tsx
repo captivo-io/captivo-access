@@ -12,7 +12,7 @@ type Ticket = {
 const ERRORS: Record<string, string> = {
   forbidden: "Your access to this resource isn't active right now.",
   off: "This resource no longer allows your own SSH app.",
-  recorded: "Sessions on this resource are recorded, so it opens only in the browser.",
+  recording_required: "Every session in this workspace must be recorded, so this resource opens only in the browser.",
   connector_outdated: "This resource's connector needs an update before your own SSH app can reach it.",
   ssh_off: "Connecting with your own SSH app isn't set up on this service.",
 };
@@ -24,17 +24,17 @@ const userKey = (siteId: string) => `captivo.ssh-user.${siteId}`;
  * command's jump user is a ticket that starts connections for two minutes;
  * after that a new one is a click away. They sign in to the server themselves.
  */
-export function SshCommandButton({ href, siteId, siteName }: { href: string; siteId: string; siteName: string }) {
+export function SshCommandButton({ href, siteId, siteName, recorded = false }: { href: string; siteId: string; siteName: string; recorded?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className="btn sm" onClick={() => setOpen(true)} title="Connect with your own SSH app (OpenSSH, VS Code, Termius). You sign in to the server yourself.">SSH</button>
-      {open && <SshCommandModal href={href} siteId={siteId} siteName={siteName} onClose={() => setOpen(false)} />}
+      {open && <SshCommandModal href={href} siteId={siteId} siteName={siteName} recorded={recorded} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function SshCommandModal({ href, siteId, siteName, onClose }: { href: string; siteId: string; siteName: string; onClose: () => void }) {
+function SshCommandModal({ href, siteId, siteName, recorded, onClose }: { href: string; siteId: string; siteName: string; recorded: boolean; onClose: () => void }) {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -115,7 +115,7 @@ function SshCommandModal({ href, siteId, siteName, onClose }: { href: string; si
 
         <ul className="ssh-notes">
           <li>Sign in to the server with your own password or key. Captivo doesn&apos;t sign in for you.</li>
-          <li>This session isn&apos;t recorded. It ends when your access ends.</li>
+          <li>{recorded ? "Unlike Open, which is recorded, a session in your own SSH app isn't recorded." : "This session isn't recorded."} It ends when your access ends.</li>
           {ticket?.fingerprint && <li>The first time, your SSH app asks whether to trust <span className="mono">{ticket.jumpHost}:{ticket.jumpPort}</span>. Its key is <span className="mono ssh-fp">{ticket.fingerprint}</span>.</li>}
           <li>On Windows the command works in PowerShell and Windows Terminal (OpenSSH is built in).</li>
         </ul>

@@ -13,3 +13,10 @@ import { resolvedRecordingMode } from "@/lib/settings/platform";
 export async function effectiveSiteRecording(recordSessions: boolean): Promise<boolean> {
   return recordingEnabled() && effectiveRecordSessions(await resolvedRecordingMode(), recordSessions);
 }
+
+// Whether the Policy page requires every session to be recorded. Then a
+// resource offers no native client (those sessions can't be recorded); under
+// "per resource" a recorded resource may still offer one, unrecorded.
+export async function recordingRequired(): Promise<boolean> {
+  return recordingEnabled() && (await resolvedRecordingMode()) === "required";
+}

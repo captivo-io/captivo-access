@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { evaluateAccess } from "@/lib/access/evaluate";
-import { effectiveSiteRecording } from "@/lib/recording/effective";
+import { recordingRequired } from "@/lib/recording/effective";
 import { nativeSshBlock, NATIVE_SSH_MIN_CONNECTOR, type NativeSshBlock } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 
@@ -27,7 +27,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const cred = site.vaultCredential;
   const block = nativeSshBlock({
     accessMode: site.accessMode, nativeSsh: site.nativeSsh, protocol: cred?.protocol,
-    recorded: await effectiveSiteRecording(site.recordSessions), connectorVersion: newestVersion(site),
+    recordingRequired: await recordingRequired(), connectorVersion: newestVersion(site),
   });
   if (block || !cred) return { ok: false, status: 409, error: block ?? "not_ssh" };
   // On a group, only members new enough to relay the tunnel carry it.

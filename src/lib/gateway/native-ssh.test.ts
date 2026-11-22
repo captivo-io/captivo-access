@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { nativeSshBlock, sshCommand, sshPublicHost, sshPublicPort } from "./native-ssh";
 import { newSshTicketCode } from "./native-ssh-ticket";
 
-const base = { accessMode: "GATEWAY", nativeSsh: true, protocol: "SSH", recorded: false, connectorVersion: "2.42.0" };
+const base = { accessMode: "GATEWAY", nativeSsh: true, protocol: "SSH", recordingRequired: false, connectorVersion: "2.42.0" };
 
 describe("nativeSshBlock", () => {
-  it("allows an SSH resource that asks for it and isn't recorded", () => {
+  it("allows an SSH resource that asks for it while recording is not required", () => {
     expect(nativeSshBlock(base)).toBeNull();
     expect(nativeSshBlock({ ...base, protocol: "ssh", connectorVersion: "dev" })).toBeNull();
   });
@@ -13,7 +13,7 @@ describe("nativeSshBlock", () => {
     expect(nativeSshBlock({ ...base, protocol: "RDP" })).toBe("not_ssh");
     expect(nativeSshBlock({ ...base, accessMode: "ISOLATED" })).toBe("not_ssh");
     expect(nativeSshBlock({ ...base, nativeSsh: false })).toBe("off");
-    expect(nativeSshBlock({ ...base, recorded: true })).toBe("recorded");
+    expect(nativeSshBlock({ ...base, recordingRequired: true })).toBe("recording_required");
     expect(nativeSshBlock({ ...base, connectorVersion: "2.38.4" })).toBe("connector_outdated");
   });
 });

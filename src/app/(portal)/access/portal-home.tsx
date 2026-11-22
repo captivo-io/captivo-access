@@ -23,6 +23,8 @@ export interface CardVM {
   rdpHref: string | null;
   /** Where to get a command for the user's own SSH client, when the resource allows one. */
   sshHref: string | null;
+  /** Its browser sessions are recorded (native ones never are). */
+  recorded?: boolean;
   /** Where to get connection details for the user's own database client (a DATABASE resource). */
   dbHref?: string | null;
   time: Remaining;
