@@ -6,7 +6,7 @@ import Link from "next/link";
 type Item = { id: string; type: string; siteName: string; detail: string | null; when: string };
 type Req = { id: string; who: string; siteName: string; when: string };
 
-const TITLE: Record<string, string> = { site_down: "Resource down", site_recovered: "Resource recovered", rotation_failed: "Password rotation failed", out_of_sync: "Password changed outside Captivo" };
+const TITLE: Record<string, string> = { site_down: "Resource down", site_recovered: "Resource recovered", rotation_failed: "Password rotation failed", out_of_sync: "Password changed outside Captivo", review_open: "Access review open", review_due: "Access review due", review_closed: "Access review closed" };
 
 export function NotificationBell({ badge, open, onToggle }: { badge: number; open: boolean; onToggle: () => void }) {
   const router = useRouter();

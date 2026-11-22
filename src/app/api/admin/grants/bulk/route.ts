@@ -36,7 +36,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (action === "revoke") {
     let done = 0;
     for (const g of grants) {
-      const res = await db.accessGrant.updateMany({ where: { id: g.id, status: "ACTIVE" }, data: { status: "REVOKED" } });
+      const res = await db.accessGrant.updateMany({ where: { id: g.id, status: "ACTIVE" }, data: { status: "REVOKED", revokedAt: new Date(), revokedById: actor.id } });
       if (res.count === 0) continue;
       done++;
       await recordAdminAction({ actor, action: "grant.revoke", targetType: "grant", targetId: g.id, summary: `Revoked access grant ${g.id}`, clientIp: ip });

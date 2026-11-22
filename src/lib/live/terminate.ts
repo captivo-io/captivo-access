@@ -24,7 +24,7 @@ export async function terminateLiveSession(input: {
     clientIp: input.clientIp,
   });
   if (grantId) {
-    await revokeGrant(grantId);
+    await revokeGrant(grantId, { userId: actor.id, reason: "session_terminate" });
     await recordAdminAction({
       actor,
       action: "grant.revoke",

@@ -73,6 +73,8 @@ model Tenant {
   sessionKeyEvents   SessionKeyEvent[]
   adminAuditEvents   AdminAuditEvent[]
   dbTickets          DbTicket[]
+  accessReviews      AccessReview[]
+  accessReviewItems  AccessReviewItem[]
 }
 
 enum Role {
@@ -513,6 +515,11 @@ model AccessGrant {
   createdAt   DateTime @default(now())
 
   directoryManaged Boolean @default(false)
+
+  // Who took it away, when and why ("review:<id>" for an access review).
+  revokedAt    DateTime?
+  revokedById  String?
+  revokeReason String?
 
   @@index([userId, siteId])
   @@index([tenantId])
@@ -1012,4 +1019,64 @@ model DbTicket {
   @@index([tenantId])
   @@index([userId, siteId])
   @@index([expiresAt])
+}
+
+/// An access review: who may reach what, confirmed or taken away by the people
+/// who approve access (src/lib/review). It lists every live grant when it opens;
+/// each item is kept, limited or revoked, and what nobody answered by the due
+/// date follows onNoAnswer. A recurring review schedules the next one on close.
+model AccessReview {
+  id          String             @id @default(cuid())
+  tenantId    String             @default("default")
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  status      String // "scheduled" | "open" | "closed" | "cancelled"
+  siteIds     String[]           @default([]) // empty = every resource
+  opensAt     DateTime
+  dueDays     Int
+  dueAt       DateTime?
+  onNoAnswer  String             @default("revoke") // "revoke" | "keep"
+  recurrence  String? // "quarterly" | "semiannual" | "yearly"
+  reminders   Int                @default(0) // bit 1: a week before, bit 2: a day before
+  createdById String?
+  createdAt   DateTime           @default(now())
+  openedAt    DateTime?
+  closedAt    DateTime?
+  closedById  String? // null = closed by the due date
+  summary     Json? // the counts at close, for the list
+  items       AccessReviewItem[]
+
+  @@index([tenantId])
+  @@index([status, opensAt])
+}
+
+/// One grant in a review, with what the reviewer saw when it opened.
+model AccessReviewItem {
+  id               String       @id @default(cuid())
+  tenantId         String       @default("default")
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviewId         String
+  review           AccessReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  grantId          String
+  userId           String
+  siteId           String
+  userLabel        String
+  userEmail        String?
+  userRole         String?
+  siteName         String
+  grantCreatedAt   DateTime
+  grantedBy        String?
+  grantEndsAt      DateTime?
+  scheduled        Boolean      @default(false)
+  directoryManaged Boolean      @default(false)
+  lastUsedAt       DateTime?
+  decision         String? // "keep" | "revoke" | "limit" | "ad_remove"
+  limitTo          DateTime?
+  decidedById      String?
+  decidedByLabel   String?
+  decidedAt        DateTime?
+  outcome          String? // at close: "kept" | "revoked" | "limited" | "auto_revoked" | "unanswered" | "ad_remove" | "gone"
+
+  @@index([tenantId])
+  @@index([reviewId])
 }

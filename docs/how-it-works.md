@@ -55,6 +55,33 @@ Setting it up:
 
 ---
 
+## Access reviews
+
+An **access review** (Operate › Access reviews) confirms, every so often, that
+everyone who can reach a resource still should; ISO 27001 and SOC 2 audits ask
+for the evidence.
+
+- **Opening** lists every live grant in scope (all resources or chosen ones),
+  with who granted it and **when it was last used** (the newest allowed access in
+  the audit log). Grants unused for 90 days, or never, stand out.
+- **Reviewers** are admins and operators; auditors can read. Each grant is kept,
+  revoked or limited to an end date, one at a time or many at once. Nobody
+  decides on their own access. Decisions can change until the review closes.
+- **Closing** (at the due date, 7, 14 or 30 days after opening, or earlier by
+  hand) applies the decisions. Grants without a decision are removed or kept, as
+  the review was set up; a reviewer's own grant is never removed for silence.
+  Revoked grants record who revoked them and in which review.
+- **Directory grants** can't be revoked here: the next sign-in would give them
+  back while the person is in the group. They are marked "remove from group" and
+  listed for the directory administrator.
+- **Reminders** go to reviewers by email, mobile push and the bell when a review
+  opens, a week before and a day before it is due. A recurring review (every 3,
+  6 or 12 months) schedules the next one when it closes; an hourly job opens,
+  reminds and closes them.
+- **The report** is the closed review: every grant with its decision, who made
+  it and when, and its outcome, exportable as CSV and printable. Every decision
+  and revocation is also in the admin audit log.
+
 ## Connector groups (redundancy and load sharing)
 
 One connector is a single point of failure: when its machine is down, every

@@ -100,3 +100,25 @@ export function workspaceClosedEmail(input: {
   });
   return { subject, html, text };
 }
+
+export function accessReviewEmail(input: {
+  kind: "open" | "week" | "day";
+  name: string;
+  dueText: string;
+  pending: number;
+  url: string;
+}): { subject: string; html: string; text: string } {
+  const n = `${input.pending} grant${input.pending === 1 ? "" : "s"}`;
+  const subject = input.kind === "open" ? `Access review open: ${input.name}` : `Access review due ${input.kind === "day" ? "tomorrow" : "in a week"}: ${input.name}`;
+  const { html, text } = renderEmail({
+    heading: escapeHtml(subject),
+    bodyLines: [
+      input.kind === "open"
+        ? `${escapeHtml(input.name)} is open: ${n} to confirm or remove, by ${escapeHtml(input.dueText)}.`
+        : `${n} in ${escapeHtml(input.name)} have no decision yet. The review closes ${escapeHtml(input.dueText)}.`,
+      "Grants nobody answers for follow the review's rule when it closes: they are removed unless it was set to keep them.",
+    ],
+    button: input.url ? { label: "Open the review", url: input.url } : undefined,
+  });
+  return { subject, html, text };
+}
