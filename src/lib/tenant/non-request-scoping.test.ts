@@ -5,7 +5,8 @@ import path from "node:path";
 /**
  * CI guard: every `route.ts` under the non-request entry-point directories
  * (internal data-plane, cron jobs, connector enrollment/auth) must reference
- * a tenant-scope helper (`withTenantFrom`, `withTenant`, or `forEachTenant`).
+ * a tenant-scope helper (`withTenantFrom`, `withTenant`, `forEachTenant`, or
+ * `inTenant`, which a `forEachTenantId` job uses around its DB phases).
  *
  * These endpoints do not run under the ambient request-tenant middleware, so
  * without an explicit scope call a handler can read/write across tenants.
@@ -18,7 +19,7 @@ import path from "node:path";
  * with a comment explaining why — do not just delete the assertion.
  */
 
-const SCOPE_HELPER_RE = /\bwithTenantFrom\b|\bforEachTenant\b|\bwithTenant\b/;
+const SCOPE_HELPER_RE = /\bwithTenantFrom\b|\bforEachTenant\b|\bwithTenant\b|\binTenant\b/;
 
 const ROOT = path.resolve(__dirname, "../../..");
 

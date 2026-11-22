@@ -7,7 +7,7 @@ export type NavIconKey =
   | "plug" | "server" | "globe" | "shield"
   | "users" | "userPlus" | "folder" | "lock" | "monitor"
   | "mail" | "send" | "download"
-  | "grid" | "inbox" | "clock" | "settings" | "check";
+  | "grid" | "inbox" | "clock" | "settings" | "check" | "ticket";
 
 export type BadgeTone = "ok" | "warn" | "bad" | "muted" | "info";
 
@@ -85,6 +85,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
     admin.push({ label: "Platform", items: [
       { label: "Email", href: "/admin/email", icon: "mail" },
       { label: "Log forwarding", href: "/admin/log-forwarding", icon: "send" },
+      { label: "Ticketing", href: "/admin/ticketing", icon: "ticket" },
       { label: "Updates", href: "/admin/updates", icon: "download" },
     ] });
   }

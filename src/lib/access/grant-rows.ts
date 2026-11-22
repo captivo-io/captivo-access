@@ -60,6 +60,12 @@ export interface GrantRowJSON {
   denyReason: string | null;
   permanent: boolean;
   soon: boolean;
+  /** The ITSM ticket it was given for, and what the ticket system last said. */
+  ticketRef: string | null;
+  ticket: unknown;
+  ticketVerified: boolean;
+  /** "ticket:state" and the like when its ticket ended it; "review:<id>" for an access review. */
+  revokeReason: string | null;
 }
 
 /** Every grant (pending requests aside) as the Grants page and its CSV show them. */
@@ -69,6 +75,7 @@ export async function grantRows(now: Date): Promise<GrantRowJSON[]> {
     select: {
       id: true, userId: true, siteId: true, startsAt: true, endsAt: true, status: true, requiresApproval: true,
       approvedAt: true, schedule: true, note: true, denyReason: true, createdAt: true,
+      ticketRef: true, ticket: true, ticketVerified: true, revokeReason: true,
     },
   });
   const revokedIds = grants.filter((g) => g.status === "REVOKED").map((g) => g.id);
@@ -109,6 +116,10 @@ export async function grantRows(now: Date): Promise<GrantRowJSON[]> {
       denyReason: g.denyReason,
       permanent: isPermanent(g, state),
       soon: endsSoon(g, state, now),
+      ticketRef: g.ticketRef,
+      ticket: g.ticket,
+      ticketVerified: g.ticketVerified,
+      revokeReason: g.revokeReason,
     });
   }
   return rows;

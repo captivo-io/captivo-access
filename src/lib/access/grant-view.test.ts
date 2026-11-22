@@ -15,6 +15,8 @@ describe("grant view", () => {
   it("sorts grants into active, scheduled, ended and pending", () => {
     expect(grantState(base, now).state).toBe("active");
     expect(grantState({ ...base, startsAt: h(3) }, now)).toEqual({ state: "scheduled", reason: "not_yet" });
+    // A request for a later window waits on a decision; it is not scheduled access.
+    expect(grantState({ ...base, startsAt: h(3), requiresApproval: true, approvedAt: null }, now)).toEqual({ state: "pending", reason: "pending_approval" });
     const off = { timezone: "UTC", days: [0], start: "01:00", end: "02:00" }; // Sundays only; now is a Wednesday
     expect(grantState({ ...base, schedule: off }, now)).toEqual({ state: "scheduled", reason: "off_schedule" });
     expect(grantState({ ...base, endsAt: h(-1) }, now)).toEqual({ state: "ended", reason: "expired" });

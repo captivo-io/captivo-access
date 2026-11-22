@@ -19,5 +19,6 @@ export const POST = mobileRoute("approve_grants", async (req, { user }, ctx: { p
     via: "app",
   });
   if (outcome === "not_pending") return mobileJson({ error: "not_pending" }, 409);
+  if (typeof outcome === "object") return mobileJson({ error: "ticket_refused", message: outcome.ticket }, 409);
   return mobileJson({ ok: true });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

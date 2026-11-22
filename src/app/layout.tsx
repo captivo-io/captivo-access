@@ -11,6 +11,7 @@ import "./styles/updates.css";
 import "./styles/policy.css";
 import "./styles/resources.css";
 import "./styles/notifications.css";
+import "./styles/ticketing.css";
 import "./styles/connector-detail.css";
 import "./styles/account.css";
 import "./styles/onboarding.css";

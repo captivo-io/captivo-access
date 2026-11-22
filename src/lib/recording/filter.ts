@@ -54,6 +54,7 @@ export function buildRecordingWhere(
   if (q && q.length >= 2) {
     and.push({ OR: [
       { host: { contains: q, mode: "insensitive" } },
+      { ticketRef: { equals: q, mode: "insensitive" } },
       ...(match?.siteIds.length ? [{ siteId: { in: match.siteIds } }] : []),
       ...(match?.userIds.length ? [{ userId: { in: match.userIds } }] : []),
     ] });

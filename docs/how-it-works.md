@@ -82,6 +82,39 @@ for the evidence.
   it and when, and its outcome, exportable as CSV and printable. Every decision
   and revocation is also in the admin audit log.
 
+## Ticketing (access tied to a change or incident)
+
+**Ticketing** (Platform › Ticketing) ties access to an ITSM ticket. Each
+resource asks for no ticket, a ticket, or accepts an approved ticket as the
+approval; the workspace sets the default.
+
+- **The ticket system** is ServiceNow (Table API: changes, incidents and the
+  other task tables you tick), Jira Service Management (issue status, service
+  desk approvals, optional window fields), an HTTPS endpoint of your own that
+  answers `{valid, approved, startsAt, endsAt}`, or "numbers only", which records
+  the number without checking it. Calls go from Captivo's cloud, so the system
+  must be reachable from the internet.
+- **A request or an admin's grant** on a resource that needs a ticket names
+  one. It must exist, be in a state the workspace allows, be assigned to the
+  person when that is required, and its change window must not be over. The
+  access is fitted into the window.
+- **"Approved ticket is enough"**: a ticket approved in the ticket system opens
+  the access at once; a request on a ticket still waiting for approval opens
+  when it is approved there, or when an approver here approves it first.
+- **Every 5 minutes** the tickets behind live grants are looked up again. A
+  ticket that closed, was cancelled, reassigned or whose window ended ends its
+  grants (the live-session recheck cuts open sessions within a minute); a window
+  that moved earlier moves the grant's end with it.
+- **When the ticket system doesn't answer**, nothing is opened by a ticket and
+  nothing is ended. Requests wait for an approver; admins can still grant with
+  the ticket marked "not checked", and approving re-checks it first.
+- **On the record**: the ticket is on the grant, in the admin audit log, on
+  recordings (search Recordings for the number) and in the Grants CSV. Work
+  notes on the ticket say who opened and closed a session, on what, for how
+  long, with a link to its recordings where sessions are recorded.
+- A rule applies to new requests and grants; existing grants keep working until
+  they end. Directory grants carry no ticket.
+
 ## Connector groups (redundancy and load sharing)
 
 One connector is a single point of failure: when its machine is down, every

@@ -63,7 +63,7 @@ async function handler(req: NextRequest) {
     const connectorId = typeof body.connectorId === "string" && body.connectorId ? body.connectorId : null;
 
     await db.$transaction(async (tx) => {
-      await tx.sessionRecording.upsert({
+      const row = await tx.sessionRecording.upsert({
         where: { tenantId_recordingKey: { tenantId: currentTenantId(), recordingKey } },
         create: {
           recordingKey,
@@ -90,7 +90,18 @@ async function handler(req: NextRequest) {
               bytes: { increment: bytes },
               lastEventAt: new Date(),
             },
+        select: { id: true, eventCount: true, ticketRef: true, userId: true, siteId: true },
       });
+      // A new recording carries the ticket of the grant it ran under, so a
+      // search for the ticket finds it.
+      if (row.eventCount <= 1 && !row.ticketRef && row.userId && row.siteId) {
+        const g = await tx.accessGrant.findFirst({
+          where: { userId: row.userId, siteId: row.siteId, status: "ACTIVE", ticketRef: { not: null } },
+          orderBy: { createdAt: "desc" },
+          select: { ticketRef: true },
+        });
+        if (g?.ticketRef) await tx.sessionRecording.update({ where: { id: row.id }, data: { ticketRef: g.ticketRef } });
+      }
     });
 
     return new NextResponse(null, { status: 204 });

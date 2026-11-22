@@ -74,6 +74,8 @@ model Tenant {
   adminAuditEvents   AdminAuditEvent[]
   dbTickets          DbTicket[]
   accessReviews      AccessReview[]
+  ticketSystem       TicketSystem?
+  ticketNotes        TicketNote[]
   accessReviewItems  AccessReviewItem[]
 }
 
@@ -404,7 +406,8 @@ model Site {
   watermark          Boolean? // isolated DLP watermark; null = inherit the global watermarkDefault
   fileTransferMode   String?          @default("none") // allow | no_upload | no_download | none (ISOLATED, TRANSPARENT); null = inherit PlatformSettings.isolatedFileTransferDefault / webAppFileTransferDefault
   egressMode         String? // ISOLATED network rule: internet | strict | open; null = inherit PlatformSettings.isolatedEgressDefault (src/lib/isolation/egress.ts)
-  egressHosts        String[]         @default([]) // hosts the isolated browser may always reach, besides the resource
+  egressHosts        String[]         @default([])
+  ticketMode         String? // null = inherit TicketSystem.defaultMode; off | required | itsm (an approved ticket is enough) // hosts the isolated browser may always reach, besides the resource
   accessMode         SiteAccessMode   @default(TRANSPARENT)
   logo               Bytes?
   logoType           String?
@@ -521,7 +524,16 @@ model AccessGrant {
   revokedById  String?
   revokeReason String?
 
+  // The ITSM ticket the access was given for (src/lib/ticketing). `ticket` is
+  // what the ticket system said at the last check: title, state, approval,
+  // window, link, and how to reach it again (table + sys_id on ServiceNow).
+  ticketRef       String?
+  ticket          Json?
+  ticketVerified  Boolean   @default(false)
+  ticketCheckedAt DateTime?
+
   @@index([userId, siteId])
+  @@index([ticketRef])
   @@index([tenantId])
 }
 
@@ -845,6 +857,8 @@ model SessionRecording {
   // carried the session. Null on rows from before 2.46.0, which are on the
   // site's own connector (src/lib/recording/connector-of.ts).
   connectorId    String?
+  // The ticket of the grant the session ran under, when it had one (searchable).
+  ticketRef      String?
   chunks         RecordingChunk[]
 
   @@unique([tenantId, recordingKey])
@@ -955,6 +969,47 @@ model SupportHandoff {
 // The records are never copied: each destination keeps a cursor into the two
 // hash-chained logs (AuditEvent.seq, AdminAuditEvent.seq) and moves it only
 // after a batch was delivered, so an outage resends instead of losing.
+/// The workspace's ticket system (src/lib/ticketing): one per tenant.
+model TicketSystem {
+  tenantId      String    @id @default("default")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind          String    @default("none") // none (numbers only, not checked) | servicenow | jira | https
+  baseUrl       String?
+  username      String? // ServiceNow user, Jira account e-mail
+  secret        String? // encrypted: password, API token or bearer token
+  tables        String[]  @default(["change_request", "incident"]) // ServiceNow tables a number is looked up in
+  allowedStates String[]  @default([]) // states a ticket may be in to give access; empty = the kind's defaults
+  matchAssignee Boolean   @default(false) // the ticket must be assigned to the person asking
+  writeNotes    Boolean   @default(true) // add a work note to the ticket when a session opens or closes
+  startField    String? // Jira: custom field holding the change window's start
+  endField      String? // Jira: custom field holding its end
+  defaultMode   String    @default("off") // resources that inherit: off | required | itsm
+  lastOkAt      DateTime?
+  lastError     String?
+  lastErrorAt   DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
+/// Work notes waiting to be added to tickets: written when a session opens or
+/// closes, sent by src/lib/ticketing/notes.ts, retried by the tickets cron.
+model TicketNote {
+  id            String    @id @default(cuid())
+  tenantId      String    @default("default")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  grantId       String?
+  ticketRef     String
+  kind          String // open | close
+  body          String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  sentAt        DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, sentAt, nextAttemptAt])
+  @@index([grantId])
+}
+
 model LogDestination {
   id                  String    @id @default(cuid())
   tenantId            String    @default("default")

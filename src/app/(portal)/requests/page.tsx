@@ -10,8 +10,15 @@ import { SentToast } from "./sent-toast";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { Empty } from "@/app/(app)/_console/console-home";
+import { TicketChip } from "@/app/(app)/_shell/ticket-chip";
+import { KIND_LABEL, readSnapshot } from "@/lib/ticketing/rules";
 
 export const dynamic = "force-dynamic";
+
+function ticketSystemName(t: unknown): string {
+  const s = readSnapshot(t);
+  return s && s.system !== "none" && s.system !== "https" ? KIND_LABEL[s.system] : "the ticket system";
+}
 export const metadata = { title: "My requests" };
 
 const BADGE: Record<RequestState, { label: string; cls: string }> = {
@@ -22,9 +29,11 @@ const BADGE: Record<RequestState, { label: string; cls: string }> = {
   expired: { label: "Expired", cls: "neutral" },
 };
 
-async function RequestsPageImpl({ searchParams }: { searchParams: Promise<{ sent?: string }> }) {
+async function RequestsPageImpl({ searchParams }: { searchParams: Promise<{ sent?: string; approved?: string }> }) {
   const user = await requireUser();
-  const sent = (await searchParams).sent === "1";
+  const sp = await searchParams;
+  const sent = sp.sent === "1";
+  const approvedAtOnce = sp.approved === "1";
   const now = new Date();
   const rows = await listUserRequests(user.id);
   const deciderIds = [...new Set(rows.map((r) => r.approvedById).filter((x): x is string => !!x))];
@@ -66,6 +75,7 @@ async function RequestsPageImpl({ searchParams }: { searchParams: Promise<{ sent
                     <td>
                       <div className="rqt-res">
                         <b>{r.site.name}</b>
+                        {r.ticketRef && <span><TicketChip ticketRef={r.ticketRef} ticket={r.ticket} verified={r.ticketVerified} /></span>}
                         {reason && <span className="cell-sub cell-truncate">{reason}</span>}
                       </div>
                     </td>
@@ -77,6 +87,7 @@ async function RequestsPageImpl({ searchParams }: { searchParams: Promise<{ sent
                     <td className="cell-sub">
                       <LocalTime iso={r.createdAt.toISOString()} mode="shortdate" />
                       {decider && <> · {st === "denied" ? "denied" : "approved"} by {decider}</>}
+                      {!decider && r.approvedAt && r.ticketRef && st !== "withdrawn" && <> · {st === "denied" ? "ended by its ticket" : `approved in ${ticketSystemName(r.ticket)}`}</>}
                     </td>
                     <td><span className={`pill ${b.cls}`}>{b.label}</span></td>
                     <td style={{ textAlign: "right" }}>{st === "pending" && <WithdrawRequestButton id={r.id} />}</td>
@@ -87,7 +98,7 @@ async function RequestsPageImpl({ searchParams }: { searchParams: Promise<{ sent
           </table>
         </div>
       )}
-      {sent && <SentToast />}
+      {sent && <SentToast approved={approvedAtOnce} />}
     </>
   );
 }

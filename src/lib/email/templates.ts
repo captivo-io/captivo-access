@@ -33,12 +33,14 @@ export function approvalRequestEmail(input: {
   vendorEmail: string;
   siteName: string;
   consoleUrl: string;
+  ticket?: { ref: string; verified: boolean } | null;
 }): { subject: string; html: string; text: string } {
   const subject = `Access request: ${input.siteName}`;
   const { html, text } = renderEmail({
     heading: "Access request pending review",
     bodyLines: [
       `${escapeHtml(input.vendorName)} (${escapeHtml(input.vendorEmail)}) requested access to ${escapeHtml(input.siteName)}.`,
+      ...(input.ticket ? [`Ticket: ${escapeHtml(input.ticket.ref)}${input.ticket.verified ? "" : " (not checked: the ticket system did not answer, or none is set up)"}.`] : []),
       "It stays pending — and denied — until an admin approves it.",
     ],
     button: input.consoleUrl ? { label: "Review in the console", url: `${input.consoleUrl}/admin/grants` } : undefined,

@@ -26,5 +26,6 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
     clientIp: clientIp(req.headers) ?? null,
   });
   if (outcome === "not_pending") return NextResponse.json({ error: "not_pending" }, { status: 409 });
+  if (typeof outcome === "object") return NextResponse.json({ error: "ticket_refused", message: outcome.ticket }, { status: 409 });
   return NextResponse.json({ ok: true });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

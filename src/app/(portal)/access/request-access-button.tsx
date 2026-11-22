@@ -6,7 +6,9 @@ import { useTimezone } from "@/app/(app)/_shell/timezone-context";
 import { parseDatetimeLocal } from "@/lib/time/datetime-local";
 import type { Schedule } from "@/lib/access/schedule";
 
-type Site = { id: string; name: string; hostname: string | null; accessMode: string };
+type TicketMode = "off" | "required" | "itsm";
+type Site = { id: string; name: string; hostname: string | null; accessMode: string; ticket?: TicketMode };
+type Ticketing = { system: string; kind: string; checked: boolean };
 type Preset = "1h" | "4h" | "1d" | "1w" | "custom";
 
 const PRESETS: { key: Preset; label: string; hours?: number }[] = [
@@ -42,6 +44,8 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
   const tz = useTimezone();
   const zone = tz ?? browserZone();
   const [sites, setSites] = useState<Site[] | null>(null);
+  const [ticketing, setTicketing] = useState<Ticketing | null>(null);
+  const [ticket, setTicket] = useState("");
   const [q, setQ] = useState("");
   const [siteId, setSiteId] = useState<string | null>(null);
   const [preset, setPreset] = useState<Preset>("4h");
@@ -58,7 +62,7 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
   useEffect(() => {
     fetch("/api/access/sites")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d: { sites: Site[] }) => setSites(d.sites))
+      .then((d: { sites: Site[]; ticketing?: Ticketing }) => { setSites(d.sites); setTicketing(d.ticketing ?? null); })
       .catch(() => { setSites([]); setError("Could not load the list of resources."); });
   }, []);
 
@@ -68,7 +72,10 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
   }, [sites, q]);
 
   const whyOk = !requireJustification || why.trim().length >= MIN_JUSTIFICATION;
-  const missing = [!siteId && "resource", !whyOk && "justification", recurring && days.length === 0 && "days"].filter(Boolean) as string[];
+  const chosen = sites?.find((s) => s.id === siteId) ?? null;
+  const ticketMode: TicketMode = chosen?.ticket ?? "off";
+  const needsTicket = ticketMode !== "off";
+  const missing = [!siteId && "resource", needsTicket && !ticket.trim() && "ticket", !whyOk && "justification", recurring && days.length === 0 && "days"].filter(Boolean) as string[];
   const hours = PRESETS.find((p) => p.key === preset)?.hours;
 
   async function submit() {
@@ -93,19 +100,21 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
       const res = await fetch("/api/access/requests", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ siteId, note: why.trim(), startsAt, endsAt, schedule }),
+        body: JSON.stringify({ siteId, note: why.trim(), startsAt, endsAt, schedule, ticket: needsTicket ? ticket.trim() : undefined }),
       });
       if (res.status === 409) { setError("You already have access to this resource, or a request for it is waiting."); return; }
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
+        if (typeof b.error === "string" && b.error.startsWith("ticket_") && b.message) { setError(b.message); return; }
         if (b.error === "grant_requires_end") { setError("Set an end: permanent access isn't allowed here."); return; }
         if (b.error === "grant_exceeds_max") { setError("That is longer than this workspace allows."); return; }
         if (b.error === "invalid_schedule") { setError("Check the recurring hours: the end must be after the start."); return; }
         setError("Could not send the request. Check the fields and try again.");
         return;
       }
+      const ok = (await res.json().catch(() => ({}))) as { approved?: boolean };
       onClose();
-      router.push("/requests?sent=1");
+      router.push(ok.approved ? "/requests?sent=1&approved=1" : "/requests?sent=1");
       router.refresh();
     } catch {
       setError("Could not send the request.");
@@ -140,7 +149,8 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
                 <b>{s.name}</b>
                 {s.hostname && <span className="mono t-muted">{s.hostname}</span>}
               </span>
-              <span className={s.accessMode === "GATEWAY" ? "chip violet" : "chip"}>{s.accessMode === "GATEWAY" ? "REMOTE" : "WEB"}</span>
+              {s.ticket && s.ticket !== "off" && <span className="chip" title="Needs a ticket number">TICKET</span>}
+              <span className={s.accessMode === "GATEWAY" ? "chip violet" : "chip"}>{s.accessMode === "GATEWAY" ? "REMOTE" : s.accessMode === "DATABASE" ? "DB" : "WEB"}</span>
             </button>
           ))}
         </div>
@@ -191,6 +201,20 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
         )}
       </div>
 
+      {needsTicket && (
+        <div className="rq-sec">
+          <div className="rq-label"><span>Ticket</span><span className="mono t-muted">{ticketing?.checked ? `checked in ${ticketing.system}` : "required"}</span></div>
+          <input className="input mono" value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder={ticketing?.kind === "jira" ? "OPS-123" : "CHG0030001"} aria-label="Ticket number" spellCheck={false} autoComplete="off" />
+          <p className="rq-hint">
+            {ticketMode === "itsm"
+              ? "The change or incident you work under. If it is approved there, access opens at once; otherwise an approver decides. Access lasts while the ticket is open, within its change window."
+              : ticketing?.checked
+                ? "The change or incident you work under. Access lasts while the ticket is open, within its change window."
+                : "The change or incident you work under; approvers see it."}
+          </p>
+        </div>
+      )}
+
       <div className="rq-sec">
         <div className="rq-label">
           <span>Justification{requireJustification ? "" : " (optional)"}</span>
@@ -203,7 +227,7 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
         <span className="rq-approver-ic" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" /><path d="M9 12l2 2 4-4" /></svg>
         </span>
-        <span><b>Approvers</b> · the administrators of this workspace decide, as its policy sets.</span>
+        <span><b>Approvers</b> · {ticketMode === "itsm" ? `an approval in ${ticketing?.system ?? "the ticket system"} is enough; otherwise the administrators of this workspace decide.` : "the administrators of this workspace decide, as its policy sets."}</span>
       </div>
 
       <div className="rq-foot">

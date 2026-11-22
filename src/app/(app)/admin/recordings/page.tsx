@@ -43,6 +43,7 @@ async function AdminRecordingsPageImpl() {
     truncated: r.truncated,
     purgePending: r.purgePendingAt !== null,
     videoReady: r.videoReady,
+    ticketRef: r.ticketRef,
   }));
 
   return (

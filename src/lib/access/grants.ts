@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { siteRoutingSelect } from "@/lib/connector/route";
 import type { Schedule } from "@/lib/access/schedule";
 import { classifyGrant } from "@/lib/access/evaluate";
+import { grantTicketData, type GrantTicket } from "@/lib/ticketing/system";
 
 export async function createGrant(input: {
   userId: string;
@@ -11,6 +12,7 @@ export async function createGrant(input: {
   note: string | null;
   createdById: string;
   schedule: Schedule | null;
+  ticket?: GrantTicket | null;
 }): Promise<{ id: string }> {
   const g = await db.accessGrant.create({
     data: {
@@ -23,6 +25,7 @@ export async function createGrant(input: {
       status: "ACTIVE",
       createdById: input.createdById,
       ...(input.schedule ? { schedule: input.schedule as object } : {}),
+      ...grantTicketData(input.ticket ?? null),
     },
   });
   return { id: g.id };
@@ -84,6 +87,9 @@ export async function createAccessRequest(input: {
   endsAt: Date | null;
   note: string;
   schedule: Schedule | null;
+  ticket?: GrantTicket | null;
+  /** Approved already, by an approved ticket on a resource that takes one as approval. */
+  approvedByTicket?: boolean;
 }): Promise<{ ok: true; id: string } | { ok: false; reason: "request_pending" }> {
   return db.$transaction(async (tx) => {
     // One pending request per (user, site) at a time.
@@ -108,9 +114,10 @@ export async function createAccessRequest(input: {
         note: input.note,
         requiresApproval: true,
         status: "ACTIVE",
-        approvedAt: null,
+        approvedAt: input.approvedByTicket ? new Date() : null,
         createdById: input.userId,
         ...(input.schedule ? { schedule: input.schedule as object } : {}),
+        ...grantTicketData(input.ticket ?? null),
       },
     });
     return { ok: true as const, id: g.id };
@@ -121,9 +128,9 @@ export async function createAccessRequest(input: {
 // are getting) access to — an active/upcoming/pending/off-hours grant hides the
 // site so they can't request a duplicate. Only revoked/denied/expired grants free
 // the site to be requested again.
-export async function listSitesForRequest(userId: string): Promise<{ id: string; name: string; hostname: string | null; accessMode: string }[]> {
+export async function listSitesForRequest(userId: string): Promise<{ id: string; name: string; hostname: string | null; accessMode: string; ticketMode: string | null }[]> {
   const [all, grants] = await Promise.all([
-    db.site.findMany({ select: { id: true, name: true, hostname: true, accessMode: true }, orderBy: { name: "asc" } }),
+    db.site.findMany({ select: { id: true, name: true, hostname: true, accessMode: true, ticketMode: true }, orderBy: { name: "asc" } }),
     listUserGrants(userId),
   ]);
   const now = new Date();
@@ -145,6 +152,9 @@ export async function listPendingGrants() {
       note: true,
       createdAt: true,
       schedule: true,
+      ticketRef: true,
+      ticket: true,
+      ticketVerified: true,
       user: { select: { name: true, email: true } },
       site: { select: { name: true, hostname: true } },
     },
@@ -179,6 +189,7 @@ export async function listUserRequests(userId: string) {
     select: {
       id: true, createdAt: true, startsAt: true, endsAt: true,
       status: true, approvedAt: true, approvedById: true, denyReason: true, note: true, schedule: true,
+      ticketRef: true, ticket: true, ticketVerified: true, revokeReason: true,
       site: { select: { name: true, hostname: true, accessMode: true } },
     },
   });
