@@ -5,8 +5,8 @@ export { sshCommand } from "./native-ssh-command";
 // with their own SSH client (OpenSSH, VS Code, Termius, PuTTY) through the
 // data plane's jump host (dataplane/sshjump.go). The SSH session runs between
 // that client and the server, so Captivo can't record it, log keystrokes, sign
-// in for the user or let an admin watch: like native RDP, it is offered only
-// where the resource asks for none of that.
+// in for the user or let an admin watch. Like native RDP, a recorded resource
+// may still offer it (unrecorded); a Policy that requires recording turns it off.
 
 /** Connectors relay it as the raw TCP stream native RDP brought in 2.39.0. */
 export const NATIVE_SSH_MIN_CONNECTOR = "2.39.0";
@@ -17,13 +17,13 @@ export const SSH_TICKET_TTL_MS = 2 * 60_000;
 /** The jump host's public port when SSH_PUBLIC_PORT is not set. */
 export const DEFAULT_SSH_PORT = 2222;
 
-export type NativeSshBlock = "off" | "not_ssh" | "recorded" | "connector_outdated";
+export type NativeSshBlock = "off" | "not_ssh" | "recording_required" | "connector_outdated";
 
 /** Why a resource can't be reached with the user's own SSH client now, or null when it can. */
-export function nativeSshBlock(s: { accessMode: string; nativeSsh: boolean; protocol: string | null | undefined; recorded: boolean; connectorVersion: string | null | undefined }): NativeSshBlock | null {
+export function nativeSshBlock(s: { accessMode: string; nativeSsh: boolean; protocol: string | null | undefined; recordingRequired: boolean; connectorVersion: string | null | undefined }): NativeSshBlock | null {
   if (s.accessMode !== "GATEWAY" || String(s.protocol ?? "").toUpperCase() !== "SSH") return "not_ssh";
   if (!s.nativeSsh) return "off";
-  if (s.recorded) return "recorded";
+  if (s.recordingRequired) return "recording_required";
   if (compareSemver(s.connectorVersion, NATIVE_SSH_MIN_CONNECTOR) === -1) return "connector_outdated";
   return null;
 }

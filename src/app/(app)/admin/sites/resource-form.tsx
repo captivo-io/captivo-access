@@ -336,9 +336,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off" && kind !== "database";
   const keystrokes = keystrokeChoice ?? remote;
   const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
-  // Native RDP: a session in the user's own client can't be recorded, so a recorded resource doesn't offer it.
+  // Native RDP: a session in the user's own client can't be recorded. A
+  // recorded resource may still offer it (its browser sessions stay recorded);
+  // only a Policy that requires recording rules it out.
   const nativeRdpShown = kind === "remote" && protocol === "RDP";
-  const nativeRdpLocked = ctx.recordingEnabled && effRecord;
+  const nativeRdpLocked = ctx.recordingEnabled && ctx.recordingMode === "required";
+  const nativeUnrecorded = ctx.recordingEnabled && effRecord;
   const nativeRdpOn = nativeRdpShown && nativeRdp && !nativeRdpLocked;
   // On a group, native sessions go through members new enough; only all-old is a problem.
   const nativeRdpOldConnector = nativeRdpOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_RDP_MIN_CONNECTOR) === -1);
@@ -406,8 +409,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : "Recording on", tone: "bad" });
   if (isDb && dbTls === "disable") chips.push({ text: "No TLS to the server", tone: "warn" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
-  if (nativeRdpOn) chips.push({ text: "Native RDP client", tone: "warn" });
-  if (nativeSshOn) chips.push({ text: "Native SSH client", tone: "warn" });
+  if (nativeRdpOn) chips.push({ text: nativeUnrecorded ? "Native RDP: not recorded" : "Native RDP client", tone: "warn" });
+  if (nativeSshOn) chips.push({ text: nativeUnrecorded ? "Native SSH: not recorded" : "Native SSH client", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
   if (!isDb && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
   if (!isDb && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
@@ -576,16 +579,16 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           )}
           {nativeRdpShown && (
             <Row title="Native RDP client" custom={nativeRdpOn} desc={nativeRdpLocked
-              ? "Not available while sessions are recorded: a session in the user's own Remote Desktop app can't be recorded."
-              : "Users can also download an .rdp file and connect with their own Remote Desktop app. Those sessions aren't recorded or watchable, and users sign in to the server with their own account."}>
+              ? "Not available: the Policy page requires every session to be recorded, and a session in the user's own Remote Desktop app can't be."
+              : `Users can also download an .rdp file and connect with their own Remote Desktop app. Those sessions aren't recorded or watchable${nativeUnrecorded ? " (sessions opened in the browser still are)" : ""}, and users sign in to the server with their own account.`}>
               <button type="button" role="switch" aria-checked={nativeRdpOn} aria-label="Native RDP client" disabled={nativeRdpLocked} className={nativeRdpOn ? "toggle on" : "toggle"} onClick={() => setNativeRdp(!nativeRdp)}><span /></button>
             </Row>
           )}
           {nativeRdpOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native RDP needs {NATIVE_RDP_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {nativeSshShown && (
             <Row title="Native SSH client" custom={nativeSshOn} desc={nativeRdpLocked
-              ? "Not available while sessions are recorded: a session in the user's own SSH app can't be recorded."
-              : "Users can also get an ssh command and connect with their own SSH app (OpenSSH, VS Code, Termius) through Captivo's jump host. Those sessions aren't recorded or watchable, and users sign in to the server with their own account. What they can forward through the server is up to its sshd settings (AllowTcpForwarding)."}>
+              ? "Not available: the Policy page requires every session to be recorded, and a session in the user's own SSH app can't be."
+              : `Users can also get an ssh command and connect with their own SSH app (OpenSSH, VS Code, Termius) through Captivo's jump host. Those sessions aren't recorded or watchable${nativeUnrecorded ? " (sessions opened in the browser still are)" : ""}, and users sign in to the server with their own account. What they can forward through the server is up to its sshd settings (AllowTcpForwarding).`}>
               <button type="button" role="switch" aria-checked={nativeSshOn} aria-label="Native SSH client" disabled={nativeRdpLocked} className={nativeSshOn ? "toggle on" : "toggle"} onClick={() => setNativeSsh(!nativeSsh)}><span /></button>
             </Row>
           )}

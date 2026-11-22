@@ -329,8 +329,9 @@ What this trades away, and why the option is off by default:
 - **The RDP stream is end-to-end** (TLS and CredSSP/NLA between the app and the
   server). Captivo sees no screen and no keys: these sessions are **never
   recorded**, keystrokes are not logged, and an admin can't watch or take control.
-  A resource whose sessions are recorded (its own toggle or the Policy page) does
-  not offer native clients at all.
+  A recorded resource may still offer native clients: its browser sessions stay
+  recorded, and the portal marks the native ones as not recorded. When the
+  Policy page requires recording, no resource offers them.
 - **The user signs in to the server themselves** with their own account; the
   vault credential is used only by browser sessions and never leaves for a native one.
 - **What stays the same:** the grant, its schedule and expiry, the user's status
@@ -380,7 +381,8 @@ same reason:
 
 - **The SSH session is end-to-end** between the app and the server. Captivo sees
   no terminal: these sessions are **never recorded**, keystrokes are not logged,
-  and an admin can't watch. A recorded resource doesn't offer native clients.
+  and an admin can't watch. As with native RDP, a recorded resource may still
+  offer it (browser sessions stay recorded); a Policy requiring recording turns it off.
 - **The user signs in to the server themselves** with their own password or key;
   the vault credential is never used for a native session.
 - **Port forwarding inside the session** (`-L`, `-D`) is between the app and the

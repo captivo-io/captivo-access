@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { nativeRdpBlock, nativeRedirection, rdpFile, rdpFileName, redirectFlags } from "./native-rdp";
 
-const base = { accessMode: "GATEWAY", nativeRdp: true, protocol: "RDP", recorded: false, connectorVersion: "2.39.0" };
+const base = { accessMode: "GATEWAY", nativeRdp: true, protocol: "RDP", recordingRequired: false, connectorVersion: "2.39.0" };
 
 describe("nativeRdpBlock", () => {
-  it("allows an RDP resource that asks for it and is not recorded", () => {
+  it("allows an RDP resource that asks for it while recording is not required", () => {
     expect(nativeRdpBlock(base)).toBeNull();
     expect(nativeRdpBlock({ ...base, connectorVersion: "2.40.1" })).toBeNull();
     expect(nativeRdpBlock({ ...base, connectorVersion: "dev" })).toBeNull();
@@ -13,7 +13,7 @@ describe("nativeRdpBlock", () => {
     expect(nativeRdpBlock({ ...base, protocol: "SSH" })).toBe("not_rdp");
     expect(nativeRdpBlock({ ...base, accessMode: "ISOLATED" })).toBe("not_rdp");
     expect(nativeRdpBlock({ ...base, nativeRdp: false })).toBe("off");
-    expect(nativeRdpBlock({ ...base, recorded: true })).toBe("recorded");
+    expect(nativeRdpBlock({ ...base, recordingRequired: true })).toBe("recording_required");
     expect(nativeRdpBlock({ ...base, connectorVersion: "2.35.1" })).toBe("connector_outdated");
   });
 });

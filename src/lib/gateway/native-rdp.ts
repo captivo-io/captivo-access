@@ -5,21 +5,23 @@ import type { GuacParams } from "@/lib/gateway/guac-params";
 // Remote Desktop client (mstsc, the Windows App, FreeRDP) through the data
 // plane's RD Gateway. The RDP stream is end-to-end between that client and the
 // server, so Captivo can't record it, log keystrokes, sign in for the user or
-// let an admin watch: it is offered only where the resource asks for none of that.
+// let an admin watch. A recorded resource may still offer it: its browser
+// sessions stay recorded and the native ones are marked as not recorded. Only
+// a Policy that requires recording turns it off.
 
 /** The first connector that relays native RDP (the "rdp" tunnel stream). */
 export const NATIVE_RDP_MIN_CONNECTOR = "2.39.0";
 
-export type NativeRdpBlock = "off" | "not_rdp" | "recorded" | "connector_outdated";
+export type NativeRdpBlock = "off" | "not_rdp" | "recording_required" | "connector_outdated";
 
 /**
  * Why a resource can't be opened natively right now, or null when it can.
  * `recorded` is the effective decision (capability, tenant policy, the toggle).
  */
-export function nativeRdpBlock(s: { accessMode: string; nativeRdp: boolean; protocol: string | null | undefined; recorded: boolean; connectorVersion: string | null | undefined }): NativeRdpBlock | null {
+export function nativeRdpBlock(s: { accessMode: string; nativeRdp: boolean; protocol: string | null | undefined; recordingRequired: boolean; connectorVersion: string | null | undefined }): NativeRdpBlock | null {
   if (s.accessMode !== "GATEWAY" || String(s.protocol ?? "").toUpperCase() !== "RDP") return "not_rdp";
   if (!s.nativeRdp) return "off";
-  if (s.recorded) return "recorded";
+  if (s.recordingRequired) return "recording_required";
   // A version that isn't plain semver (a dev build) is let through; the gateway
   // still reports a connector that can't relay the stream.
   if (compareSemver(s.connectorVersion, NATIVE_RDP_MIN_CONNECTOR) === -1) return "connector_outdated";

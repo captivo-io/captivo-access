@@ -40,6 +40,7 @@ async function AccessPageImpl() {
   let anyRecorded = false;
   // "All sessions are recorded" only while it is true: an unrecorded resource,
   // or one that also opens in the user's own app (never recorded), makes it "some".
+  const required = recEnabled && recMode === "required";
   let allRecorded = true;
 
   for (const g of grants) {
@@ -72,11 +73,12 @@ async function AccessPageImpl() {
       glyph: g.site.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "··",
       status,
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
-      rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: newestVersion(g.site) }) === null
+      rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null
         ? `/api/portal/rdp/${g.site.id}` : null,
-      sshHref: nativeSshBlock({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, connectorVersion: newestVersion(g.site) }) === null
+      sshHref: nativeSshBlock({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null
         ? `/api/portal/ssh/${g.site.id}` : null,
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/db/${g.site.id}` : null,
+      recorded,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
     };
     if (status === "upcoming") {
@@ -102,7 +104,7 @@ async function AccessPageImpl() {
       firstName={(user.name ?? "").split(" ")[0] || "there"}
       activeCount={activeCount}
       anyRecorded={anyRecorded}
-      allRecorded={allRecorded && !cards.some((c) => c.rdpHref)}
+      allRecorded={allRecorded && !cards.some((c) => c.rdpHref || c.sshHref)}
       cards={cards}
       upcoming={upcoming}
       recent={recent}
