@@ -814,6 +814,7 @@ enum RecordingFormat {
   GUAC
   VIDEO
   SQL // a database session's query log ("keys" chunks of statements), nothing to replay on screen
+  TERM // a recorded native SSH session: asciicast v2 lines of what the terminal showed (dataplane/sshrec_term.go)
 }
 
 model SessionRecording {

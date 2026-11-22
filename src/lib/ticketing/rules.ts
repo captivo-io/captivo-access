@@ -191,6 +191,7 @@ export function clampToWindow(
 
 const NATIVE: Record<string, string> = {
   native_ssh: " with their own SSH client (not recorded)",
+  native_ssh_recorded: " with their own SSH client",
   native_rdp: " with their own Remote Desktop client (not recorded)",
   database: " (database)",
 };

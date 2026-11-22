@@ -12,6 +12,7 @@ export function protocolLabel(r: { format: string; protocol: string | null }): s
   if (r.format === "RRWEB") return "WEB";
   if (r.format === "VIDEO") return "BROWSER";
   if (r.format === "SQL") return "SQL";
+  if (r.format === "TERM") return "SSH";
   return (r.protocol ?? "rdp").toUpperCase();
 }
 

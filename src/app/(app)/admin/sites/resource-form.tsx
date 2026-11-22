@@ -11,7 +11,8 @@ import { autoIcon, defaultColor, protoLabel, slugFromName, type IconColor, type 
 import { recordToggleLock } from "@/lib/recording/mode";
 import { compareSemver } from "@/lib/updates/semver";
 import { NATIVE_RDP_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
-import { NATIVE_SSH_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
+import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
+import { SshHostKeyLine } from "./ssh-host-key";
 import { DATABASE_MIN_CONNECTOR, parseDbParams } from "@/lib/database/params";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
@@ -70,7 +71,7 @@ export interface ResourceInitial {
   iconColor: string | null;
   logoBg: string | null;
 }
-export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[] }
+export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[]; sshHostKey?: string | null }
 export type EgressEvent = { dest: string; blocked: boolean; reason: string; count: number; last: string };
 
 const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: string; color: IconColor }[] = [
@@ -345,10 +346,15 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const nativeRdpOn = nativeRdpShown && nativeRdp && !nativeRdpLocked;
   // On a group, native sessions go through members new enough; only all-old is a problem.
   const nativeRdpOldConnector = nativeRdpOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_RDP_MIN_CONNECTOR) === -1);
-  // Native SSH: the same rule, through the jump host.
+  // Native SSH, through the jump host. On a recorded resource Captivo signs in
+  // and records the session (connector 2.49.0); an older connector leaves it
+  // unrecorded, or, when the Policy requires recording, unavailable.
   const nativeSshShown = kind === "ssh";
-  const nativeSshOn = nativeSshShown && nativeSsh && !nativeRdpLocked;
+  const nativeSshOn = nativeSshShown && nativeSsh;
+  const nativeSshRecorded = nativeUnrecorded || nativeRdpLocked;
+  const sshRecordedReady = routeConnectors.length === 0 || routeConnectors.some((c) => compareSemver(c.version, NATIVE_SSH_RECORDED_MIN_CONNECTOR) !== -1);
   const nativeSshOldConnector = nativeSshOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_SSH_MIN_CONNECTOR) === -1);
+  const nativeSshNeedsUpdate = nativeSshOn && nativeSshRecorded && !sshRecordedReady && !nativeSshOldConnector;
   const dbOldConnector = isDb && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, DATABASE_MIN_CONNECTOR) === -1);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
@@ -410,7 +416,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (isDb && dbTls === "disable") chips.push({ text: "No TLS to the server", tone: "warn" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
   if (nativeRdpOn) chips.push({ text: nativeUnrecorded ? "Native RDP: not recorded" : "Native RDP client", tone: "warn" });
-  if (nativeSshOn) chips.push({ text: nativeUnrecorded ? "Native SSH: not recorded" : "Native SSH client", tone: "warn" });
+  if (nativeSshOn) {
+    chips.push(!nativeSshRecorded ? { text: "Native SSH client", tone: "warn" }
+      : sshRecordedReady ? { text: "Native SSH: recorded", tone: "p" }
+      : { text: nativeRdpLocked ? "Native SSH: connector update needed" : "Native SSH: not recorded", tone: "warn" });
+  }
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
   if (!isDb && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
   if (!isDb && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
@@ -586,12 +596,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           )}
           {nativeRdpOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native RDP needs {NATIVE_RDP_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {nativeSshShown && (
-            <Row title="Native SSH client" custom={nativeSshOn} desc={nativeRdpLocked
-              ? "Not available: the Policy page requires every session to be recorded, and a session in the user's own SSH app can't be."
-              : `Users can also get an ssh command and connect with their own SSH app (OpenSSH, VS Code, Termius) through Captivo's jump host. Those sessions aren't recorded or watchable${nativeUnrecorded ? " (sessions opened in the browser still are)" : ""}, and users sign in to the server with their own account. What they can forward through the server is up to its sshd settings (AllowTcpForwarding).`}>
-              <button type="button" role="switch" aria-checked={nativeSshOn} aria-label="Native SSH client" disabled={nativeRdpLocked} className={nativeSshOn ? "toggle on" : "toggle"} onClick={() => setNativeSsh(!nativeSsh)}><span /></button>
+            <Row title="Native SSH client" custom={nativeSshOn} desc={nativeSshRecorded
+              ? "Users can also get an ssh command and connect with their own SSH app (OpenSSH, Termius, PuTTY) through Captivo's jump host. Captivo signs them in with the saved account and records the session like one in the browser. Port and agent forwarding are off, and file transfer (sftp, scp) follows the file transfer setting. VS Code Remote-SSH needs port forwarding, so it doesn't work here."
+              : "Users can also get an ssh command and connect with their own SSH app (OpenSSH, VS Code, Termius) through Captivo's jump host. Those sessions aren't recorded or watchable, and users sign in to the server with their own account. What they can forward through the server is up to its sshd settings (AllowTcpForwarding)."}>
+              <button type="button" role="switch" aria-checked={nativeSshOn} aria-label="Native SSH client" className={nativeSshOn ? "toggle on" : "toggle"} onClick={() => setNativeSsh(!nativeSsh)}><span /></button>
             </Row>
           )}
+          {nativeSshNeedsUpdate && <p className="rf-msg bad">Recording sessions in the user&apos;s own SSH app needs connector {NATIVE_SSH_RECORDED_MIN_CONNECTOR} or later; {connector?.name} runs {connector?.version}. {nativeRdpLocked ? "Until it is updated, users can't connect with their own SSH app." : "Until it is updated, those sessions aren't recorded."}</p>}
+          {nativeSshShown && site && vault?.sshHostKey && <SshHostKeyLine siteId={site.id} fingerprint={vault.sshHostKey} />}
           {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {!isDb && (
             <>

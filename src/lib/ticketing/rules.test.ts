@@ -90,6 +90,7 @@ describe("noteText", () => {
   });
   it("names an unrecorded native session and leaves the link out", () => {
     const n = noteText({ ...base, reason: "session_open native_ssh" });
+    expect(noteText({ ...base, reason: "session_open native_ssh_recorded" })?.body).toContain("with their own SSH client at 2026-11-22 20:05 UTC. Recordings:");
     expect(n?.body).toContain("with their own SSH client (not recorded)");
     expect(n?.body).not.toContain("Recordings:");
   });

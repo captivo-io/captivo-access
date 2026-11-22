@@ -188,22 +188,54 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, RedirectFlags: out.RedirectFlags, Candidates: candidatesOr(out.Connectors, out.ConnectorID)}, nil
 }
 
+// sshTarget is a resource's SSH server for the jump host. A recorded one
+// also carries what the connector needs to sign in (sshrec.go): the account,
+// its secret (sealed per candidate, or plain for a connector without a vault
+// key), the pinned host key, and what the session may do.
+type sshTarget struct {
+	rdpTarget
+	Record        bool
+	Keystrokes    bool
+	FileTransfer  string // allow | no_upload | no_download | none
+	Username      string
+	SecretKind    string
+	Secret        string // legacy, unsealed
+	PinnedHostKey string
+}
+
 // NativeSshTarget is NativeRdpTarget for the SSH jump host (sshjump.go): the
 // resource's SSH server, when the grant holds and the resource allows a
 // user's own SSH client.
-func (c *ControlClient) NativeSshTarget(userID, siteID string) (rdpTarget, error) {
+func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error) {
 	var out struct {
-		TargetHost  string           `json:"targetHost"`
-		TargetPort  int              `json:"targetPort"`
-		ConnectorID string           `json:"connectorId"`
-		Connectors  []routeCandidate `json:"connectors"`
-		TenantID    string           `json:"tenantId"`
-		SiteName    string           `json:"siteName"`
+		TargetHost    string           `json:"targetHost"`
+		TargetPort    int              `json:"targetPort"`
+		ConnectorID   string           `json:"connectorId"`
+		Connectors    []routeCandidate `json:"connectors"`
+		TenantID      string           `json:"tenantId"`
+		SiteName      string           `json:"siteName"`
+		Record        bool             `json:"record"`
+		Keystrokes    bool             `json:"keystrokeLogging"`
+		FileTransfer  string           `json:"fileTransfer"`
+		Username      string           `json:"username"`
+		SecretKind    string           `json:"secretKind"`
+		Secret        string           `json:"secret"`
+		PinnedHostKey string           `json:"sshHostKey"`
 	}
 	if err := c.post("/api/internal/gateway/native-ssh", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
-		return rdpTarget{}, err
+		return sshTarget{}, err
 	}
-	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)}, nil
+	return sshTarget{
+		rdpTarget: rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)},
+		Record:    out.Record, Keystrokes: out.Keystrokes, FileTransfer: out.FileTransfer,
+		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey,
+	}, nil
+}
+
+// NoteSshHostKey keeps the host key a recorded session's server showed on
+// first contact, so a later different one is refused (connector/sshproxy.go).
+func (c *ControlClient) NoteSshHostKey(siteID, fingerprint string) error {
+	return c.post("/api/internal/gateway/native-ssh/host-key", map[string]string{"siteId": siteID, "fingerprint": fingerprint}, nil)
 }
 
 // SiteByHost resolves a browser-facing hostname to the site/connector it's

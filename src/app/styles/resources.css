@@ -168,3 +168,8 @@
 .rc-line > .rc-site-ic{margin-right:2px;}
 .au-res > .ri,.gr-res > .ri,.sv-recent-row > .ri{flex:none;}
 .rs-keysoff{color:var(--warn);margin-left:4px;}
+/* The server's kept SSH host key (ssh-host-key.tsx). */
+.rf-hostkey{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:10px;}
+.rf-hostkey-t{display:flex;flex-direction:column;gap:2px;flex:1 1 260px;min-width:0;overflow-wrap:anywhere;}
+.rf-hostkey-t b{font-weight:600;font-size:13.5px;}
+.rf-hostkey-t .mono{font-size:12px;}

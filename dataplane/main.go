@@ -71,6 +71,12 @@ func main() {
 		ctrl: ctrl, hub: hub, audit: audit, tickets: sshTickets, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
 		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
+		rec:  sshRecDeps{session: reg.Get, recIndex: ctrl.SendRecording},
+		noteHostKey: func(siteID, fp string) {
+			if err := ctrl.NoteSshHostKey(siteID, fp); err != nil {
+				log.Printf("ssh jump: site=%s keeping the server's host key failed: %v", siteID, err)
+			}
+		},
 	})
 	if err != nil {
 		log.Printf("WARNING: ssh jump host not started: %v", err)

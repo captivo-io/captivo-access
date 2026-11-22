@@ -53,3 +53,12 @@ describe("native RDP sessions", () => {
     expect(isNativeRdpMethod("GET")).toBe(false);
   });
 });
+
+describe("recorded native SSH reasons", () => {
+  it("names the session and its refusals", () => {
+    expect(accessReasonLabel("session_open native_ssh_recorded")).toBe("Session opened · own SSH app, recorded");
+    expect(accessReasonLabel("native_ssh_port_forward")).toBe("Port forwarding refused (recorded session) · own SSH app");
+    expect(accessReasonLabel("native_ssh_sftp_upload_off")).toBe("SFTP upload refused (file transfer rule) · own SSH app");
+    expect(accessReasonLabel("native_ssh_host_key_changed")).toBe("The server's SSH host key changed · own SSH app");
+  });
+});

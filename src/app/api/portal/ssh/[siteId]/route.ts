@@ -48,5 +48,8 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
     targetHost: t.targetHost,
     targetPort: t.targetPort,
     fingerprint: j.fingerprint ?? null,
+    // Recorded: Captivo signs in as the saved account, and the session follows the resource's rules.
+    recorded: t.mode === "recorded",
+    ...(t.mode === "recorded" ? { username: t.username, fileTransfer: t.fileTransfer } : {}),
   }, { headers: { "cache-control": "no-store" } });
 });

@@ -81,13 +81,13 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                   )}
               </span>
               <span className="ma-act">
-                {c.status === "active" && c.recorded && (c.rdpHref || c.sshHref) && (
-                  <span className="ma-norec" title="Sessions opened with Open are recorded. Sessions in your own app are not.">not recorded</span>
+                {c.status === "active" && c.recorded && (c.rdpHref || (c.sshHref && !c.sshRecorded)) && (
+                  <span className="ma-norec" title={c.sshHref && !c.sshRecorded ? "Sessions opened with Open are recorded. Sessions in your own SSH app are not." : "Sessions opened with Open are recorded. Sessions in your own Remote Desktop app are not."}>not recorded</span>
                 )}
                 {c.status === "active" && c.rdpHref && (
                   <a className="btn sm" href={c.rdpHref} download title={`Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.${c.recorded ? " These sessions are not recorded." : ""}`}>.rdp file</a>
                 )}
-                {c.status === "active" && c.sshHref && <SshCommandButton href={c.sshHref} siteId={c.siteId} siteName={c.siteName} recorded={!!c.recorded} />}
+                {c.status === "active" && c.sshHref && <SshCommandButton href={c.sshHref} siteId={c.siteId} siteName={c.siteName} recorded={!!c.recorded} sshRecorded={!!c.sshRecorded} />}
                 {isDb
                   ? (c.status === "active" && c.dbHref ? <DbConnectButton href={c.dbHref} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This database's connector needs an update first." : undefined}>Connect</span>)
                   : c.status === "active"

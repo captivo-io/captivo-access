@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { nativeSshBlock, sshCommand, sshPublicHost, sshPublicPort } from "./native-ssh";
+import { nativeSshBlock, nativeSshMode, sshCommand, sshPublicHost, sshPublicPort } from "./native-ssh";
+import { recordedHostKeyAlias } from "./native-ssh-command";
 import { newSshTicketCode } from "./native-ssh-ticket";
 
 const base = { accessMode: "GATEWAY", nativeSsh: true, protocol: "SSH", recordingRequired: false, connectorVersion: "2.42.0" };
@@ -13,8 +14,20 @@ describe("nativeSshBlock", () => {
     expect(nativeSshBlock({ ...base, protocol: "RDP" })).toBe("not_ssh");
     expect(nativeSshBlock({ ...base, accessMode: "ISOLATED" })).toBe("not_ssh");
     expect(nativeSshBlock({ ...base, nativeSsh: false })).toBe("off");
-    expect(nativeSshBlock({ ...base, recordingRequired: true })).toBe("recording_required");
+    expect(nativeSshBlock({ ...base, recordingRequired: true })).toBe("connector_outdated");
     expect(nativeSshBlock({ ...base, connectorVersion: "2.38.4" })).toBe("connector_outdated");
+  });
+});
+
+describe("nativeSshMode", () => {
+  it("records on a recorded resource whose connector signs in (2.49.0)", () => {
+    expect(nativeSshMode({ ...base, recorded: true, connectorVersion: "2.49.0" })).toBe("recorded");
+    expect(nativeSshMode({ ...base, recordingRequired: true, connectorVersion: "2.49.1" })).toBe("recorded");
+    expect(nativeSshMode({ ...base, connectorVersion: "2.49.0" })).toBe("direct");
+  });
+  it("stays direct and unrecorded on an older connector, unless the Policy requires recording", () => {
+    expect(nativeSshMode({ ...base, recorded: true, connectorVersion: "2.48.0" })).toBe("direct");
+    expect(nativeSshMode({ ...base, recorded: true, recordingRequired: true, connectorVersion: "2.48.0" })).toBe("connector_outdated");
   });
 });
 
@@ -30,6 +43,10 @@ describe("sshCommand", () => {
     expect(sshCommand({ ...o, user: " " })).toBe("ssh -J k7f3q9wz2m4x@acme.cloud.captivo.io:2222 USER@10.0.0.5");
     expect(sshCommand({ ...o, user: "x; rm -rf ~" })).toContain(" USER@10.0.0.5");
     expect(sshCommand({ ...o, user: "ayse@corp.local" })).toContain(" ayse@corp.local@10.0.0.5");
+  });
+  it("files a recorded session's key under Captivo's name", () => {
+    const alias = recordedHostKeyAlias("acme.cloud.captivo.io");
+    expect(sshCommand({ ...o, user: "ops", hostKeyAlias: alias })).toBe("ssh -J k7f3q9wz2m4x@acme.cloud.captivo.io:2222 -o HostKeyAlias=captivo-recorded.acme.cloud.captivo.io ops@10.0.0.5");
   });
   it("brackets an IPv6 jump host only", () => {
     expect(sshCommand({ ...o, jumpHost: "2001:db8::1", targetHost: "fd00::5" })).toBe("ssh -J k7f3q9wz2m4x@[2001:db8::1]:2222 deploy@fd00::5");

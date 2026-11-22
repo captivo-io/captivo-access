@@ -28,6 +28,7 @@ export async function recordingKpis(now: Date = new Date()): Promise<RecordingKp
     db.sessionRecording.count({ where: { durationMs: { lt: 1000 } } }),
     db.$queryRaw<{ t: string; n: bigint }[]>`
       SELECT CASE WHEN "format" = 'SQL' THEN 'sql'
+                  WHEN "format" = 'TERM' THEN 'ssh'
                   WHEN "format" <> 'GUAC' THEN 'web'
                   WHEN LOWER(COALESCE("protocol", '')) IN ('ssh', 'telnet') THEN 'ssh'
                   ELSE 'rdp' END AS t, COUNT(*) AS n

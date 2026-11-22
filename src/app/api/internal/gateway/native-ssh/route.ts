@@ -19,7 +19,9 @@ async function tenantFromReq(req: NextRequest): Promise<string | null> {
 
 // The SSH jump host asks this when a user's own SSH client opens a channel
 // with a ticket: is the grant still good, does the resource allow native
-// clients, and where is its server. No credential leaves here.
+// clients, and where is its server. For a recorded resource also the account
+// the connector signs in with, its secret sealed to each connector (only a
+// connector opens it), the pinned host key and the session's rules.
 async function handler(req: NextRequest) {
   if (!dpAuthorized(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -36,6 +38,15 @@ async function handler(req: NextRequest) {
     connectors: t.connectors,
     targetHost: t.targetHost,
     targetPort: t.targetPort,
+    ...(t.mode === "recorded" ? {
+      record: true,
+      keystrokeLogging: t.keystrokeLogging,
+      fileTransfer: t.fileTransfer,
+      username: t.username,
+      secretKind: t.secretKind,
+      ...(t.secret !== undefined ? { secret: t.secret } : {}),
+      sshHostKey: t.sshHostKey ?? "",
+    } : {}),
   });
 }
 

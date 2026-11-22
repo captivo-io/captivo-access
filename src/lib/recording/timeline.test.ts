@@ -38,3 +38,23 @@ describe("currentEventIndex", () => {
     expect(currentEventIndex(ev, 10_000)).toBe(2);
   });
 });
+
+describe("buildTimeline with a native SSH session's marks", () => {
+  it("lists refusals and SFTP changes, and a command once", () => {
+    const ev = buildTimeline({
+      totalMs: 60_000, terminal: true,
+      keys: [{ atMs: 5_000, kind: "command", text: "uptime", masked: false }],
+      marks: [
+        { atMs: 5_000, text: "$ uptime" },
+        { atMs: 6_000, text: "$ df -h" },
+        { atMs: 7_000, text: "Port forwarding refused: this session is recorded" },
+        { atMs: 8_000, text: "SFTP remove: /tmp/x" },
+        { atMs: 9_000, text: "Uploaded /tmp/y (sftp, 3 bytes)" },
+      ],
+    });
+    expect(ev.map((e) => `${e.tone}:${e.text}`)).toEqual([
+      "muted:Session started", "command:uptime", "command:df -h",
+      "text:Port forwarding refused: this session is recorded", "file:SFTP remove: /tmp/x", "muted:Session ended",
+    ]);
+  });
+});

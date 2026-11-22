@@ -11,7 +11,7 @@ import { remaining } from "@/lib/portal/time-remaining";
 import { securityStatus } from "@/lib/portal/security-status";
 import { launchHref } from "@/lib/portal/launch-href";
 import { nativeRdpBlock } from "@/lib/gateway/native-rdp";
-import { nativeSshBlock } from "@/lib/gateway/native-ssh";
+import { nativeSshMode } from "@/lib/gateway/native-ssh";
 import { databaseBlock } from "@/lib/database/params";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
 import { PortalHome, type CardVM, type RecentVM } from "./portal-home";
@@ -60,6 +60,7 @@ async function AccessPageImpl() {
     if (recorded) anyRecorded = true;
     else allRecorded = false;
 
+    const sshMode = nativeSshMode({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, recordingRequired: required, connectorVersion: newestVersion(g.site) });
     const startISO = g.startsAt ? g.startsAt.toISOString() : null;
     const endISO = g.endsAt ? g.endsAt.toISOString() : null;
     const card: CardVM = {
@@ -75,8 +76,8 @@ async function AccessPageImpl() {
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
       rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null
         ? `/api/portal/rdp/${g.site.id}` : null,
-      sshHref: nativeSshBlock({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null
-        ? `/api/portal/ssh/${g.site.id}` : null,
+      sshHref: sshMode === "recorded" || sshMode === "direct" ? `/api/portal/ssh/${g.site.id}` : null,
+      sshRecorded: sshMode === "recorded",
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/db/${g.site.id}` : null,
       recorded,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
@@ -104,7 +105,7 @@ async function AccessPageImpl() {
       firstName={(user.name ?? "").split(" ")[0] || "there"}
       activeCount={activeCount}
       anyRecorded={anyRecorded}
-      allRecorded={allRecorded && !cards.some((c) => c.rdpHref || c.sshHref)}
+      allRecorded={allRecorded && !cards.some((c) => c.rdpHref || (c.sshHref && !c.sshRecorded))}
       cards={cards}
       upcoming={upcoming}
       recent={recent}
