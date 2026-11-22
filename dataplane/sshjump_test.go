@@ -20,6 +20,8 @@ type fakeSSHCtrl struct {
 	// A connector-group resource: its members, and how the dataplane picks.
 	cands []routeCandidate
 	pick  func([]routeCandidate) routeCandidate
+	// A recorded resource: what the target carries besides where it is.
+	recorded *sshTarget
 }
 
 func (f *fakeSSHCtrl) CheckAccess(userID, siteID, clientIP string) (bool, string, error) {
@@ -29,11 +31,17 @@ func (f *fakeSSHCtrl) CheckAccess(userID, siteID, clientIP string) (bool, string
 	return false, "no grant", nil
 }
 
-func (f *fakeSSHCtrl) NativeSshTarget(userID, siteID string) (rdpTarget, error) {
+func (f *fakeSSHCtrl) NativeSshTarget(userID, siteID string) (sshTarget, error) {
 	if f.native != nil {
-		return rdpTarget{}, f.native
+		return sshTarget{}, f.native
 	}
-	return rdpTarget{Host: "10.0.0.5", Port: "22", ConnectorID: "c1", TenantID: "t1", SiteName: "Build box", Candidates: f.cands}, nil
+	t := sshTarget{rdpTarget: rdpTarget{Host: "10.0.0.5", Port: "22", ConnectorID: "c1", TenantID: "t1", SiteName: "Build box", Candidates: f.cands}}
+	if f.recorded != nil {
+		r := *f.recorded
+		r.rdpTarget = t.rdpTarget
+		return r, nil
+	}
+	return t, nil
 }
 
 // jumpRig starts a jump host on a loopback port whose "connector" is an echo server.

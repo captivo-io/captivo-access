@@ -46,6 +46,13 @@ const REASONS: Record<string, string> = {
   ip_not_allowed: "Network not on the IP allowlist",
   database_not_allowed: "Database not open on this resource",
   session_end_policy: "Session ended by policy",
+  // A recorded native SSH session's refusals (dataplane/sshrec.go).
+  port_forward: "Port forwarding refused (recorded session)",
+  sftp_off: "File transfer is off",
+  transfer_off: "File transfer is off",
+  host_key_changed: "The server's SSH host key changed",
+  sign_in_failed: "Signing in to the server failed",
+  connector_outdated: "The connector needs an update",
 };
 
 // Words after the code that are themselves codes (dataplane/rdpgw.go writes
@@ -53,6 +60,7 @@ const REASONS: Record<string, string> = {
 const REASON_DETAILS: Record<string, string> = {
   native_rdp: "own RDP app",
   native_ssh: "own SSH app",
+  native_ssh_recorded: "own SSH app, recorded",
   database: "own database client",
   ticket_ended: "connection ticket ended",
   grant_inactive: "grant no longer active",
@@ -64,7 +72,10 @@ export function accessReasonLabel(reason: string | null): string | null {
   // (dataplane/rdpgw.go "native_rdp_no_grant", sshjump.go "native_ssh_expired").
   const native = /^(native_rdp|native_ssh)_(.+)$/.exec(reason.trim());
   if (native) {
-    const why = native[2] === "not_allowed" ? "Not allowed in the user's own app" : REASONS[native[2]] ?? native[2];
+    const sftp = /^sftp_(\w+)_off$/.exec(native[2]);
+    const why = native[2] === "not_allowed" ? "Not allowed in the user's own app"
+      : sftp ? `SFTP ${sftp[1]} refused (file transfer rule)`
+      : REASONS[native[2]] ?? native[2];
     return `${why} · ${REASON_DETAILS[native[1]]}`;
   }
   const [code, ...rest] = reason.trim().split(/\s+/);

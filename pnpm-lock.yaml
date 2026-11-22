@@ -34,6 +34,9 @@ importers:
       '@simplewebauthn/server':
         specifier: ^13
         version: 13.3.2
+      '@xterm/xterm':
+        specifier: 5.5.0
+        version: 5.5.0
       asn1js:
         specifier: ^3.0.10
         version: 3.0.10
@@ -1489,6 +1492,9 @@ packages:
 
   '@xstate/fsm@1.6.5':
     resolution: {integrity: sha512-b5o1I6aLNeYlU/3CPlj/Z91ybk1gUsKT+5NAJI+2W4UjvS5KLG28K9v5UvNoFVjHV8PajVZ00RH3vnjyQO7ZAw==}
+
+  '@xterm/xterm@5.5.0':
+    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -4926,6 +4932,8 @@ snapshots:
       tinyrainbow: 3.1.0
 
   '@xstate/fsm@1.6.5': {}
+
+  '@xterm/xterm@5.5.0': {}
 
   acorn-jsx@5.3.2(acorn@8.17.0):
     dependencies:

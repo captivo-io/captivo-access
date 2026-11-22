@@ -22,7 +22,8 @@ describe("buildRecordingWhere", () => {
   });
   it("filters by type and empty sessions", () => {
     expect(buildRecordingWhere({ type: "web", limit: 50, offset: 0 }).format).toEqual({ in: ["RRWEB", "VIDEO"] });
-    expect(buildRecordingWhere({ type: "ssh", limit: 50, offset: 0 })).toMatchObject({ format: "GUAC", protocol: { in: ["ssh", "telnet"] } });
+    // SSH: a browser session (guac) or the user's own SSH client (term).
+    expect(buildRecordingWhere({ type: "ssh", limit: 50, offset: 0 }).AND).toEqual([{ OR: [{ format: "GUAC", protocol: { in: ["ssh", "telnet"] } }, { format: "TERM" }] }]);
     const rdp = buildRecordingWhere({ type: "rdp", limit: 50, offset: 0 });
     expect(rdp.format).toBe("GUAC");
     expect(rdp.AND).toEqual([{ OR: [{ protocol: null }, { protocol: { notIn: ["ssh", "telnet"] } }] }]);

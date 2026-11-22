@@ -153,7 +153,7 @@ choose the group on a resource instead of a single connector.
 - **Recordings stay where they were made.** A recording lives on the member that
   carried the session and plays from it; while that member is offline the
   recording cannot be opened.
-- Native RDP and native SSH sessions go through members on 2.39.0 or later.
+- Native RDP and native SSH sessions go through members on 2.39.0 or later (recorded native SSH: 2.49.0).
 - Revoking or deleting a member moves the group's resources onto another member;
   a group that still serves resources cannot be deleted.
 - Not yet covered: the directory (AD/LDAP) connection still uses one connector.
@@ -436,29 +436,68 @@ flowchart LR
     CN -->|"TCP 22"| S["SSH server"]
 ```
 
-It trades away the same things as native RDP, and is off by default for the
-same reason:
+On a resource that is **not recorded** it trades away the same things as
+native RDP, and is off by default for the same reason:
 
 - **The SSH session is end-to-end** between the app and the server. Captivo sees
-  no terminal: these sessions are **never recorded**, keystrokes are not logged,
-  and an admin can't watch. As with native RDP, a recorded resource may still
-  offer it (browser sessions stay recorded); a Policy requiring recording turns it off.
-- **The user signs in to the server themselves** with their own password or key;
-  the vault credential is never used for a native session.
+  no terminal: these sessions are not recorded, keystrokes are not logged, and
+  an admin can't watch.
+- **The user signs in to the server themselves** with their own password or key.
 - **Port forwarding inside the session** (`-L`, `-D`) is between the app and the
   server and follows the server's `sshd_config` (`AllowTcpForwarding`). The jump
   host itself refuses everything but the one channel, remote forwarding included.
-- **What stays the same:** the grant, schedule, user status and vendor IP
-  allowlist are checked when the channel opens and every minute after; the session
-  is listed on the Sessions page (as `SSH · NATIVE`), an admin can end it, and its
-  start, end and refusals are in the audit log with the client's SSH version.
+
+On a **recorded** resource (its own setting, or a Policy that requires
+recording) the session is recorded, from connector 2.49.0 on:
+
+```mermaid
+flowchart LR
+    M["User's SSH app"] -->|"SSH · port 2222"| D["Data-plane<br/>ends the user's SSH<br/>records · applies rules"]
+    D -->|"SSH over the tunnel"| CN["Connector<br/>signs in with the saved account<br/>checks the host key"]
+    CN -->|"SSH 22"| S["SSH server"]
+```
+
+- **The data-plane ends the user's SSH connection** (with the jump host's key, so
+  the command adds `-o HostKeyAlias=captivo-recorded.<host>` and the client files
+  that key under Captivo's name, never the server's). The banner says the
+  session is recorded.
+- **The connector signs in** to the server with the resource's saved password or
+  key, which opens only there, whatever user name the command gave. The user
+  needs no password.
+- **The server's host key** is kept on first contact, shared with password
+  rotation. A different key is refused with a clear message until an admin
+  presses **Forget** beside it on the resource.
+- **The terminal is recorded** as what it showed (asciicast, on the connector,
+  encrypted like every recording) and plays in Recordings with the same controls;
+  a password typed at a prompt that doesn't echo is never in it. Typed lines are
+  logged when the resource logs keystrokes, masked at password prompts. A command
+  run without a terminal (`ssh host cmd`) is recorded with its output; binary
+  output is marked and left out.
+- **File transfer follows the resource's file transfer setting**: SFTP is read
+  packet by packet, so downloads, uploads and changes (remove, rename, mkdir) are
+  allowed or refused one by one, and every transfer is in the audit log with its
+  path and size; legacy `scp` and `rsync` are allowed or refused as a whole.
+- **Refused:** port forwarding (`-L`, `-R`, `-D`), agent and X11 forwarding, since
+  they can't be recorded. VS Code Remote-SSH needs port forwarding, so it works
+  only on resources that aren't recorded.
+- An admin can end the session from Sessions (`SSH · NATIVE`, "recorded"); watching
+  it live is not available yet. With a connector older than 2.49.0 a recorded
+  resource falls back to the unrecorded way, or, when the Policy requires
+  recording, refuses native SSH until the connector is updated.
+
+**For both:**
+
+- The grant, schedule, user status and vendor IP allowlist are checked when the
+  channel opens and every minute after; the session is listed on the Sessions
+  page, an admin can end it, and its start, end and refusals are in the audit log
+  with the client's SSH version.
 - **The jump host's key** is kept in the data-plane's `/data` volume, so clients
   trust it once. The portal shows its SHA-256 fingerprint beside the command.
-- **Requirements:** a connector on 2.39.0 or later, the SSH server's `host:port`
-  in the connector's `ALLOWED_TARGETS` if that is set, and port 2222 reachable
-  on the console's host. Self-hosted installs publish it from the data-plane
-  (`SSH_PUBLIC_PORT` changes the published port, `SSH_PUBLIC_HOST` the name in the
-  command, `SSH_ADDR=off` turns the jump host off).
+- **Requirements:** a connector on 2.39.0 or later (2.49.0 for recorded), the SSH
+  server's `host:port` in the connector's `ALLOWED_TARGETS` if that is set, and
+  port 2222 reachable on the console's host. Self-hosted installs publish it from
+  the data-plane (`SSH_PUBLIC_PORT` changes the published port, `SSH_PUBLIC_HOST`
+  the name in the command, `SSH_ADDR=off` turns the jump host off).
 
 ## Database resources (your own client, every query logged)
 

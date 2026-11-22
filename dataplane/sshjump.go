@@ -77,7 +77,7 @@ func (t *sshTickets) Get(code string, now time.Time) (sshTicket, bool) {
 // sshAuthorizer is the part of ControlClient the jump host uses.
 type sshAuthorizer interface {
 	CheckAccess(userID, siteID, clientIP string) (allow bool, reason string, err error)
-	NativeSshTarget(userID, siteID string) (rdpTarget, error)
+	NativeSshTarget(userID, siteID string) (sshTarget, error)
 }
 
 type sshJumpDeps struct {
@@ -88,6 +88,11 @@ type sshJumpDeps struct {
 	audit   *AuditQueue
 	tickets *sshTickets
 	now     func() time.Time
+	// Recorded resources (sshrec.go): the connector session to sign in through,
+	// the jump host's key for the user's inner connection, the recording index.
+	rec sshRecDeps
+	// noteHostKey keeps a recorded server's host key seen on first contact.
+	noteHostKey func(siteID, fingerprint string)
 }
 
 // loadOrCreateHostKey keeps the jump host's identity across restarts: a new key
@@ -244,6 +249,11 @@ func (j *sshJumpConn) forward(nc ssh.NewChannel) {
 	if j.d.pick != nil && len(target.Candidates) > 0 {
 		target.ConnectorID = j.d.pick(target.Candidates).ID
 	}
+	if target.Record {
+		// A recorded resource: the session ends here and is carried on (sshrec.go).
+		j.recorded(nc, target)
+		return
+	}
 	remote, err := j.d.dial(target.ConnectorID, net.JoinHostPort(target.Host, target.Port))
 	if err != nil {
 		log.Printf("ssh jump: site=%s dial %s:%s via connector %s failed: %v", j.tk.SiteID, target.Host, target.Port, target.ConnectorID, err)
@@ -256,7 +266,7 @@ func (j *sshJumpConn) forward(nc ssh.NewChannel) {
 		return
 	}
 	go ssh.DiscardRequests(chReqs)
-	j.relay(ch, remote, target)
+	j.relay(ch, remote, target.rdpTarget)
 }
 
 // relay carries the bytes both ways and keeps the session in the hub while it
@@ -360,6 +370,7 @@ func startSSHJump(addr, keyFile string, d sshJumpDeps) (sshJumpInfo, error) {
 	if err != nil {
 		return sshJumpInfo{}, err
 	}
+	d.rec.hostKey = key
 	go serveSSHJump(ln, d, sshServerConfig(d, key))
 	log.Printf("ssh jump: listening on %s (host key %s)", addr, ssh.FingerprintSHA256(key.PublicKey()))
 	return sshJumpInfo{Enabled: true, Fingerprint: ssh.FingerprintSHA256(key.PublicKey())}, nil

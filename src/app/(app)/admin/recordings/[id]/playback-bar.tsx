@@ -21,8 +21,8 @@ export interface PlayerShell {
   overlay?: React.ReactNode;
   wide?: boolean;
   onWide?: () => void;
-  /** Moments only the player can see in the recording (a web app's page loads). */
-  onFound?: (found: { atMs: number; kind: "nav"; text: string }[]) => void;
+  /** Moments only the player can see in the recording (a web app's page loads, a native SSH session's marks). */
+  onFound?: (found: { atMs: number; kind: "nav" | "mark"; text: string }[]) => void;
 }
 
 /**

@@ -14,6 +14,7 @@ import type { Marker, PlayerShell } from "./playback-bar";
 import { RecordingPlayer } from "./recording-player";
 import { GuacRecordingPlayer } from "./guac-recording-player";
 import { VideoRecordingPlayer } from "./video-recording-player";
+import { TermRecordingPlayer } from "./term-recording-player";
 import { PreparingRecording } from "./preparing-recording";
 import { QueryLog } from "./query-log";
 
@@ -61,6 +62,7 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
   const [keys, setKeys] = useState<KeystrokeEvent[]>([]);
   const [keysState, setKeysState] = useState<"loading" | "ok" | "unreachable">("loading");
   const [navs, setNavs] = useState<{ atMs: number; text: string }[]>([]);
+  const [marks, setMarks] = useState<{ atMs: number; text: string }[]>([]);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -85,7 +87,7 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
   }, [toast]);
 
   const total = clock.total || rec.lengthMs;
-  const events = useMemo(() => buildTimeline({ totalMs: total, keys, transfers, navs, terminal: kind === "ssh" }), [total, keys, transfers, navs, kind]);
+  const events = useMemo(() => buildTimeline({ totalMs: total, keys, transfers, navs, marks, terminal: kind === "ssh" }), [total, keys, transfers, navs, marks, kind]);
   const markers: Marker[] = useMemo(
     () => events.filter((e) => e.tone !== "muted").map((e) => ({ atMs: e.atMs, tone: MARKER_TONE[e.tone], label: e.command ? `$ ${e.text}` : e.text })),
     [events],
@@ -100,7 +102,10 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
   }, [current, clock.playing, tab]);
 
   const onState = useCallback((s: Clock) => setClock(s), []);
-  const onFound = useCallback((found: { atMs: number; text: string }[]) => setNavs(found), []);
+  const onFound = useCallback((found: { atMs: number; kind: "nav" | "mark"; text: string }[]) => {
+    setNavs(found.filter((f) => f.kind === "nav"));
+    setMarks(found.filter((f) => f.kind === "mark"));
+  }, []);
   const name = user.name ?? user.email ?? "Unknown user";
   const wall = Date.parse(rec.startedAt) + clock.position;
   const overlay = (
@@ -177,6 +182,8 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
             <PreparingRecording id={rec.id} estimatedMs={rec.lengthMs} shell={shell} />
           ) : rec.format === "GUAC" ? (
             <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.lengthMs} shell={shell} />
+          ) : rec.format === "TERM" ? (
+            <TermRecordingPlayer id={rec.id} shell={shell} />
           ) : (
             <RecordingPlayer id={rec.id} shell={shell} />
           )}

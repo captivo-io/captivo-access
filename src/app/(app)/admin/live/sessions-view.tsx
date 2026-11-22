@@ -203,7 +203,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
   const src = watchSrc(r);
   return (
     <article className={watching ? "sv-card on" : "sv-card"}>
-      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : r.native ? `A session in the user's own ${nativeApp(r)} app can't be watched` : "This web app does not record, so it can't be watched"}>
+      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : r.native ? (r.recording ? `A session in the user's own ${nativeApp(r)} app can't be watched live; it is recorded` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
         {tail.length ? (
           <span className="rc-art ssh sv-term" aria-hidden="true">
             {tail.map((t, i) => <span key={i} className="mono">{r.database ? "›" : "$"} {t}</span>)}
@@ -224,7 +224,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
         </div>
         <div className="sv-line">
           <span className="cell-sub">Started {hm(r.startedAt, zone)}</span>
-          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
+          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native && r.recording ? <><Sparkline values={r.activity} /><span className="cell-sub">Own {nativeApp(r)} app · recorded</span></> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
         </div>
         <Actions r={r} canTerminate={canTerminate} onWatch={src ? onWatch : undefined} onEnded={onEnded} />
       </div>

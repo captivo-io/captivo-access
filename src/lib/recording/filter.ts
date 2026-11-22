@@ -22,6 +22,7 @@ const TERMINAL = ["ssh", "telnet"];
 /** The Web / RDP / SSH tab a recording falls under. */
 export function recordingType(r: { format: string; protocol: string | null }): RecordingType {
   if (r.format === "SQL") return "sql";
+  if (r.format === "TERM") return "ssh";
   if (r.format !== "GUAC") return "web";
   return r.protocol && TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp";
 }
@@ -35,7 +36,7 @@ export function buildRecordingWhere(
   const where: Prisma.SessionRecordingWhereInput = {};
   const and: Prisma.SessionRecordingWhereInput[] = [];
   if (filter.type === "web") where.format = { in: ["RRWEB", "VIDEO"] };
-  if (filter.type === "ssh") { where.format = "GUAC"; where.protocol = { in: TERMINAL }; }
+  if (filter.type === "ssh") and.push({ OR: [{ format: "GUAC", protocol: { in: TERMINAL } }, { format: "TERM" }] });
   if (filter.type === "sql") where.format = "SQL";
   if (filter.type === "rdp") {
     where.format = "GUAC";
