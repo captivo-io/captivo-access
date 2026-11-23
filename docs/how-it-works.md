@@ -433,10 +433,15 @@ flowchart LR
 - **The recording** is what the server sent, PDU by PDU, kept on the connector
   like any recording. When the session ends the connector replays it into a
   headless FreeRDP client (rdpenc) and keeps a VP9 video, which Recordings
-  plays; the PDU stream is removed once the console has the video. Typed text is
-  logged as the resource's keystroke setting says, for the US and Turkish Q
-  keyboard layouts (the app names its layout; for another one the log says it
-  isn't supported instead of guessing).
+  plays; the PDU stream is removed once the console has the video. The server
+  numbers the app's channels in the order the app asked for them, so the
+  recording keeps that list (names and options, nothing else the app sent) and
+  the replay asks for the same; that is what makes recordings from the macOS,
+  iOS and Windows apps play, whose lists differ. Typed text is logged as the
+  resource's keystroke setting says, for the US and Turkish Q keyboard layouts
+  (the app names its layout; for another one the log says it isn't supported
+  instead of guessing; an app that names none, as the macOS and iOS apps do, is
+  read as US and the log says so).
 - **The clipboard and drives** follow the resource's rules on the server's side
   too: a channel the rules keep off is not opened at all, whatever the app asks.
 - **Watching live.** Sessions shows these sessions with **Watch live**, in the

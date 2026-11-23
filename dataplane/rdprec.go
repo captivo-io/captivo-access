@@ -232,22 +232,28 @@ func (t *rdpgwTunnel) openRecorded() (net.Conn, error) {
 		&recIndexReporter{send: t.d.rec.recIndex, userID: tk.UserID, siteID: tk.SiteID, host: t.target.Host, format: rdpFormat, proto: "rdp", connectorID: cid},
 		func() { notifyRecDone(t.d.rec.session(cid), tk.TenantID, key) },
 		tk.TenantID, key, tk.SiteID, t.d.now())
-	var client func([]byte)
+	var keys *keyWriter
+	var obs *rdpKeyObserver
 	if t.target.Keystrokes {
-		keys := newKeyWriter(send, tk.TenantID, key)
-		obs := newRdpKeyObserver(t.d.now())
-		first := true
-		client = func(pdu []byte) {
-			if first {
-				first = false
+		keys, obs = newKeyWriter(send, tk.TenantID, key), newRdpKeyObserver(t.d.now())
+	}
+	first := true
+	client := func(pdu []byte) {
+		if first {
+			first = false
+			rec.clientChannels(pdu)
+			if obs != nil {
 				obs.connectInitial(pdu)
-				return
 			}
-			if evs := obs.input(pdu, t.d.now()); len(evs) > 0 {
-				keys.post(evs)
-				if ls := t.live(); ls != nil {
-					ls.keyEvents(evs)
-				}
+			return
+		}
+		if obs == nil {
+			return
+		}
+		if evs := obs.input(pdu, t.d.now()); len(evs) > 0 {
+			keys.post(evs)
+			if ls := t.live(); ls != nil {
+				ls.keyEvents(evs)
 			}
 		}
 	}

@@ -1090,11 +1090,19 @@ func (t execTools) EncodeRdp(ctx context.Context, in io.Reader, out string) (tim
 	spanc := make(chan time.Duration, 1)
 	go func() {
 		var span time.Duration
+		var said []string
 		for lines.Scan() {
 			var n, ms int64
 			if _, err := fmt.Sscanf(lines.Text(), "frames %d, %d ms", &n, &ms); err == nil {
 				span = time.Duration(ms) * time.Millisecond
+			} else if l := lines.Text(); len(said) < 5 && !strings.Contains(l, "check_fds() failed") && !strings.Contains(l, "channels, got") {
+				// Not the end of the dump, nor a channel the recorded client lacked.
+				said = append(said, l)
 			}
+		}
+		if len(said) > 0 {
+			// FreeRDP's errors: why a replay stopped early.
+			logInfo("rdpenc: %s", strings.Join(said, "; "))
 		}
 		spanc <- span
 	}()

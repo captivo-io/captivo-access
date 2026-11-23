@@ -292,6 +292,7 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 				return
 			}
 			if first {
+				live.clientChannels(pdu)
 				rewriteConnectInitial(pdu, selected, req.BlockChannels)
 				first = false
 			} else if !infoDone {

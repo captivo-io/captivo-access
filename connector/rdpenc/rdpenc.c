@@ -20,6 +20,13 @@
  * nothing). While watched, stdout carries Guacamole protocol a browser viewer
  * draws: the screen's size, then what changed, as JPEG, at most <fps> times a
  * second, each followed by a sync.
+ *
+ * A dump may start with a client record holding the network data block of the
+ * client's Connect Initial (dataplane/rdprecord.go, connector/rdplive.go): the
+ * static channels it asked for. The server numbers channels in that order, so
+ * the replay asks for the same list; what arrives on a channel it has no
+ * plugin for is dropped. Without that record (older recordings) it asks for
+ * its own.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -273,41 +280,131 @@ static BOOL live_wait(void)
 	}
 }
 
+/* One record of the dump, into a buffer of its own. */
+static BYTE* recBuf;
+static size_t recCap, recLen;
+static UINT64 recTs;
+static BYTE recReceived;
+static BOOL recHeld; /* read ahead of the connection: hand it out first */
+
+static BOOL next_record(void)
+{
+	if (recHeld) {
+		recHeld = FALSE;
+		return TRUE;
+	}
+	UINT64 size = 0;
+	UINT32 crc = 0;
+	if (fread(&recTs, 8, 1, dumpFile) != 1 || fread(&recReceived, 1, 1, dumpFile) != 1 ||
+	    fread(&crc, 4, 1, dumpFile) != 1 || fread(&size, 8, 1, dumpFile) != 1 || size > (1u << 26))
+		return FALSE;
+	if (size > recCap) {
+		BYTE* b = realloc(recBuf, (size_t)size);
+		if (!b)
+			return FALSE;
+		recBuf = b;
+		recCap = (size_t)size;
+	}
+	recLen = (size_t)size;
+	return fread(recBuf, 1, recLen, dumpFile) == recLen;
+}
+
+/* The recorded client's static channels (TS_UD_CS_NET). */
+static CHANNEL_DEF recChannels[CHANNEL_MAX_COUNT];
+static UINT32 recChannelCount;
+static BOOL haveRecChannels;
+
+static void read_client_channels(void)
+{
+	if (!next_record())
+		return; /* the replay finds the end itself */
+	if (!recReceived || recLen < 8 || recBuf[0] != 0x03 || recBuf[1] != 0xC0) {
+		recHeld = TRUE;
+		return;
+	}
+	UINT32 n = recBuf[4] | recBuf[5] << 8 | recBuf[6] << 16 | (UINT32)recBuf[7] << 24;
+	if (n > CHANNEL_MAX_COUNT || 8 + 12 * (size_t)n > recLen)
+		return;
+	for (UINT32 i = 0; i < n; i++) {
+		const BYTE* d = recBuf + 8 + 12 * i;
+		memcpy(recChannels[i].name, d, 8);
+		recChannels[i].name[7] = 0;
+		recChannels[i].options = d[8] | d[9] << 8 | d[10] << 16 | (UINT32)d[11] << 24;
+	}
+	recChannelCount = n;
+	haveRecChannels = TRUE;
+	fprintf(stderr, "channels");
+	for (UINT32 i = 0; i < n; i++)
+		fprintf(stderr, "%s%s", i ? "," : " ", recChannels[i].name);
+	fprintf(stderr, "\n");
+}
+
+/* Ask for the recorded client's channels, in its order: a loaded plugin keeps
+ * its options, a channel without one is there by name. Plugins the recorded
+ * client had no channel for go after them; the server's answer numbers only
+ * the recorded ones, so they get none. */
+static BOOL apply_client_channels(rdpSettings* settings)
+{
+	if (!haveRecChannels)
+		return TRUE;
+	CHANNEL_DEF defs[CHANNEL_MAX_COUNT];
+	UINT32 n = recChannelCount;
+	memcpy(defs, recChannels, sizeof(CHANNEL_DEF) * n);
+	const UINT32 loaded = freerdp_settings_get_uint32(settings, FreeRDP_ChannelCount);
+	for (UINT32 j = 0; j < loaded; j++) {
+		const CHANNEL_DEF* d = freerdp_settings_get_pointer_array(settings, FreeRDP_ChannelDefArray, j);
+		if (!d)
+			continue;
+		BOOL found = FALSE;
+		for (UINT32 i = 0; i < recChannelCount; i++)
+			if (strncmp(d->name, defs[i].name, CHANNEL_NAME_LEN) == 0) {
+				defs[i].options = d->options;
+				found = TRUE;
+			}
+		if (!found && n < CHANNEL_MAX_COUNT)
+			defs[n++] = *d;
+	}
+	if (!freerdp_settings_set_pointer_len(settings, FreeRDP_ChannelDefArray, NULL, CHANNEL_MAX_COUNT))
+		return FALSE;
+	for (UINT32 i = 0; i < n; i++)
+		if (!freerdp_settings_set_pointer_array(settings, FreeRDP_ChannelDefArray, i, &defs[i]))
+			return FALSE;
+	return freerdp_settings_set_uint32(settings, FreeRDP_ChannelCount, n);
+}
+
+/* Data on a channel without a plugin (the client's clipboard, drives, sound)
+ * is dropped instead of ending the replay. */
+static BOOL enc_receive_channel_data(freerdp* instance, UINT16 channelId, const BYTE* data, size_t size,
+                                     UINT32 flags, size_t total)
+{
+	(void)freerdp_channels_data(instance, channelId, data, size, flags, total);
+	return TRUE;
+}
+
 /* The replay transport: the server's PDUs from the dump, no delays. */
 static int enc_read_pdu(rdpTransport* transport, wStream* s)
 {
 	for (;;) {
-		UINT64 ts = 0, size = 0;
-		BYTE received = 0;
-		UINT32 crc = 0;
-		if (live && !live_wait()) {
+		if (live && !recHeld && !live_wait()) {
 			ended = TRUE;
 			return -1;
 		}
-		if (fread(&ts, 8, 1, dumpFile) != 1 || fread(&received, 1, 1, dumpFile) != 1 ||
-		    fread(&crc, 4, 1, dumpFile) != 1 || fread(&size, 8, 1, dumpFile) != 1) {
+		if (!next_record()) {
 			ended = TRUE;
 			return -1;
 		}
-		if (size > (1u << 26)) {
-			ended = TRUE;
-			return -1;
-		}
-		Stream_SetPosition(s, 0);
-		if (!Stream_EnsureCapacity(s, (size_t)size)) {
-			ended = TRUE;
-			return -1;
-		}
-		if (fread(Stream_Buffer(s), 1, (size_t)size, dumpFile) != size) {
-			ended = TRUE;
-			return -1;
-		}
-		if (received)
+		if (recReceived)
 			continue; /* what the client sent: not replayed */
+		Stream_SetPosition(s, 0);
+		if (!Stream_EnsureCapacity(s, recLen)) {
+			ended = TRUE;
+			return -1;
+		}
+		memcpy(Stream_Buffer(s), recBuf, recLen);
 		if (!firstTs)
-			firstTs = ts;
-		curTs = ts;
-		Stream_SetLength(s, (size_t)size);
+			firstTs = recTs;
+		curTs = recTs;
+		Stream_SetLength(s, recLen);
 		Stream_SetPosition(s, 0);
 		return 1;
 	}
@@ -321,6 +418,16 @@ static int enc_write_pdu(rdpTransport* transport, wStream* s)
 static int enc_tcp_connect(rdpContext* context, rdpSettings* settings, const char* hostname, int port, DWORD timeout)
 {
 	return 42;
+}
+
+/* The plugins load here, before the Connect Initial is made. */
+static pConnectCallback defaultLoadChannels;
+
+static BOOL enc_load_channels(freerdp* instance)
+{
+	if (defaultLoadChannels && !defaultLoadChannels(instance))
+		return FALSE;
+	return apply_client_channels(instance->context->settings);
 }
 
 static BOOL enc_tls(rdpTransport* transport)
@@ -432,6 +539,10 @@ int main(int argc, char* argv[])
 		return 1;
 
 	freerdp* instance = context->instance;
+	instance->ReceiveChannelData = enc_receive_channel_data;
+	defaultLoadChannels = instance->LoadChannels;
+	instance->LoadChannels = enc_load_channels;
+	read_client_channels();
 	if (!freerdp_connect(instance)) {
 		fprintf(stderr, "connect failed\n");
 		return 1;

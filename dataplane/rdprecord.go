@@ -8,6 +8,7 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,9 +21,14 @@ import (
 // into a FreeRDP client, without a server, and make a video of it. Each PDU is
 // a record: the time in milliseconds, a direction byte (0: from the server),
 // the CRC-32 of the data, its length, the data. What the client sent (its
-// logon info carries the saved password) is never written.
+// logon info carries the saved password) is never written, except one record
+// ahead of the rest: the static channels its Connect Initial asked for. The
+// server numbers channels in that order, so the encoder asks for the same.
 
-const rdpFormat = "rdp"
+const (
+	rdpFormat  = "rdp"
+	csNetBlock = 0xC003
+)
 
 // rdpRecorder writes the stream in chunks, as the terminal recorder does.
 type rdpRecorder struct {
@@ -62,11 +68,14 @@ func newRdpRecorder(send func(tunnel.RecWriteRequest) (int, error), index *recIn
 	return r
 }
 
-// dumpRecord is one PDU in FreeRDP's transport dump format.
-func dumpRecord(ms uint64, pdu []byte) []byte {
+// dumpRecord is one PDU in FreeRDP's transport dump format; fromClient marks
+// what the client sent.
+func dumpRecord(ms uint64, fromClient bool, pdu []byte) []byte {
 	b := make([]byte, 21, 21+len(pdu))
 	binary.LittleEndian.PutUint64(b, ms)
-	b[8] = 0 // sent by the server
+	if fromClient {
+		b[8] = 1
+	}
 	binary.LittleEndian.PutUint32(b[9:], crc32.ChecksumIEEE(pdu))
 	binary.LittleEndian.PutUint64(b[13:], uint64(len(pdu)))
 	return append(b, pdu...)
@@ -81,12 +90,34 @@ func (r *rdpRecorder) server(pdu []byte) {
 	}
 	// Never zero: the encoder takes the first record's time as the start.
 	ms := uint64(time.Since(r.start).Milliseconds()) + 1
-	r.buf.Write(dumpRecord(ms, pdu))
+	r.buf.Write(dumpRecord(ms, false, pdu))
 	full := r.buf.Len() >= recFlushBytes
 	r.mu.Unlock()
 	if full {
 		r.flush()
 	}
+}
+
+// clientChannels records the network data block (TS_UD_CS_NET) of the
+// client's MCS Connect Initial: channel names and options, nothing else.
+func (r *rdpRecorder) clientChannels(connectInitial []byte) {
+	gccClientBlocks(connectInitial, func(typ uint16, b []byte) {
+		if typ != csNetBlock {
+			return
+		}
+		r.mu.Lock()
+		if !r.stopped {
+			r.buf.Write(dumpRecord(1, true, b))
+		}
+		r.mu.Unlock()
+		var names []string
+		if len(b) >= 8 {
+			for i := 0; i < int(binary.LittleEndian.Uint32(b[4:])) && 8+12*(i+1) <= len(b); i++ {
+				names = append(names, strings.TrimRight(string(b[8+12*i:16+12*i]), "\x00"))
+			}
+		}
+		log.Printf("rdp recording site=%s key=%s: client channels %s", r.siteID, r.key, strings.Join(names, ","))
+	})
 }
 
 func (r *rdpRecorder) flush() {
