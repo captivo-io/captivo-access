@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,12 +26,36 @@ const (
 // keyObserver reconstructs typed input from the guac `key` instructions on the
 // browser->guacd pump. SSH emits one event per line (Enter); RDP emits a "text"
 // burst on Enter or after an idle gap. atMs is relative to the recording start.
+// Keys typed while a full-screen program holds an SSH terminal (vim, top,
+// less: guacd says so with captivo-altscreen, see altScreenInstruction) are
+// not lines for the shell and are left out, as for native SSH.
 type keyObserver struct {
 	ssh      bool
 	start    time.Time
 	line     strings.Builder
 	lastKey  time.Time
 	maskNext bool
+	alt      atomic.Bool
+}
+
+// altScreenOp is the instruction the patched guacd (guacd/alt-screen-notice.patch)
+// sends when its terminal enters ("1") or leaves ("0") the alternate buffer.
+const altScreenOp = "17.captivo-altscreen,"
+
+// altScreenInstruction reports whether a raw guacd instruction is that notice,
+// and which way it went.
+func altScreenInstruction(inst []byte) (on, ok bool) {
+	if !bytes.HasPrefix(inst, []byte(altScreenOp)) {
+		return false, false
+	}
+	return bytes.Equal(inst[len(altScreenOp):], []byte("1.1;")), true
+}
+
+// setAlt follows the terminal's alternate buffer (called from the guacd->browser pump).
+func (o *keyObserver) setAlt(on bool) {
+	if o != nil {
+		o.alt.Store(on)
+	}
 }
 
 func newKeyObserver(protocol string, start time.Time) *keyObserver {
@@ -46,6 +71,10 @@ func (o *keyObserver) observe(raw []byte, now time.Time) []keyEvent {
 			break
 		}
 		if op != "key" || len(args) < 2 || args[1] != "1" { // key-down only
+			continue
+		}
+		if o.ssh && o.alt.Load() {
+			o.line.Reset()
 			continue
 		}
 		keysym, _ := strconv.Atoi(args[0])

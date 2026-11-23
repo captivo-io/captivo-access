@@ -17,6 +17,8 @@ export interface GuacParams {
   terminalFontSize?: number;
   terminalColorScheme?: string;
   terminalScrollback?: number;
+  /** SSH: what the server is told the terminal is. guacd (patched) defaults to xterm-256color; "linux" is for old systems without it. */
+  terminalType?: "xterm-256color" | "linux";
 }
 
 export const TERMINAL_COLOR_SCHEMES: { value: string; label: string }[] = [
@@ -72,6 +74,7 @@ export function parseGuacParams(input: unknown): GuacParams {
   if (typeof o.terminalColorScheme === "string" && SCHEMES.has(o.terminalColorScheme)) out.terminalColorScheme = o.terminalColorScheme;
   const sb = typeof o.terminalScrollback === "string" && o.terminalScrollback.trim() ? Number(o.terminalScrollback) : o.terminalScrollback;
   if (typeof sb === "number" && Number.isInteger(sb) && sb >= 100 && sb <= 100000) out.terminalScrollback = sb;
+  if (o.terminalType === "xterm-256color" || o.terminalType === "linux") out.terminalType = o.terminalType;
   return out;
 }
 
@@ -94,6 +97,7 @@ export function resolveGuacParams(resource: GuacParams, policy: GuacParams): Gua
     terminalFontSize: resource.terminalFontSize ?? policy.terminalFontSize,
     terminalColorScheme: resource.terminalColorScheme ?? policy.terminalColorScheme,
     terminalScrollback: resource.terminalScrollback ?? policy.terminalScrollback,
+    terminalType: resource.terminalType ?? policy.terminalType,
   };
 }
 
@@ -127,6 +131,7 @@ export function toGuacArgs(p: GuacParams, clipboardMode: string, protocol: "RDP"
     if (p.terminalFontSize) a["font-size"] = String(p.terminalFontSize);
     if (p.terminalColorScheme) a["color-scheme"] = p.terminalColorScheme;
     if (p.terminalScrollback) a["scrollback"] = String(p.terminalScrollback);
+    if (p.terminalType) a["terminal-type"] = p.terminalType;
   }
   if (p.enableFileTransfer) {
     if (protocol === "RDP") {

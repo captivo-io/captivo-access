@@ -128,6 +128,16 @@ export function GuacParamsFields({ value, onChange, protocol, policy }: { value:
           </select>
         </label>
       )}
+      {showTerminal && (
+        <label className="field"><span className="field-label">Terminal type {protocol ? "" : "(SSH)"}</span>
+          <select className="select" value={value.terminalType} onChange={(e) => set("terminalType", e.target.value)}>
+            <option value="">{policy?.terminalType ? `Inherit policy (${policy.terminalType})` : inherit("xterm-256color")}</option>
+            <option value="xterm-256color">xterm-256color</option>
+            <option value="linux">linux (old systems without xterm)</option>
+          </select>
+          <span className="field-hint">What the server is told the terminal is. xterm gives 256 colours, and vim or less leave the shell&apos;s screen as it was; choose linux only for a system that has no xterm entry (it then says &quot;unknown terminal type&quot;).</span>
+        </label>
+      )}
       {showSftpRoot && value.fileTransfer !== "off" && (
         <label className="field"><span className="field-label">SFTP upload folder {protocol ? "" : "(SSH)"}</span>
           <input className="input" type="text" value={value.sftpRoot} placeholder={policy?.sftpRoot ? `Inherit policy (${policy.sftpRoot})` : "Auto (the user's home directory)"}

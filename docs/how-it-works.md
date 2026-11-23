@@ -376,6 +376,14 @@ flowchart TD
   guacd sends the current screen immediately (not just future changes), and an
   admin can **take control**. The vendor sees a "being monitored" notice, and
   every watch / take / release is audited.
+- **The SSH terminal** tells the server it is an `xterm-256color` (connector
+  2.58.0; guacd's own default is `linux`): 256 colours, and vim, less or top
+  leave the shell's screen as it was when they end. Keys that are not text go as
+  xterm sends them, Ctrl/Alt/Shift with arrows and the like included (Ctrl+Left
+  jumps a word). Typing into such a full-screen program is not a shell command,
+  so it stays out of the keystroke log, as in native SSH. A resource (or the
+  Policy) can set **Terminal type** to `linux` for an old system that has no
+  xterm entry and says "unknown terminal type".
 - **Health + logs.** Gateway targets are TCP-reachability-checked like web apps
   (Resources page + dashboard), and guacd's own logs surface on the connector's
   detail page ("Gateway logs") for troubleshooting.

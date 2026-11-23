@@ -154,7 +154,7 @@ func confirmActive(secHeader bool, caps ...[]byte) []byte {
 	}
 	body := binary.LittleEndian.AppendUint32(nil, 0x103EA) // shareId
 	body = binary.LittleEndian.AppendUint16(body, 0x3EA)
-	body = binary.LittleEndian.AppendUint16(body, 4)                  // source descriptor length
+	body = binary.LittleEndian.AppendUint16(body, 4)                   // source descriptor length
 	body = binary.LittleEndian.AppendUint16(body, uint16(4+len(sets))) // capabilities length
 	body = append(body, "MSTS"...)
 	body = binary.LittleEndian.AppendUint16(body, uint16(len(caps)))

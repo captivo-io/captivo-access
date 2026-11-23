@@ -544,6 +544,7 @@ const GROUPS: { tag: string; tone: string; title: string; tiles: Tile[] }[] = [
     { k: "terminalFontSize", label: "Font size", options: [["", "Engine default (12 pt)"], ...["10", "12", "14", "16", "18", "20", "24"].map((n): Opt => [n, `${n} pt`])] },
     { k: "terminalColorScheme", label: "Colours", options: TERMINAL_COLOR_SCHEMES.map((c) => [c.value, c.value ? c.label : "Engine default (gray on black)"]) },
     { k: "terminalScrollback", label: "Scrollback", options: [["", "Engine default (1000 lines)"], ...["1000", "5000", "10000", "50000"].map((n): Opt => [n, `${Number(n).toLocaleString("en-US")} lines`])] },
+    { k: "terminalType", label: "Terminal type", options: [["", "Engine default (xterm-256color)"], ["xterm-256color", "xterm-256color"], ["linux", "linux (old systems)"]] },
   ] },
 ];
 

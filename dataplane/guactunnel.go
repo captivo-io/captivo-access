@@ -206,6 +206,10 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 				errc <- rerr
 				return
 			}
+			if on, ok := altScreenInstruction(inst); ok {
+				keys.setAlt(on) // for the keystroke log only: not recorded, not sent on
+				continue
+			}
 			if rec != nil {
 				rec.Write(inst)
 			}
