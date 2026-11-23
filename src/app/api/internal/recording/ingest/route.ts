@@ -57,7 +57,7 @@ async function handler(req: NextRequest) {
     // The format decides which player the UI offers, so it has to reach the index.
     // Defaults to RRWEB because that is the only source that omitted it historically.
     const format =
-      body.format === "guac" ? "GUAC" : body.format === "video" ? "VIDEO" : body.format === "sql" ? "SQL" : body.format === "term" ? "TERM" : "RRWEB";
+      body.format === "guac" ? "GUAC" : body.format === "video" ? "VIDEO" : body.format === "sql" ? "SQL" : body.format === "term" ? "TERM" : body.format === "rdp" ? "RDP" : "RRWEB";
 
     const truncated = body.truncated === true;
     const connectorId = typeof body.connectorId === "string" && body.connectorId ? body.connectorId : null;

@@ -163,6 +163,14 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 type rdpTarget struct {
 	Host, Port, ConnectorID, TenantID, SiteName string
 	RedirectFlags                               uint32
+	// A recorded resource: Captivo signs in with the saved account (Secret
+	// only for a connector without a vault key; else each candidate's seal),
+	// and the static channels the resource keeps off are not opened.
+	Recorded      bool
+	Keystrokes    bool
+	Username      string
+	Secret        string
+	BlockChannels []string
 	// Every connector that may carry the tunnel; ConnectorID is set to the one
 	// picked from them when the tunnel is dialled.
 	Candidates []routeCandidate
@@ -181,11 +189,20 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 		TenantID      string           `json:"tenantId"`
 		SiteName      string           `json:"siteName"`
 		RedirectFlags uint32           `json:"redirectFlags"`
+		Mode          string           `json:"mode"`
+		Username      string           `json:"username"`
+		Secret        string           `json:"secret"`
+		BlockChannels []string         `json:"blockChannels"`
+		Keystrokes    bool             `json:"keystrokes"`
 	}
 	if err := c.post("/api/internal/gateway/native-rdp", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return rdpTarget{}, err
 	}
-	return rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, RedirectFlags: out.RedirectFlags, Candidates: candidatesOr(out.Connectors, out.ConnectorID)}, nil
+	return rdpTarget{
+		Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName,
+		RedirectFlags: out.RedirectFlags, Candidates: candidatesOr(out.Connectors, out.ConnectorID),
+		Recorded: out.Mode == "recorded", Keystrokes: out.Keystrokes, Username: out.Username, Secret: out.Secret, BlockChannels: out.BlockChannels,
+	}, nil
 }
 
 // sshTarget is a resource's SSH server for the jump host. A recorded one

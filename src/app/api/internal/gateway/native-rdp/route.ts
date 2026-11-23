@@ -20,7 +20,9 @@ async function tenantFromReq(req: NextRequest): Promise<string | null> {
 
 // The RD Gateway asks this when a native RDP client opens a tunnel with a
 // ticket: is the grant still good, does the resource allow native clients, and
-// where is its server. No credential leaves here: the user signs in themselves.
+// where is its server. On a recorded resource also the account the connector
+// signs in with: a seal only the connector opens (a plain password only for a
+// connector without a vault key yet).
 async function handler(req: NextRequest) {
   if (!dpAuthorized(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -38,6 +40,8 @@ async function handler(req: NextRequest) {
     targetHost: t.targetHost,
     targetPort: t.targetPort,
     redirectFlags: redirectFlags(t.redirection),
+    mode: t.mode,
+    ...(t.mode === "recorded" ? { username: t.username, secret: t.secret ?? "", blockChannels: t.blockChannels, keystrokes: t.keystrokeLogging } : {}),
   });
 }
 

@@ -24,9 +24,9 @@ describe("buildRecordingWhere", () => {
     expect(buildRecordingWhere({ type: "web", limit: 50, offset: 0 }).format).toEqual({ in: ["RRWEB", "VIDEO"] });
     // SSH: a browser session (guac) or the user's own SSH client (term).
     expect(buildRecordingWhere({ type: "ssh", limit: 50, offset: 0 }).AND).toEqual([{ OR: [{ format: "GUAC", protocol: { in: ["ssh", "telnet"] } }, { format: "TERM" }] }]);
+    // RDP: a browser session (guac, not a terminal) or the user's own RDP client.
     const rdp = buildRecordingWhere({ type: "rdp", limit: 50, offset: 0 });
-    expect(rdp.format).toBe("GUAC");
-    expect(rdp.AND).toEqual([{ OR: [{ protocol: null }, { protocol: { notIn: ["ssh", "telnet"] } }] }]);
+    expect(rdp.AND).toEqual([{ OR: [{ format: "RDP" }, { format: "GUAC", OR: [{ protocol: null }, { protocol: { notIn: ["ssh", "telnet"] } }] }] }]);
     expect(buildRecordingWhere({ empty: true, limit: 50, offset: 0 }).durationMs).toEqual({ lt: 1000 });
   });
 });
@@ -65,6 +65,7 @@ describe("recordingType", () => {
     expect(recordingType({ format: "GUAC", protocol: "ssh" })).toBe("ssh");
     expect(recordingType({ format: "GUAC", protocol: "vnc" })).toBe("rdp");
     expect(recordingType({ format: "GUAC", protocol: null })).toBe("rdp");
+    expect(recordingType({ format: "RDP", protocol: "rdp" })).toBe("rdp");
   });
   it("parses type and empty from the query", () => {
     expect(parseRecordingFilter(new URLSearchParams("type=ssh&empty=1"), { defaultLimit: 50, maxLimit: 200 })).toMatchObject({ type: "ssh", empty: true });

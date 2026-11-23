@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/coder/websocket"
+	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
 // The RD Gateway: a user's own Remote Desktop client (mstsc, FreeRDP, the
@@ -229,9 +231,14 @@ type rdpgwDeps struct {
 	ctrl   rdpgwAuthorizer
 	dial   func(connectorID, target string) (net.Conn, error)
 	pick   func([]routeCandidate) routeCandidate // nil: the target's own connector
-	hub    *SessionHub
-	audit  *AuditQueue
-	now    func() time.Time
+	// A recorded resource: the connector signs in (rdprec.go), and the
+	// client's TLS ends here with the console's certificate.
+	dialRec func(connectorID string, req tunnel.RdpRecRequest) (net.Conn, tunnel.RdpRecResponse, error)
+	cert    func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	rec     sshRecDeps // where a recorded session's recording goes
+	hub     *SessionHub
+	audit   *AuditQueue
+	now     func() time.Time
 }
 
 // serveRdpGateway answers /remoteDesktopGateway/. Only the WebSocket transport
@@ -271,6 +278,15 @@ type rdpgwTunnel struct {
 	ticket rdpTicket
 	target rdpTarget
 	remote net.Conn
+
+	lsMu sync.Mutex
+	ls   *liveSession // the console's entry, for a recorded session's typed text
+}
+
+func (t *rdpgwTunnel) live() *liveSession {
+	t.lsMu.Lock()
+	defer t.lsMu.Unlock()
+	return t.ls
 }
 
 func (t *rdpgwTunnel) write(p []byte) error {
@@ -352,9 +368,17 @@ func (t *rdpgwTunnel) run() {
 			if t.d.pick != nil && len(t.target.Candidates) > 0 {
 				t.target.ConnectorID = t.d.pick(t.target.Candidates).ID
 			}
-			remote, err := t.d.dial(t.target.ConnectorID, net.JoinHostPort(t.target.Host, t.target.Port))
+			var remote net.Conn
+			if t.target.Recorded {
+				remote, err = t.openRecorded()
+			} else {
+				remote, err = t.d.dial(t.target.ConnectorID, net.JoinHostPort(t.target.Host, t.target.Port))
+			}
 			if err != nil {
 				log.Printf("rdpgw: site=%s dial %s:%s via connector %s failed: %v", t.ticket.SiteID, t.target.Host, t.target.Port, t.target.ConnectorID, err)
+				if t.target.Recorded {
+					t.auditDeny("native_rdp_sign_in_failed")
+				}
 				_ = t.write(channelResponse(eProxyTSConnectFailed))
 				return
 			}
@@ -443,7 +467,13 @@ func (t *rdpgwTunnel) open() func() {
 	sessionID := newSessionID()
 	start := t.d.now()
 	if t.d.hub != nil {
-		t.d.hub.RegisterNative(sessionID, "rdp", tk.SiteID, tk.UserID, host, start, t.target.ConnectorID, t.clientIP)
+		ls := t.d.hub.RegisterNative(sessionID, "rdp", tk.SiteID, tk.UserID, host, start, t.target.ConnectorID, t.clientIP)
+		if t.target.Recorded {
+			ls.SetCapture(true, t.target.Keystrokes)
+		}
+		t.lsMu.Lock()
+		t.ls = ls
+		t.lsMu.Unlock()
 		t.d.hub.clearEnded(tk.UserID, tk.SiteID)
 		t.d.hub.SetCloser(sessionID, func() {
 			_ = t.write(tsgPacket(tsgCloseChannel, le32(0)))
@@ -452,7 +482,11 @@ func (t *rdpgwTunnel) open() func() {
 		})
 	}
 	if t.d.audit != nil {
-		t.d.audit.Enqueue(auditEvent("ALLOW", "session_open native_rdp", tk.UserID, tk.SiteID, host, t.r, http.StatusSwitchingProtocols, 0))
+		reason := "session_open native_rdp"
+		if t.target.Recorded {
+			reason = "session_open native_rdp_recorded"
+		}
+		t.d.audit.Enqueue(auditEvent("ALLOW", reason, tk.UserID, tk.SiteID, host, t.r, http.StatusSwitchingProtocols, 0))
 	}
 	log.Printf("rdpgw: site=%s user=%s live session id=%s target=%s:%s", tk.SiteID, tk.UserID, sessionID, host, t.target.Port)
 	var down atomic.Int64 // server→client, the close audit's bytesOut

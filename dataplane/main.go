@@ -84,7 +84,11 @@ func main() {
 	// PostgreSQL and MySQL clients for database resources (pgproxy.go, mysqlproxy.go).
 	// DB_ADDR=off / MYSQL_ADDR=off turns one off. Without DB_TLS_CERT/DB_TLS_KEY
 	// it keeps a self-signed certificate in DB_TLS_DIR.
-	dbOn, myOn, err := startDbProxy(env("DB_ADDR", ":15432"), env("MYSQL_ADDR", ":13306"), os.Getenv("DB_TLS_CERT"), os.Getenv("DB_TLS_KEY"), env("DB_TLS_DIR", "/data"), pgProxyDeps{
+	edgeCert, err := newEdgeCert(os.Getenv("DB_TLS_CERT"), os.Getenv("DB_TLS_KEY"), env("DB_TLS_DIR", "/data"))
+	if err != nil {
+		log.Printf("WARNING: no certificate for the database proxies and recorded native RDP: %v", err)
+	}
+	dbOn, myOn, err := startDbProxy(env("DB_ADDR", ":15432"), env("MYSQL_ADDR", ":13306"), edgeCert, pgProxyDeps{
 		ctrl: ctrl, hub: hub, audit: audit, now: time.Now, recIndex: ctrl.SendRecording,
 		session: reg.Get,
 		pick:    func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
@@ -524,6 +528,13 @@ func main() {
 		secret: ctrl.Secret, ctrl: ctrl, hub: hub, audit: audit, now: time.Now,
 		dial: func(connectorID, target string) (net.Conn, error) { return dialRdp(reg.Get(connectorID), target) },
 		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
+		dialRec: func(connectorID string, req tunnel.RdpRecRequest) (net.Conn, tunnel.RdpRecResponse, error) {
+			return dialRdpRec(reg.Get(connectorID), req)
+		},
+		rec: sshRecDeps{session: reg.Get, recIndex: ctrl.SendRecording},
+	}
+	if edgeCert != nil {
+		rdpgw.cert = edgeCert.get
 	}
 	rdpgwHandler := rlGuard(func(w http.ResponseWriter, r *http.Request) { serveRdpGateway(rdpgw, w, r) })
 	mux.HandleFunc(rdpgwPath, rdpgwHandler)

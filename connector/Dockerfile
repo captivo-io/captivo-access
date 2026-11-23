@@ -26,7 +26,7 @@ RUN cd connector && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # 1.6.0 source as guacd with guacd/guacenc-for-recordings.patch (codec, output,
 # framerate, keyframe interval and encoder options on the command line; a crash
 # on RDP recordings fixed). Built for the target platform, not cross-compiled.
-FROM alpine:3.20 AS guacenc
+FROM alpine:3.24 AS guacenc
 ARG GUAC_VERSION=1.6.0
 RUN apk add --no-cache build-base curl patch cairo-dev libjpeg-turbo-dev libpng-dev libwebp-dev \
       util-linux-dev openssl-dev ffmpeg-dev ffmpeg
@@ -44,13 +44,27 @@ RUN cd guacamole-server-${GUAC_VERSION} \
 # what is checked).
 RUN ./guacenc_test.sh
 
+# ---- rdpenc ----
+# Recorded native RDP sessions are kept as the server's PDU stream and turned
+# into video the same way: rdpenc replays the stream into a headless FreeRDP
+# 3 client, without a server, and hands the screen to ffmpeg (recmaint.go).
+# Alpine 3.24's FreeRDP decodes H.264 (OpenH264), which the graphics pipeline
+# of a current Windows server sends; 3.22's had no H.264 at all.
+FROM alpine:3.24 AS rdpenc
+RUN apk add --no-cache build-base pkgconf freerdp-dev
+COPY connector/rdpenc/rdpenc.c /build/rdpenc.c
+RUN gcc -O2 -Wall -Wno-deprecated-declarations -o /build/rdpenc /build/rdpenc.c \
+      $(pkg-config --cflags --libs freerdp3 freerdp-client3 winpr3)
+
 # ---- run ----
-FROM alpine:3.20
+FROM alpine:3.24
 # ffmpeg: guacenc's codecs, and ffprobe/ffmpeg to check a finished video and to
 # repair an isolated-browser one whose session was cut off before it was closed.
-RUN apk add --no-cache ffmpeg cairo libjpeg-turbo libpng libwebp libuuid \
+# freerdp-libs: rdpenc's decoder (no X11, no audio).
+RUN apk add --no-cache ffmpeg cairo libjpeg-turbo libpng libwebp libuuid freerdp-libs \
  && mkdir -p /data && adduser -D -H -u 10001 connector && chown connector /data
 COPY --from=guacenc /opt/guacamole /opt/guacamole
+COPY --from=rdpenc /build/rdpenc /usr/local/bin/rdpenc
 COPY --from=build /out/connector /usr/local/bin/connector
 USER connector
 VOLUME ["/data"]

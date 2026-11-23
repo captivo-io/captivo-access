@@ -23,6 +23,7 @@ const TERMINAL = ["ssh", "telnet"];
 export function recordingType(r: { format: string; protocol: string | null }): RecordingType {
   if (r.format === "SQL") return "sql";
   if (r.format === "TERM") return "ssh";
+  if (r.format === "RDP") return "rdp";
   if (r.format !== "GUAC") return "web";
   return r.protocol && TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp";
 }
@@ -39,8 +40,7 @@ export function buildRecordingWhere(
   if (filter.type === "ssh") and.push({ OR: [{ format: "GUAC", protocol: { in: TERMINAL } }, { format: "TERM" }] });
   if (filter.type === "sql") where.format = "SQL";
   if (filter.type === "rdp") {
-    where.format = "GUAC";
-    and.push({ OR: [{ protocol: null }, { protocol: { notIn: TERMINAL } }] });
+    and.push({ OR: [{ format: "RDP" }, { format: "GUAC", OR: [{ protocol: null }, { protocol: { notIn: TERMINAL } }] }] });
   }
   if (filter.empty) where.durationMs = { lt: 1000 };
   if (filter.userId) where.userId = filter.userId;

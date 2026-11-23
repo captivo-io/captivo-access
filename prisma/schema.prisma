@@ -816,6 +816,7 @@ enum RecordingFormat {
   VIDEO
   SQL // a database session's query log ("keys" chunks of statements), nothing to replay on screen
   TERM // a recorded native SSH session: asciicast v2 lines of what the terminal showed (dataplane/sshrec_term.go)
+  RDP // a recorded native RDP session: the server's PDUs (dataplane/rdprecord.go), made into a video on the connector (videoReady)
 }
 
 model SessionRecording {

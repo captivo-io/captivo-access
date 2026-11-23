@@ -10,7 +10,7 @@ import { listRecordings } from "@/lib/recording/query";
 import { remaining } from "@/lib/portal/time-remaining";
 import { securityStatus } from "@/lib/portal/security-status";
 import { launchHref } from "@/lib/portal/launch-href";
-import { nativeRdpBlock } from "@/lib/gateway/native-rdp";
+import { nativeRdpMode } from "@/lib/gateway/native-rdp";
 import { nativeSshMode } from "@/lib/gateway/native-ssh";
 import { databaseBlock, dbEngineOf } from "@/lib/database/params";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
@@ -60,6 +60,7 @@ async function AccessPageImpl() {
     if (recorded) anyRecorded = true;
     else allRecorded = false;
 
+    const rdpMode = nativeRdpMode({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, recordingRequired: required, connectorVersion: newestVersion(g.site) });
     const sshMode = nativeSshMode({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, recordingRequired: required, connectorVersion: newestVersion(g.site) });
     const startISO = g.startsAt ? g.startsAt.toISOString() : null;
     const endISO = g.endsAt ? g.endsAt.toISOString() : null;
@@ -74,8 +75,8 @@ async function AccessPageImpl() {
       glyph: g.site.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "··",
       status,
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
-      rdpHref: nativeRdpBlock({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null
-        ? `/api/portal/rdp/${g.site.id}` : null,
+      rdpHref: rdpMode === "recorded" || rdpMode === "direct" ? `/api/portal/rdp/${g.site.id}` : null,
+      rdpRecorded: rdpMode === "recorded",
       sshHref: sshMode === "recorded" || sshMode === "direct" ? `/api/portal/ssh/${g.site.id}` : null,
       sshRecorded: sshMode === "recorded",
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,
@@ -105,7 +106,7 @@ async function AccessPageImpl() {
       firstName={(user.name ?? "").split(" ")[0] || "there"}
       activeCount={activeCount}
       anyRecorded={anyRecorded}
-      allRecorded={allRecorded && !cards.some((c) => c.rdpHref || (c.sshHref && !c.sshRecorded))}
+      allRecorded={allRecorded && !cards.some((c) => (c.rdpHref && !c.rdpRecorded) || (c.sshHref && !c.sshRecorded))}
       cards={cards}
       upcoming={upcoming}
       recent={recent}

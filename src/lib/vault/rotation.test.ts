@@ -37,8 +37,9 @@ describe("rotationMethod", () => {
 });
 
 describe("nativeBlocksRotation", () => {
-  it("blocks for native RDP and unrecorded native SSH, not for recorded native SSH", () => {
-    expect(nativeBlocksRotation({ nativeRdp: true, nativeSsh: false, recorded: true })).toBe(true);
+  it("blocks for unrecorded native clients, not for recorded ones", () => {
+    expect(nativeBlocksRotation({ nativeRdp: true, nativeSsh: false, recorded: true })).toBe(false);
+    expect(nativeBlocksRotation({ nativeRdp: true, nativeSsh: false, recorded: false })).toBe(true);
     expect(nativeBlocksRotation({ nativeRdp: false, nativeSsh: true, recorded: false })).toBe(true);
     expect(nativeBlocksRotation({ nativeRdp: false, nativeSsh: true, recorded: true })).toBe(false);
     expect(nativeBlocksRotation({ nativeRdp: false, nativeSsh: false, recorded: false })).toBe(false);

@@ -21,7 +21,7 @@ export const POST = withTenantRoute(async (req: Request, { params }: { params: P
 
   const { id } = await params;
   const rec = await db.sessionRecording.findUnique({ where: { id }, select: { format: true, videoReady: true, host: true, startedAt: true } });
-  if (!rec || !(rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady))) {
+  if (!rec || !(rec.format === "VIDEO" || ((rec.format === "GUAC" || rec.format === "RDP") && rec.videoReady))) {
     return NextResponse.json({ error: "not_downloadable" }, { status: 404 });
   }
   await recordAdminAction({

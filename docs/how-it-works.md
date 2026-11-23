@@ -153,7 +153,7 @@ choose the group on a resource instead of a single connector.
 - **Recordings stay where they were made.** A recording lives on the member that
   carried the session and plays from it; while that member is offline the
   recording cannot be opened.
-- Native RDP and native SSH sessions go through members on 2.39.0 or later (recorded native SSH: 2.49.0).
+- Native RDP and native SSH sessions go through members on 2.39.0 or later (recorded native SSH: 2.49.0, recorded native RDP: 2.52.0).
 - Revoking or deleting a member moves the group's resources onto another member;
   a group that still serves resources cannot be deleted.
 - Not yet covered: the directory (AD/LDAP) connection still uses one connector.
@@ -198,11 +198,11 @@ connector, so that nobody, Captivo included, knows the password in use.
   keeps its own sealed copy of it (`/data/rotated.json`, next to its key); the
   resource page names that connector. On its host:
   `docker exec access-connector connector show-password "<resource>"`.
-- **Native clients.** A resource that rotates cannot offer the native RDP
-  client, or the native SSH client unrecorded: the user would need a password
-  nobody knows. Recorded native SSH works with rotation, as Captivo signs in
-  with the saved password. If recording is later switched off for the
-  resource, its native SSH command is refused until it is back on.
+- **Native clients.** A resource that rotates cannot offer an unrecorded native
+  RDP or SSH client: the user would need a password nobody knows. Recorded
+  native sessions work with rotation, as Captivo signs in with the saved
+  password. If recording is later switched off for the resource, its native
+  .rdp file and SSH command are refused until it is back on.
 - Every rotation, failure, reveal and settings change is in the admin audit log
   and in the connector's history.
 
@@ -387,16 +387,48 @@ flowchart LR
     CN -->|"TCP 3389"| S["RDP server"]
 ```
 
-What this trades away, and why the option is off by default:
+On a resource that is **not recorded**, what this trades away, and why the
+option is off by default:
 
 - **The RDP stream is end-to-end** (TLS and CredSSP/NLA between the app and the
-  server). Captivo sees no screen and no keys: these sessions are **never
-  recorded**, keystrokes are not logged, and an admin can't watch or take control.
-  A recorded resource may still offer native clients: its browser sessions stay
-  recorded, and the portal marks the native ones as not recorded. When the
-  Policy page requires recording, no resource offers them.
+  server). Captivo sees no screen and no keys: these sessions are not recorded,
+  keystrokes are not logged, and an admin can't watch or take control.
 - **The user signs in to the server themselves** with their own account; the
   vault credential is used only by browser sessions and never leaves for a native one.
+
+On a **recorded** resource (connector 2.52.0 or later) the session is recorded
+like one in the browser, and the user types no password:
+
+```mermaid
+flowchart LR
+    M["User's Remote Desktop app"] -->|"RD Gateway · TLS<br/>console's certificate, no NLA"| D["Data-plane<br/>records the screen and keys"]
+    D -->|"outbound tunnel<br/>RDP in the clear inside it"| CN["Connector<br/>signs in: TLS + NLA (NTLM)"]
+    CN -->|"TCP 3389"| S["RDP server"]
+```
+
+- **The data plane ends the app's TLS** inside the gateway tunnel. The .rdp file
+  names the console as the computer (its certificate is the one the data plane
+  shows, `DB_TLS_CERT`/`DB_TLS_KEY`; without them a self-signed one, which the
+  app asks about once) and asks for no credentials: the app does no NLA with
+  Captivo. FreeRDP asks for a user name anyway; anything typed is ignored.
+- **The connector signs in** with the saved account: TLS and NLA (CredSSP with
+  NTLMv2; a domain that has turned NTLM off entirely can't be reached this way),
+  or TLS alone where the server takes it. The password opens only on the
+  connector, sealed for that server, and goes into the session's logon info as
+  well, so the server logs the user on at once. It is never in the recording.
+- **Full quality.** The app negotiates the graphics pipeline (H.264 included)
+  with the server as it would directly; Captivo changes only what each side's
+  negotiation must agree on, and offers no UDP transport.
+- **The recording** is what the server sent, PDU by PDU, kept on the connector
+  like any recording. When the session ends the connector replays it into a
+  headless FreeRDP client (rdpenc) and keeps a VP9 video, which Recordings
+  plays; the PDU stream is removed once the console has the video. Typed text is
+  logged as the resource's keystroke setting says, for the US and Turkish Q
+  keyboard layouts (the app names its layout; for another one the log says it
+  isn't supported instead of guessing).
+- **The clipboard and drives** follow the resource's rules on the server's side
+  too: a channel the rules keep off is not opened at all, whatever the app asks.
+- **Live watching** of these sessions is not there yet; an admin can end them.
 - **What stays the same:** the grant, its schedule and expiry, the user's status
   and the vendor IP allowlist are checked when the tunnel opens and every minute
   after; the session is listed on the Sessions page (as `RDP · NATIVE`), an admin
@@ -410,8 +442,9 @@ What this trades away, and why the option is off by default:
   are always off, and these are applied by the app, so they hold for standard
   clients, not against a modified one.
 - **Requirements:** a connector on 2.39.0 or later (older ones don't relay the
-  stream), and, if the connector's `ALLOWED_TARGETS` is set, the RDP server's
-  `host:3389` in it. Clients that can't use an RD Gateway with an access token
+  stream; 2.52.0 for a recorded resource, with an older one it stays unrecorded,
+  or, when the Policy requires recording, unavailable), and, if the connector's
+  `ALLOWED_TARGETS` is set, the RDP server's `host:3389` in it. Clients that can't use an RD Gateway with an access token
   (MobaXterm, for example) can't connect this way; the browser session still works.
 
 ### Native SSH clients (jump host)

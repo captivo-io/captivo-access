@@ -74,7 +74,7 @@ export async function historyWindow(userId: string, until: Date, days = HISTORY_
     const s = byId.get(r.siteId);
     const times = { startedAt: r.startedAt.toISOString(), endedAt: endedAt.toISOString(), durationMs };
     if (s) return { id: r.id, ...siteFields(s, false), ...times };
-    const remote = r.format === "GUAC";
+    const remote = r.format === "GUAC" || r.format === "RDP";
     return {
       id: r.id, siteId: null, name: r.host, kind: remote ? "remote" : "web",
       proto: (r.protocol ?? (remote ? "REMOTE" : "WEB")).toUpperCase(), via: null, tile: null, href: null, ...times,

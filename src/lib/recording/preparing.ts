@@ -7,12 +7,14 @@ export const VIDEO_CONVERSION_SINCE = "2.21.0";
  * Whether an RDP/VNC recording's video is still being made on its connector:
  * it has not been reported on yet, and its connector is one that makes videos.
  * Once reported it is settled either way (a video, or kept as it is), and an
- * older connector never makes one, so neither shows "preparing".
+ * older connector never makes one, so neither shows "preparing". A recorded
+ * native RDP session (RDP) is only ever played as its video.
  */
 export function videoPreparing(
   rec: { format: string; protocol: string | null; videoReady: boolean; reportedAt: Date | null },
   connectorVersion: string | null | undefined,
 ): boolean {
+  if (rec.format === "RDP") return !rec.videoReady && !rec.reportedAt;
   if (rec.format !== "GUAC" || rec.videoReady || rec.reportedAt) return false;
   const p = (rec.protocol ?? "").toLowerCase();
   if (p !== "rdp" && p !== "vnc") return false;
