@@ -78,3 +78,42 @@ func TestRdpLiveEndsWatchingWhenTheDecoderFallsBehind(t *testing.T) {
 		t.Fatal("a new viewer joined a broken session")
 	}
 }
+
+// A viewer that falls behind is sent the whole screen again, not dropped; the
+// pointer's buffer size does not count as the start of a whole screen.
+func TestRdpLiveResyncsASlowViewer(t *testing.T) {
+	l, decoder, ctrl := testLive(t)
+	v, err := l.join()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ctrl.ReadString('\n') // join
+	_, _ = io.WriteString(decoder, "4.size,1.0,1.8,1.8;")
+	// Nobody reads v.out: one more than fits makes it fall behind.
+	for i := 0; i <= rdpViewQueue; i++ {
+		_, _ = io.WriteString(decoder, "4.sync,1.1;")
+	}
+	if c, _ := ctrl.ReadString('\n'); c != "join\n" {
+		t.Fatalf("command %q", c)
+	}
+	select {
+	case <-v.gone:
+		t.Fatal("the viewer was dropped")
+	default:
+	}
+	// Still waiting: the pointer's size and other updates are not for it.
+	_, _ = io.WriteString(decoder, "4.size,2.-1,2.12,2.19;4.sync,1.5;4.size,1.0,1.8,1.8;4.sync,1.6;")
+	deadline := time.After(2 * time.Second)
+	var got []string
+	for len(got) < 2 {
+		select {
+		case b := <-v.out:
+			got = append(got, string(b))
+		case <-deadline:
+			t.Fatalf("got %q", got)
+		}
+	}
+	if got[0] != "4.size,1.0,1.8,1.8;" || got[1] != "4.sync,1.6;" {
+		t.Fatalf("resumed with %q", got)
+	}
+}

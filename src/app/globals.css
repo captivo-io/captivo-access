@@ -1893,6 +1893,9 @@ button.rs-cell{cursor:pointer;}
 .sv-mleft{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0;}
 .sv-stage{position:relative;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000;}
 .sv-stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
+.sv-stage:fullscreen{border-radius:0;aspect-ratio:auto;width:100vw;height:100vh;}
+.sv-full{margin-left:auto;}
+.sv-full + .sv-x{margin-left:8px;}
 .sv-nostage{position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.7);font-size:14px;padding:16px;text-align:center;}
 .sv-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:4;display:flex;align-items:center;gap:10px;max-width:calc(100% - 24px);padding:9px 12px;border-radius:10px;background:#2E84F5;color:#fff;font-size:13.5px;box-shadow:0 14px 30px -14px rgba(0,0,0,.7);animation:cxUp .2s both;}
 .sv-banner b{font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:3px 6px;border-radius:5px;background:rgba(255,255,255,.22);}
