@@ -1,0 +1,35 @@
+--- a/src/protocols/ssh/ssh.c
++++ b/src/protocols/ssh/ssh.c
+@@ -304,6 +304,11 @@
+     /* Create terminal */
+     ssh_client->term = guac_terminal_create(client, options);
+ 
++    /* Captivo: keys as the terminal type the server is told says */
++    if (ssh_client->term != NULL)
++        guac_terminal_set_xterm_keys(ssh_client->term,
++                strncmp(settings->terminal_type, "xterm", 5) == 0);
++
+     /* Free options struct now that it's been used */
+     guac_mem_free(options);
+ 
+--- a/src/protocols/ssh/settings.c
++++ b/src/protocols/ssh/settings.c
+@@ -283,7 +283,8 @@
+ 
+     /**
+      * The terminal emulator type that is passed to the remote system (e.g.
+-     * "xterm" or "xterm-256color"). "linux" is used if unspecified.
++     * "xterm" or "xterm-256color"). Captivo: "xterm-256color" is used if
++     * unspecified (upstream: "linux").
+      */
+     IDX_TERMINAL_TYPE,
+ 
+@@ -543,7 +544,7 @@
+     /* Read terminal emulator type. */
+     settings->terminal_type =
+         guac_user_parse_args_string(user, GUAC_SSH_CLIENT_ARGS, argv,
+-                IDX_TERMINAL_TYPE, "linux");
++                IDX_TERMINAL_TYPE, "xterm-256color");
+ 
+     /* Read locale */
+     settings->locale =

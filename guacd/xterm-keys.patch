@@ -1,0 +1,148 @@
+--- a/src/terminal/terminal/terminal-priv.h
++++ b/src/terminal/terminal/terminal-priv.h
+@@ -402,6 +402,13 @@
+     bool application_cursor_keys;
+ 
+     /**
++     * Captivo: whether keys are sent as xterm sends them (the terminal type
++     * given to the server starts with "xterm") rather than as the Linux
++     * console does. See guac_terminal_set_xterm_keys().
++     */
++    bool xterm_keys;
++
++    /**
+      * Whether a CR should automatically follow a LF, VT, or FF.
+      */
+     bool automatic_carriage_return;
+--- a/src/terminal/terminal/terminal.h
++++ b/src/terminal/terminal/terminal.h
+@@ -461,6 +461,21 @@
+ int guac_terminal_send_key(guac_terminal* term, int keysym, int pressed);
+ 
+ /**
++ * Captivo: sends keys that are not text the way xterm does (F1-F4 as SS3 P-S,
++ * Home and End as CSI H / CSI F or SS3 H / SS3 F in application cursor mode,
++ * F11/F12 as CSI 23~ / 24~, Shift+Tab as CSI Z, and Shift, Alt and Ctrl on
++ * those keys as xterm's modifier parameter), for a server told the terminal is
++ * an xterm. Without it they go as the Linux console sends them.
++ *
++ * @param term
++ *     The terminal.
++ *
++ * @param xterm
++ *     Whether the server was told the terminal is an xterm.
++ */
++void guac_terminal_set_xterm_keys(guac_terminal* term, bool xterm);
++
++/**
+  * Handles the given mouse event, sending data, scrolling, pasting clipboard
+  * data, etc. as necessary. If terminal input is currently coming from a
+  * stream due to a prior call to guac_terminal_send_stream(), any input
+--- a/src/terminal/terminal.c
++++ b/src/terminal/terminal.c
+@@ -1479,6 +1479,66 @@
+ 
+ }
+ 
++/**
++ * Captivo: sends a key that is not text as xterm does, or returns 1 when the
++ * key is not one of those. Modifiers go as xterm's parameter (1 + Shift 1 +
++ * Alt 2 + Ctrl 4), never as a leading ESC.
++ */
++static int __guac_terminal_send_xterm_key(guac_terminal* term, int keysym) {
++
++    int mods = 1 + (term->mod_shift ? 1 : 0) + (term->mod_alt ? 2 : 0) + (term->mod_ctrl ? 4 : 0);
++    char seq[16];
++    char final = 0;
++    int tilde = 0;
++
++    switch (keysym) {
++        case 0xFF51: case 0xFF96: final = 'D'; break; /* Left */
++        case 0xFF52: case 0xFF97: final = 'A'; break; /* Up */
++        case 0xFF53: case 0xFF98: final = 'C'; break; /* Right */
++        case 0xFF54: case 0xFF99: final = 'B'; break; /* Down */
++        case 0xFF50: case 0xFF95: final = 'H'; break; /* Home */
++        case 0xFF57: case 0xFF9C: final = 'F'; break; /* End */
++        case 0xFFBE: case 0xFF91: final = 'P'; break; /* F1 */
++        case 0xFFBF: case 0xFF92: final = 'Q'; break; /* F2 */
++        case 0xFFC0: case 0xFF93: final = 'R'; break; /* F3 */
++        case 0xFFC1: case 0xFF94: final = 'S'; break; /* F4 */
++        case 0xFF63: case 0xFF9E: tilde = 2; break;   /* Insert */
++        case 0xFFFF: case 0xFF9F: tilde = 3; break;   /* Delete */
++        case 0xFF55: case 0xFF9A: tilde = 5; break;   /* Page up */
++        case 0xFF56: case 0xFF9B: tilde = 6; break;   /* Page down */
++        case 0xFFC2: tilde = 15; break;               /* F5 */
++        case 0xFFC3: tilde = 17; break;               /* F6 */
++        case 0xFFC4: tilde = 18; break;               /* F7 */
++        case 0xFFC5: tilde = 19; break;               /* F8 */
++        case 0xFFC6: tilde = 20; break;               /* F9 */
++        case 0xFFC7: tilde = 21; break;               /* F10 */
++        case 0xFFC8: tilde = 23; break;               /* F11 */
++        case 0xFFC9: tilde = 24; break;               /* F12 */
++        case 0xFF09: case 0xFF89:                     /* Shift+Tab */
++            if (!term->mod_shift)
++                return 1;
++            return guac_terminal_send_string(term, "\x1B[Z");
++        default:
++            return 1;
++    }
++
++    if (tilde) {
++        if (mods > 1)
++            snprintf(seq, sizeof(seq), "\x1B[%d;%d~", tilde, mods);
++        else
++            snprintf(seq, sizeof(seq), "\x1B[%d~", tilde);
++    }
++    else if (mods > 1)
++        snprintf(seq, sizeof(seq), "\x1B[1;%d%c", mods, final);
++    else if (final >= 'P' || term->application_cursor_keys)
++        snprintf(seq, sizeof(seq), "\x1BO%c", final);
++    else
++        snprintf(seq, sizeof(seq), "\x1B[%c", final);
++
++    return guac_terminal_send_string(term, seq);
++
++}
++
+ static int __guac_terminal_send_key(guac_terminal* term, int keysym, int pressed) {
+ 
+     /* Ignore user input if terminal is not started */
+@@ -1542,6 +1602,13 @@
+         if (term->scroll_offset != 0)
+             guac_terminal_scroll_display_down(term, term->scroll_offset);
+ 
++        /* Captivo: keys that are not text, as xterm sends them */
++        if (term->xterm_keys) {
++            int sent = __guac_terminal_send_xterm_key(term, keysym);
++            if (sent != 1)
++                return sent;
++        }
++
+         /* If alt being held, also send escape character */
+         if (term->mod_alt)
+             guac_terminal_send_string(term, "\x1B");
+@@ -1641,8 +1708,9 @@
+             if (keysym == 0xFFC5) return guac_terminal_send_string(term, "\x1B[19~"); /* F8  */
+             if (keysym == 0xFFC6) return guac_terminal_send_string(term, "\x1B[20~"); /* F9  */
+             if (keysym == 0xFFC7) return guac_terminal_send_string(term, "\x1B[21~"); /* F10 */
+-            if (keysym == 0xFFC8) return guac_terminal_send_string(term, "\x1B[22~"); /* F11 */
+-            if (keysym == 0xFFC9) return guac_terminal_send_string(term, "\x1B[23~"); /* F12 */
++            /* Captivo: F11 and F12 are 23~ and 24~ on the Linux console too (upstream sent 22~ and 23~) */
++            if (keysym == 0xFFC8) return guac_terminal_send_string(term, "\x1B[23~"); /* F11 */
++            if (keysym == 0xFFC9) return guac_terminal_send_string(term, "\x1B[24~"); /* F12 */
+ 
+             if (keysym == 0xFFFF || keysym == 0xFF9F) return guac_terminal_send_string(term, "\x1B[3~"); /* Delete */
+ 
+@@ -1657,6 +1725,12 @@
+ 
+ }
+ 
++void guac_terminal_set_xterm_keys(guac_terminal* term, bool xterm) {
++    guac_terminal_lock(term);
++    term->xterm_keys = xterm;
++    guac_terminal_unlock(term);
++}
++
+ int guac_terminal_send_key(guac_terminal* term, int keysym, int pressed) {
+ 
+     int result;

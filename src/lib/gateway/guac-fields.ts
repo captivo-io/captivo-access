@@ -16,6 +16,7 @@ export interface GuacFields {
   terminalFontSize: string;
   terminalColorScheme: string;
   terminalScrollback: string;
+  terminalType: string;
   blockDownload: string;
   sftpRoot: string;
   rdpSecurity: string;
@@ -24,7 +25,7 @@ export interface GuacFields {
 export const EMPTY_GUAC_FIELDS: GuacFields = {
   serverLayout: "", colorDepth: "", enableWallpaper: "", enableTheming: "", enableFontSmoothing: "", enableFullWindowDrag: "",
   fileTransfer: "", blockUpload: "", blockDownload: "", sftpRoot: "", rdpSecurity: "",
-  audio: "", printing: "", terminalFontSize: "", terminalColorScheme: "", terminalScrollback: "",
+  audio: "", printing: "", terminalFontSize: "", terminalColorScheme: "", terminalScrollback: "", terminalType: "",
 };
 
 export const TOGGLES: { key: keyof GuacFields; label: string }[] = [
@@ -52,6 +53,7 @@ export function paramsToGuacFields(p: GuacParams): GuacFields {
     terminalFontSize: p.terminalFontSize?.toString() ?? "",
     terminalColorScheme: p.terminalColorScheme ?? "",
     terminalScrollback: p.terminalScrollback?.toString() ?? "",
+    terminalType: p.terminalType ?? "",
     rdpSecurity: p.rdpSecurity ?? "",
   };
 }
@@ -78,6 +80,7 @@ export function guacFieldsToParams(f: GuacFields): GuacParams {
   if (f.terminalFontSize.trim()) p.terminalFontSize = Number(f.terminalFontSize);
   if (f.terminalColorScheme) p.terminalColorScheme = f.terminalColorScheme;
   if (f.terminalScrollback.trim()) p.terminalScrollback = Number(f.terminalScrollback);
+  if (f.terminalType === "xterm-256color" || f.terminalType === "linux") p.terminalType = f.terminalType;
   if (f.rdpSecurity) p.rdpSecurity = f.rdpSecurity;
   return p;
 }

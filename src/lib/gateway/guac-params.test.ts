@@ -127,4 +127,11 @@ describe("audio / printing / terminal params", () => {
     expect(ssh["disable-audio"]).toBeUndefined();
     expect(ssh["enable-printing"]).toBeUndefined();
   });
+  it("names the terminal type only when one is chosen (guacd's default is xterm-256color)", () => {
+    expect(parseGuacParams({ terminalType: "linux" })).toEqual({ terminalType: "linux" });
+    expect(parseGuacParams({ terminalType: "vt100" })).toEqual({});
+    expect(toGuacArgs({ terminalType: "linux" }, "allow", "SSH", "root")["terminal-type"]).toBe("linux");
+    expect(toGuacArgs({}, "allow", "SSH", "root")["terminal-type"]).toBeUndefined();
+    expect(toGuacArgs({ terminalType: "linux" }, "allow", "RDP")["terminal-type"]).toBeUndefined();
+  });
 });

@@ -59,3 +59,35 @@ func TestKeyObserverRDPBurstOnIdle(t *testing.T) {
 		t.Fatalf("burst: %+v", evs)
 	}
 }
+
+// Keys typed into vim (guacd's terminal on its alternate buffer) are not a
+// shell line; the line typed after it is.
+func TestKeyObserverSSHSkipsFullScreenPrograms(t *testing.T) {
+	o := newKeyObserver("ssh", time.Now())
+	typeLine := func(s string) []keyEvent {
+		var raw []byte
+		for _, c := range s {
+			raw = append(raw, keydown(int(c))...)
+		}
+		return o.observe(append(raw, keydown(ksEnter)...), time.Now())
+	}
+	if ev := typeLine("vim notes"); len(ev) != 1 || ev[0].Text != "vim notes" {
+		t.Fatalf("%+v", ev)
+	}
+	on, ok := altScreenInstruction(encodeInstruction("captivo-altscreen", "1"))
+	if !ok || !on {
+		t.Fatal("the notice is not read")
+	}
+	o.setAlt(on)
+	if ev := typeLine(":wq"); len(ev) != 0 {
+		t.Fatalf("logged inside vim: %+v", ev)
+	}
+	off, _ := altScreenInstruction(encodeInstruction("captivo-altscreen", "0"))
+	o.setAlt(off)
+	if ev := typeLine("ls"); len(ev) != 1 || ev[0].Text != "ls" {
+		t.Fatalf("%+v", ev)
+	}
+	if _, ok := altScreenInstruction(encodeInstruction("size", "0", "1", "1")); ok {
+		t.Fatal("another instruction taken for the notice")
+	}
+}
