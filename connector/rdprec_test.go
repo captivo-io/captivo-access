@@ -145,3 +145,56 @@ func TestSplitAccount(t *testing.T) {
 		}
 	}
 }
+
+// confirmActive builds a client Confirm Active PDU with the given capability sets.
+func confirmActive(secHeader bool, caps ...[]byte) []byte {
+	var sets []byte
+	for _, c := range caps {
+		sets = append(sets, c...)
+	}
+	body := binary.LittleEndian.AppendUint32(nil, 0x103EA) // shareId
+	body = binary.LittleEndian.AppendUint16(body, 0x3EA)
+	body = binary.LittleEndian.AppendUint16(body, 4)                  // source descriptor length
+	body = binary.LittleEndian.AppendUint16(body, uint16(4+len(sets))) // capabilities length
+	body = append(body, "MSTS"...)
+	body = binary.LittleEndian.AppendUint16(body, uint16(len(caps)))
+	body = append(body, 0, 0)
+	body = append(body, sets...)
+	share := binary.LittleEndian.AppendUint16(nil, uint16(6+len(body)))
+	share = binary.LittleEndian.AppendUint16(share, 0x13)
+	share = binary.LittleEndian.AppendUint16(share, 0x3EA)
+	share = append(share, body...)
+	if secHeader {
+		share = append([]byte{0, 0, 0, 0}, share...)
+	}
+	mcs := append([]byte{mcsSendDataRq, 0, 6, 0x03, 0xEB, 0x70}, perLength(len(share))...)
+	x := append([]byte{2, 0xF0, 0x80}, append(mcs, share...)...)
+	return append([]byte{3, 0, byte((4 + len(x)) >> 8), byte(4 + len(x))}, x...)
+}
+
+func capSet(typ uint16, data []byte) []byte {
+	b := binary.LittleEndian.AppendUint16(nil, typ)
+	b = binary.LittleEndian.AppendUint16(b, uint16(4+len(data)))
+	return append(b, data...)
+}
+
+func TestClearVCCompression(t *testing.T) {
+	for _, sec := range []bool{false, true} {
+		vc := capSet(capsVirtualChannel, []byte{0x03, 0, 0, 0, 0, 0x40, 0, 0}) // COMPR_SC | COMPR_CS_8K, chunk 16 KB
+		pdu := confirmActive(sec, capSet(0x0001, make([]byte, 20)), vc)
+		if !clearVCCompression(pdu) {
+			t.Fatalf("security header %v: not cleared", sec)
+		}
+		i := bytes.Index(pdu, []byte{0x14, 0, 12, 0})
+		if i < 0 || pdu[i+4] != 0x02 {
+			t.Fatalf("flags %x", pdu[i:i+8])
+		}
+		if clearVCCompression(pdu) {
+			t.Fatal("cleared twice")
+		}
+	}
+	// Anything else is left alone.
+	if clearVCCompression([]byte{3, 0, 0, 12, 2, 0xF0, 0x80, mcsSendDataRq, 0, 6, 0x03, 0xEB, 0x70, 0}) {
+		t.Fatal("a short PDU changed")
+	}
+}

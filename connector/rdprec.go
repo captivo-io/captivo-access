@@ -40,6 +40,10 @@ const (
 	infoUnicode   = 0x00000010
 	mcsSendDataRq = 0x64 // DomainMCSPDU sendDataRequest (25) << 2
 
+	pduConfirmActive   = 0x3
+	capsVirtualChannel = 0x0014
+	vcCapsComprSC      = 0x00000001
+
 	rdpMaxPDU = 1 << 16
 )
 
@@ -173,6 +177,61 @@ func clientInfo(pdu []byte) (mcsHead []byte, info []byte, ok bool) {
 	return pdu[7:13], pdu[p:], true
 }
 
+// clearVCCompression takes "server may compress virtual channel data"
+// (VCCAPS_COMPR_SC) out of the client's Confirm Active, in place. Windows'
+// and Apple's apps offer it; FreeRDP, which turns the recording into video
+// and decodes it for live watching, can't decompress channel data, so the
+// graphics pipeline (on a channel) and the bulk compression history it shares
+// would break there. The server then sends channel data as it is, which the
+// app reads just the same.
+func clearVCCompression(pdu []byte) bool {
+	// TPKT (4), X.224 data (3), MCS: type, initiator (2), channel (2), flags, length.
+	if len(pdu) < 4+3+8 || pdu[0] != 3 || pdu[7] != mcsSendDataRq {
+		return false
+	}
+	p := 7 + 6
+	if pdu[p]&0x80 != 0 {
+		p += 2
+	} else {
+		p++
+	}
+	// Share Control Header: total length, type, source; then shareId,
+	// originatorId, the source descriptor's and the capabilities' lengths.
+	// Under TLS there is no security header before it; a client that sends
+	// one anyway (4 bytes) is read past it.
+	isConfirm := func(at int) bool {
+		return at+16 <= len(pdu) && binary.LittleEndian.Uint16(pdu[at+2:])&0x0F == pduConfirmActive &&
+			int(binary.LittleEndian.Uint16(pdu[at:])) == len(pdu)-at
+	}
+	switch {
+	case isConfirm(p):
+	case isConfirm(p + 4):
+		p += 4
+	default:
+		return false
+	}
+	srcLen := int(binary.LittleEndian.Uint16(pdu[p+12:]))
+	at := p + 16 + srcLen
+	if at+4 > len(pdu) {
+		return false
+	}
+	n := int(binary.LittleEndian.Uint16(pdu[at:]))
+	at += 4 // count, padding
+	for i := 0; i < n && at+4 <= len(pdu); i++ {
+		typ, l := binary.LittleEndian.Uint16(pdu[at:]), int(binary.LittleEndian.Uint16(pdu[at+2:]))
+		if l < 4 || at+l > len(pdu) {
+			return false
+		}
+		if typ == capsVirtualChannel && l >= 8 {
+			flags := binary.LittleEndian.Uint32(pdu[at+4:])
+			binary.LittleEndian.PutUint32(pdu[at+4:], flags&^vcCapsComprSC)
+			return flags&vcCapsComprSC != 0
+		}
+		at += l
+	}
+	return false
+}
+
 func utf16z(s string) []byte {
 	b := utf16le(s)
 	return append(b, 0, 0)
@@ -296,6 +355,7 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 				rewriteConnectInitial(pdu, selected, req.BlockChannels)
 				first = false
 			} else if infoDone {
+				clearVCCompression(pdu) // every Confirm Active: a server can reactivate
 				live.pointer(pdu)
 			} else {
 				if _, _, ok := clientInfo(pdu); ok {
