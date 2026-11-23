@@ -33,6 +33,8 @@ const (
 	rdpLiveQueue      = 512 // PDUs waiting for the decoder before it counts as behind
 	rdpViewQueue      = 256 // instructions waiting for one viewer before it is dropped
 	rdpLiveBinary     = "/usr/local/bin/rdpenc"
+	// The pointer moves the viewers see: at most 20 a second.
+	rdpLivePointerEvery = 50 * time.Millisecond
 )
 
 type rdpLive struct {
@@ -45,6 +47,9 @@ type rdpLive struct {
 	viewers map[*rdpViewer]struct{}
 	broken  bool
 	once    sync.Once
+
+	ptX, ptY uint16
+	ptAt     time.Time
 }
 
 type rdpViewer struct {
@@ -143,6 +148,29 @@ func (l *rdpLive) clientChannels(connectInitial []byte) {
 			l.feed(true, append([]byte(nil), b...))
 		}
 	})
+}
+
+// pointer gives the decoder where the client moved its pointer (a client PDU's
+// fast-path input), at most every rdpLivePointerEvery and only while someone
+// watches: the decoder draws it for the viewers.
+func (l *rdpLive) pointer(pdu []byte) {
+	if l == nil {
+		return
+	}
+	x, y, ok := tunnel.RdpFastPathPointer(pdu)
+	if !ok {
+		return
+	}
+	l.mu.Lock()
+	now := time.Now()
+	skip := len(l.viewers) == 0 || (x == l.ptX && y == l.ptY) || now.Sub(l.ptAt) < rdpLivePointerEvery
+	if !skip {
+		l.ptX, l.ptY, l.ptAt = x, y, now
+	}
+	l.mu.Unlock()
+	if !skip {
+		l.feed(true, tunnel.PointerRecord(x, y))
+	}
 }
 
 func (l *rdpLive) feed(fromClient bool, pdu []byte) {

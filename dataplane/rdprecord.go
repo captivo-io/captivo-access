@@ -22,12 +22,17 @@ import (
 // a record: the time in milliseconds, a direction byte (0: from the server),
 // the CRC-32 of the data, its length, the data. What the client sent (its
 // logon info carries the saved password) is never written, except one record
-// ahead of the rest: the static channels its Connect Initial asked for. The
-// server numbers channels in that order, so the encoder asks for the same.
+// ahead of the rest: the static channels its Connect Initial asked for (the
+// server numbers channels in that order, so the encoder asks for the same),
+// and where the client moved its pointer (tunnel.PointerRecord), so the video
+// shows it.
 
 const (
 	rdpFormat  = "rdp"
 	csNetBlock = 0xC003
+	// A pointer position a twentieth of a second at most: the video has ten
+	// frames a second.
+	pointerEvery = 50 * time.Millisecond
 )
 
 // rdpRecorder writes the stream in chunks, as the terminal recorder does.
@@ -47,6 +52,9 @@ type rdpRecorder struct {
 	stopped bool
 	quit    chan struct{}
 	wg      sync.WaitGroup
+
+	ptX, ptY uint16
+	ptAt     time.Time
 }
 
 func newRdpRecorder(send func(tunnel.RecWriteRequest) (int, error), index *recIndexReporter, done func(), tenantID, key, siteID string, start time.Time) *rdpRecorder {
@@ -118,6 +126,19 @@ func (r *rdpRecorder) clientChannels(connectInitial []byte) {
 		}
 		log.Printf("rdp recording site=%s key=%s: client channels %s", r.siteID, r.key, strings.Join(names, ","))
 	})
+}
+
+// pointer records where the client moved its pointer, at most every
+// pointerEvery.
+func (r *rdpRecorder) pointer(x, y uint16) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	if r.stopped || (x == r.ptX && y == r.ptY) || now.Sub(r.ptAt) < pointerEvery {
+		return
+	}
+	r.ptX, r.ptY, r.ptAt = x, y, now
+	r.buf.Write(dumpRecord(uint64(now.Sub(r.start).Milliseconds())+1, true, tunnel.PointerRecord(x, y)))
 }
 
 func (r *rdpRecorder) flush() {

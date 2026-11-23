@@ -295,7 +295,9 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 				live.clientChannels(pdu)
 				rewriteConnectInitial(pdu, selected, req.BlockChannels)
 				first = false
-			} else if !infoDone {
+			} else if infoDone {
+				live.pointer(pdu)
+			} else {
 				if _, _, ok := clientInfo(pdu); ok {
 					infoDone = true // the first one only; an old client's non-Unicode info passes as it is
 					if b := rewriteClientInfo(pdu, user, domain, password); b != nil {
