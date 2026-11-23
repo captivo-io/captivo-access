@@ -20,7 +20,7 @@ const STATE: Record<string, [string, string]> = {
 const ERRORS: Record<string, string> = {
   rotation_with_native: "Turn off the native RDP/SSH client first: a native client needs a password the user knows. On a recorded resource it works with rotation, as Captivo signs in for the user.",
   reason_required: "Say why you need it (at least 10 characters). The reason goes into the audit log.",
-  invalid_reconcile_user: "Use a Linux user name (letters, digits, . _ -).",
+  invalid_reconcile_user: "Use a user name without spaces or quotes (on Linux: letters, digits, . _ -).",
   vault_key_changed: "None of this resource's connectors has a key yet. Reload the page and try again.",
   invalid_interval: "Pick an interval between 1 and 365 days.",
 };
@@ -37,7 +37,8 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
   const [everyDays, setEveryDays] = useState<number | null>(initial.everyDays);
   const [verifyDaily, setVerifyDaily] = useState(initial.verifyDaily);
   const [recOpen, setRecOpen] = useState(false);
-  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? "root");
+  const dbAccount = initial.method === "postgres" || initial.method === "mysql";
+  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : "root"));
   const [recKind, setRecKind] = useState<"PASSWORD" | "KEY">(initial.reconcile?.kind ?? "PASSWORD");
   const [recSecret, setRecSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -136,7 +137,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
       <div className="rot-head">
         <div>
           <h2 id="rot-h">Password rotation</h2>
-          <p className="cell-sub">The connector sets a new random password on the target and keeps it sealed; nobody, Captivo included, sees it. Users keep signing in through the gateway.</p>
+          <p className="cell-sub">The connector sets a new random password on the target and keeps it sealed; nobody, Captivo included, sees it. Users keep signing in through Captivo.</p>
         </div>
         <span className={`rot-pill ${s.on ? (st?.[0] ?? "ok") : "off"}`}><i aria-hidden="true" />{s.on ? st?.[1] ?? "On" : "Off"}</span>
       </div>
@@ -144,7 +145,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
       {s.unsupported ? <p className="rf-msg warn">{s.unsupported}</p> : (
         <>
           <dl className="rot-facts">
-            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : " · SSH"}</dd></div>
+            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : " · SSH"}</dd></div>
             <div><dt>Last rotated</dt><dd>{s.rotatedAt ? <LocalTime iso={s.rotatedAt} /> : "Never"}</dd></div>
             <div><dt>Next</dt><dd>{s.dueAt ? <LocalTime iso={s.dueAt} /> : s.afterSession ? "After the next session" : "—"}</dd></div>
             {s.verifyDaily && <div><dt>Last checked</dt><dd>{s.verifiedAt ? <LocalTime iso={s.verifiedAt} /> : "Not yet"}</dd></div>}
@@ -168,10 +169,13 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
             </div>
           </div>
           <div className="rf-row">
-            <span className="rf-row-t"><b>Check it daily</b><span className="cell-sub">Signs in once a day with the saved password. If it no longer works, someone changed it outside Captivo: you are told{s.method === "linux" ? (s.reconcile ? " and the reconcile account resets it" : "") : s.directoryReset ? " and the reset account resets it" : ""}.</span></span>
+            <span className="rf-row-t"><b>Check it daily</b><span className="cell-sub">Signs in once a day with the saved password. If it no longer works, someone changed it outside Captivo: you are told{s.method !== "ad" ? (s.reconcile ? " and the reconcile account resets it" : "") : s.directoryReset ? " and the reset account resets it" : ""}.</span></span>
             <div className="rf-row-c"><button type="button" role="switch" aria-checked={verifyDaily} aria-label="Check it daily" className={verifyDaily ? "toggle on" : "toggle"} onClick={() => setVerifyDaily(!verifyDaily)}><span /></button></div>
           </div>
-          {on && !s.on && <p className="rf-msg warn">Anything else that signs in with this account&apos;s password (a service, a scheduled task, a script) stops working after the first rotation.</p>}
+          {on && !s.on && <p className="rf-msg warn">{dbAccount
+            ? "Use an account only Captivo signs in with: an application or a script that uses this account's password stops connecting after the first rotation."
+            : "Anything else that signs in with this account's password (a service, a scheduled task, a script) stops working after the first rotation."}</p>}
+          {s.cleartext && <p className="rf-msg warn">This resource&apos;s TLS to the server is off, so a new password crosses your network in the clear when MySQL is told it. Turn TLS on for the resource before rotating.</p>}
           {blocked && <p className="rf-msg bad">{blocked}</p>}
 
           <div className="rot-rec">
@@ -186,7 +190,9 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
               <>
                 <p className="cell-sub">{s.reconcile
                   ? <>Signs in as <b className="mono">{s.reconcile.username}</b> ({s.reconcile.kind === "KEY" ? "SSH key" : "password"}) to reset the password when the account cannot change its own or when it no longer matches.{s.reconcile.missingFor.length ? ` ${s.reconcile.missingFor.join(", ")} has no copy yet; it is copied within a few minutes.` : ""}</>
-                  : "Optional: root, or a sudo account, on this server. Used only when the account cannot change its own password or when it no longer matches; never for a session."}</p>
+                  : dbAccount
+                    ? `Optional: a database account on this server that may change other accounts' passwords (${s.method === "postgres" ? "CREATEROLE, or a superuser" : "CREATE USER, such as root"}). Used only when the account cannot change its own password or when it no longer matches; never for a session.`
+                    : "Optional: root, or a sudo account, on this server. Used only when the account cannot change its own password or when it no longer matches; never for a session."}</p>
                 {!recOpen ? (
                   <div className="rot-actions">
                     <button type="button" className="btn sm" onClick={() => setRecOpen(true)}>{s.reconcile ? "Change" : "Add reconcile account"}</button>
@@ -196,15 +202,17 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
                   <div className="rot-rec-form">
                     <label className="rq-sec"><span className="rq-label"><span>User</span></span>
                       <input className="input mono" value={recUser} onChange={(e) => setRecUser(e.target.value)} autoComplete="off" /></label>
-                    <div className="rq-sec"><span className="rq-label"><span>Signs in with</span></span>
-                      <div className="seg" role="radiogroup" aria-label="Signs in with">
-                        {(["PASSWORD", "KEY"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={recKind === k} className={recKind === k ? "seg-opt on" : "seg-opt"} onClick={() => setRecKind(k)}>{k === "KEY" ? "SSH key" : "Password"}</button>)}
-                      </div></div>
+                    {!dbAccount && (
+                      <div className="rq-sec"><span className="rq-label"><span>Signs in with</span></span>
+                        <div className="seg" role="radiogroup" aria-label="Signs in with">
+                          {(["PASSWORD", "KEY"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={recKind === k} className={recKind === k ? "seg-opt on" : "seg-opt"} onClick={() => setRecKind(k)}>{k === "KEY" ? "SSH key" : "Password"}</button>)}
+                        </div></div>
+                    )}
                     <label className="rq-sec rot-wide"><span className="rq-label"><span>{recKind === "KEY" ? "Private key" : "Password"}</span></span>
                       {recKind === "KEY"
                         ? <textarea className="textarea mono" rows={4} value={recSecret} onChange={(e) => setRecSecret(e.target.value)} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" spellCheck={false} />
                         : <input className="input mono" type="password" value={recSecret} onChange={(e) => setRecSecret(e.target.value)} autoComplete="new-password" />}</label>
-                    <p className="rf-hint rot-wide">Sealed in this browser to {s.keys.map((k) => k.name).join(", ")}. A user other than root needs sudo for chpasswd{recKind === "KEY" ? " without a password" : ""}.</p>
+                    <p className="rf-hint rot-wide">Sealed in this browser to {s.keys.map((k) => k.name).join(", ")}.{dbAccount ? (s.method === "mysql" ? " It reads mysql.user to find the account's host; with several accounts of this name it stops and says so." : "") : ` A user other than root needs sudo for chpasswd${recKind === "KEY" ? " without a password" : ""}.`}</p>
                     <div className="rot-actions rot-wide">
                       <button type="button" className="btn sm" onClick={() => { setRecOpen(false); setRecSecret(""); }}>Cancel</button>
                       <button type="button" className="btn sm ink" disabled={!recUser.trim() || !recSecret || !!busy} onClick={() => void saveReconcile()}>{busy === "reconcile" ? "Saving…" : "Save account"}</button>

@@ -160,8 +160,8 @@ choose the group on a resource instead of a single connector.
 
 ## Password rotation
 
-A remote-desktop or SSH resource can have its saved password changed by the
-connector, so that nobody, Captivo included, knows the password in use.
+A remote-desktop, SSH or database resource can have its saved password changed
+by the connector, so that nobody, Captivo included, knows the password in use.
 
 - **Who changes it.** A connector that serves the resource (on 2.45.0 or later)
   generates a random 24-character password, changes it on the target and seals
@@ -169,9 +169,17 @@ connector, so that nobody, Captivo included, knows the password in use.
   stores only sealed values.
 - **How.** A Linux account changes its own password with `passwd` over SSH. A
   domain account used for RDP changes its own in Active Directory over LDAPS or
-  StartTLS, through the directory configured under Settings › Directory. VNC
-  passwords and SSH keys are not rotated, and neither are local Windows
-  accounts yet.
+  StartTLS, through the directory configured under Settings › Directory. A
+  database account (connector 2.54.0) changes its own: in PostgreSQL with
+  `ALTER ROLE CURRENT_USER`, sent as a SCRAM-SHA-256 verifier the connector
+  makes, so the password is never in a statement a server could log; in MySQL
+  with `ALTER USER CURRENT_USER()` (with `REPLACE` when the server asks for the
+  current password), in MariaDB with `SET PASSWORD`, inside the resource's TLS
+  (with TLS off the new password crosses the network in the clear, and the
+  panel says so). The account should be one only Captivo uses: an application
+  that shares it stops connecting at the first rotation. Open database
+  connections are not cut. VNC passwords and SSH keys are not rotated, and
+  neither are local Windows accounts or SQL Server yet.
 - **When.** Off by default. Per resource: a minute after the last session on it
   ends (a session still open holds it), on a schedule (7, 30 or 90 days), and
   with "Rotate now". "Check it daily" signs in once a day with the saved
@@ -185,8 +193,11 @@ connector, so that nobody, Captivo included, knows the password in use.
 - **Reconcile account.** When the account cannot change its own password (Active
   Directory allows one change a day by default; history and policy rules) or
   its saved password no longer matches, a privileged account resets it: root or
-  a sudo account on the Linux host (password or SSH key), or a directory account
-  with the *Reset password* right (Settings › Directory). It is sealed for
+  a sudo account on the Linux host (password or SSH key), a directory account
+  with the *Reset password* right (Settings › Directory), or a database account
+  on the same server (PostgreSQL: CREATEROLE or a superuser; MySQL: CREATE USER,
+  which finds the account's host in `mysql.user` and stops if several accounts
+  share the name). It is sealed for
   `reconcile,<host>,<port>,<user>`, so the gateway can never sign a session in
   with it, and a connector uses it only against that host. Members of a group
   that come later get a copy the same way as resource passwords.

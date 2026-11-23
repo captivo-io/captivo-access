@@ -1,3 +1,4 @@
+import { parseDbParams } from "@/lib/database/params";
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -28,6 +29,8 @@ import { consoleBaseUrl } from "@/lib/tenant/console-url";
 
 /** The first connector release that rotates passwords. */
 export const ROTATION_MIN_CONNECTOR = "2.45.0";
+/** Database accounts (PostgreSQL, MySQL) rotate from this release on. */
+export const DB_ROTATION_MIN_CONNECTOR = "2.54.0";
 
 /** After the last session ends, before the password changes (a quick reconnect keeps it). */
 export const AFTER_SESSION_DELAY_MS = 60_000;
@@ -40,7 +43,14 @@ export function retryDelayMs(failures: number): number {
   return failures <= 0 ? 0 : steps[failures - 1] ?? 6 * 60 * 60_000;
 }
 
-export type RotationMethod = "linux" | "ad";
+export type RotationMethod = "linux" | "ad" | "postgres" | "mysql";
+
+export const isDbMethod = (m: RotationMethod | null | undefined) => m === "postgres" || m === "mysql";
+
+/** The connector release a method needs. */
+export function rotationMinConnector(m?: RotationMethod | null): string {
+  return isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
+}
 
 export type DirectoryForRotation = {
   enabled: boolean; host: string; port: number; security: string; caCertPem: string; insecureSkipVerify: boolean; baseDN: string;
@@ -56,12 +66,13 @@ export function rotationMethod(c: { protocol: string; secretKind: string }, dir:
     if (dir.security !== "LDAPS" && dir.security !== "STARTTLS") return { unsupported: "Active Directory changes passwords only over an encrypted connection. Set the directory to LDAPS or StartTLS." };
     return { method: "ad" };
   }
-  if (c.protocol === "POSTGRES" || c.protocol === "MYSQL") return { unsupported: "Database passwords are not rotated yet." };
+  if (c.protocol === "POSTGRES") return { method: "postgres" };
+  if (c.protocol === "MYSQL") return { method: "mysql" };
   return { unsupported: "VNC passwords are not rotated." };
 }
 
-export function canRotate(c: { status: string; version: string | null }): boolean {
-  return c.status === "ONLINE" && !!c.version && compareSemver(c.version, ROTATION_MIN_CONNECTOR) !== -1;
+export function canRotate(c: { status: string; version: string | null }, method?: RotationMethod | null): boolean {
+  return c.status === "ONLINE" && !!c.version && compareSemver(c.version, rotationMinConnector(method)) !== -1;
 }
 
 export function rotationOn(c: { rotateAfterSession: boolean; rotateEveryDays: number | null }): boolean {
@@ -112,6 +123,8 @@ export type RotationJob = {
   recipients: string[];
   reconcile: { host: string; port: number; username: string; sealed: string; secretKey: boolean } | null;
   directory: { host: string; port: number; security: string; caCertPem: string; insecureSkipVerify: boolean; baseDN: string; domain: string } | null;
+  /** A database account: how the connector connects, as the resource's sessions do. */
+  db: { database: string; tls: string; caCertPem: string } | null;
   sshHostKey: string | null;
   failures: number;
   rotatedAt: Date | null;
@@ -122,7 +135,7 @@ export type RotationJob = {
 export type RotationSkip = { siteId: string; siteName: string; reason: string };
 
 const credSelect = {
-  id: true, secret: true, sealedTo: true, extraSeals: true, protocol: true, secretKind: true, targetHost: true, targetPort: true, username: true, guacParams: true,
+  id: true, secret: true, sealedTo: true, extraSeals: true, protocol: true, secretKind: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true,
   rotateAfterSession: true, rotateEveryDays: true, rotateVerifyDaily: true, rotateDueAt: true, rotatedAt: true, verifiedAt: true,
   rotationFailures: true, pendingSeals: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true,
   site: {
@@ -165,26 +178,27 @@ export function planJob(r: CredRow, dir: DirectoryForRotation | null, now: Date,
   const recipients = [...new Set(live.map((c) => c.vaultPublicKey!))];
 
   const target = { host: r.targetHost, port: r.targetPort, username: r.username };
-  // The reconcile account: this host's (Linux), or the directory's (AD).
+  // The reconcile account: this server's (Linux, a database), or the directory's (AD).
   let reconcileHost: { host: string; port: number; username: string; seals: Record<string, string>; secretKey: boolean } | null = null;
-  if (m.method === "linux" && r.reconcileUsername && r.reconcileSeals) {
+  if ((m.method === "linux" || isDbMethod(m.method)) && r.reconcileUsername && r.reconcileSeals) {
     reconcileHost = { host: r.targetHost, port: r.targetPort, username: r.reconcileUsername, seals: sealMap(r.reconcileSeals), secretKey: r.reconcileKind === "KEY" };
   } else if (m.method === "ad" && dir?.resetUsername && dir.resetSeals) {
     reconcileHost = { host: dir.host, port: dir.port, username: dir.resetUsername, seals: sealMap(dir.resetSeals), secretKey: false };
   }
 
   const able = live
-    .filter((c) => canRotate(c) && seals[c.vaultPublicKey!] && (!pending || pending[c.vaultPublicKey!]))
+    .filter((c) => canRotate(c, m.method) && seals[c.vaultPublicKey!] && (!pending || pending[c.vaultPublicKey!]))
     .sort((a, b) => Number(!!reconcileHost?.seals[b.vaultPublicKey!]) - Number(!!reconcileHost?.seals[a.vaultPublicKey!]) || a.id.localeCompare(b.id));
   const pick = able[0];
   if (!pick) {
     const why = live.some((c) => seals[c.vaultPublicKey!] && c.status === "ONLINE")
-      ? `Waiting for a connector on ${ROTATION_MIN_CONNECTOR} or later that has the saved password.`
+      ? `Waiting for a connector on ${rotationMinConnector(m.method)} or later that has the saved password.`
       : "Waiting for a connector that has the saved password to come online.";
     return { siteId: r.site.id, siteName: r.site.name, reason: why };
   }
   const key = pick.vaultPublicKey!;
   const guac = (r.guacParams ?? {}) as Record<string, unknown>;
+  const dbp = isDbMethod(m.method) ? parseDbParams(r.dbParams, m.method === "mysql" ? "MYSQL" : "POSTGRES") : null;
   return {
     credentialId: r.id,
     siteId: r.site.id,
@@ -200,6 +214,7 @@ export function planJob(r: CredRow, dir: DirectoryForRotation | null, now: Date,
     connectorKey: key,
     recipients,
     reconcile: reconcileHost?.seals[key] ? { host: reconcileHost.host, port: reconcileHost.port, username: reconcileHost.username, sealed: reconcileHost.seals[key], secretKey: reconcileHost.secretKey } : null,
+    db: dbp ? { database: dbp.database, tls: dbp.tls, caCertPem: dbp.caCertPem ?? "" } : null,
     directory: m.method === "ad" && dir ? { host: dir.host, port: dir.port, security: dir.security, caCertPem: dir.caCertPem, insecureSkipVerify: dir.insecureSkipVerify, baseDN: dir.baseDN, domain: typeof guac.domain === "string" ? guac.domain : "" } : null,
     sshHostKey: r.sshHostKey,
     failures: r.rotationFailures,
@@ -271,6 +286,7 @@ function baseRequest(j: RotationJob, op: string): Record<string, unknown> {
     current: j.seals[j.connectorKey], label: j.siteName,
     ...(j.sshHostKey ? { sshHostKey: j.sshHostKey } : {}),
     ...(j.reconcile ? { reconcile: { host: j.reconcile.host, port: String(j.reconcile.port), username: j.reconcile.username, sealed: j.reconcile.sealed, secretKey: j.reconcile.secretKey } } : {}),
+    ...(j.db ? { db: { database: j.db.database, tls: j.db.tls, caCertPem: j.db.caCertPem } } : {}),
     ...(j.directory ? { directory: { host: j.directory.host, port: String(j.directory.port), security: j.directory.security, caCertPem: j.directory.caCertPem, insecureSkipVerify: j.directory.insecureSkipVerify, baseDn: j.directory.baseDN, domain: j.directory.domain } } : {}),
   };
 }

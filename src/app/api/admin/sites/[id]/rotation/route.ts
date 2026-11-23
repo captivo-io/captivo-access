@@ -19,6 +19,8 @@ export const dynamic = "force-dynamic";
 /** After a reveal the password rotates again this much later (time to use it). */
 const REVEAL_ROTATES_AFTER_MS = 2 * 60 * 60_000;
 const LINUX_USER = /^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}\$?$/;
+/** A database account's name: it only signs in, it is never put in a statement. */
+const DB_USER = /^[^\s'"\\]{1,63}$/;
 
 type Admin = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
@@ -57,11 +59,12 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   let reconcile: Record<string, unknown> = {};
   if (b.reconcile === null) reconcile = { reconcileUsername: null, reconcileKind: null, reconcileSeals: Prisma.DbNull };
   else if (b.reconcile && typeof b.reconcile === "object") {
-    if (s.method !== "linux") return NextResponse.json({ error: "reconcile_linux_only" }, { status: 400 });
+    const db = s.method === "postgres" || s.method === "mysql";
+    if (s.method !== "linux" && !db) return NextResponse.json({ error: "reconcile_linux_only" }, { status: 400 });
     const r = b.reconcile as Record<string, unknown>;
     const username = typeof r.username === "string" ? r.username.trim() : "";
-    const kind = r.kind === "KEY" ? "KEY" : "PASSWORD";
-    if (!LINUX_USER.test(username)) return NextResponse.json({ error: "invalid_reconcile_user" }, { status: 400 });
+    const kind = r.kind === "KEY" && !db ? "KEY" : "PASSWORD";
+    if (!(db ? DB_USER : LINUX_USER).test(username)) return NextResponse.json({ error: "invalid_reconcile_user" }, { status: 400 });
     const keys = new Set(s.keys.map((k) => k.key));
     const seals: Record<string, string> = {};
     for (const [k, v] of Object.entries((r.seals ?? {}) as Record<string, unknown>)) {
@@ -123,7 +126,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     });
     const seals = c ? sealsOf(c) : {};
     const holders = await db.connector.findMany({ where: { id: { in: s.keys.map((k) => k.connectorId) } }, select: { id: true, name: true, status: true, version: true, vaultPublicKey: true }, orderBy: { id: "asc" } });
-    const pick = holders.find((h) => canRotate(h) && h.vaultPublicKey && seals[h.vaultPublicKey]);
+    const pick = holders.find((h) => canRotate(h, s.method) && h.vaultPublicKey && seals[h.vaultPublicKey]);
     if (!c || !pick) return NextResponse.json({ error: "rotation_waiting", detail: s.waiting ?? "No connector can open it now." }, { status: 409 });
     const ans = await callConnector(pick.id, {
       op: "reveal", method: s.method ?? "linux", host: s.target.host, port: String(s.target.port), username: s.target.username,

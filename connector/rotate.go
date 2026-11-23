@@ -316,6 +316,22 @@ func newAccountTarget(k *ecdh.PrivateKey, allow *TargetMatcher, req tunnel.Rotat
 		}
 		t := &linuxTarget{addr: addr, username: req.Username, pinned: req.SSHHostKey, reconcile: rec}
 		return t, func() string { return t.seen }, nil
+	case "postgres", "mysql":
+		addr := net.JoinHostPort(req.Host, req.Port)
+		if !egressAllowed(allow, addr) {
+			denied()
+			logDenied("rotate", addr)
+			return nil, nil, errors.New("target not allowed")
+		}
+		if rec != nil && rec.isKey {
+			return nil, nil, errors.New("a database reconcile account signs in with a password")
+		}
+		var db tunnel.RotateDB
+		if req.DB != nil {
+			db = *req.DB
+		}
+		t := &dbAccountTarget{engine: req.Method, host: req.Host, port: req.Port, username: req.Username, db: db, reconcile: rec}
+		return t, func() string { return "" }, nil
 	case "ad":
 		if req.Directory == nil {
 			return nil, nil, errors.New("no directory")
