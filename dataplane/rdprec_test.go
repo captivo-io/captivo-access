@@ -80,7 +80,7 @@ func TestRdpFrontEndToEnd(t *testing.T) {
 			seenMu.Lock()
 			seen = append(seen, p)
 			seenMu.Unlock()
-		})
+		}, nil)
 	}()
 	// The connector: the start frame, then a client PDU in, a server PDU out.
 	serverPDU := append([]byte{3, 0, 0, 12}, []byte("SERVER01")...)
@@ -154,7 +154,7 @@ func TestRdpFrontRefusesAClientWithoutTLS(t *testing.T) {
 	cr := &certReloader{certFile: certFile, keyFile: keyFile}
 	client, front := net.Pipe()
 	up, _ := net.Pipe()
-	go func() { _ = rdpFront(front, up, 0, cr.get, nil, nil) }()
+	go func() { _ = rdpFront(front, up, 0, cr.get, nil, nil, nil) }()
 	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 	_, _ = client.Write(x224Request(0, false))
 	cc, err := readX224(client)

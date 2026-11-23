@@ -65,7 +65,8 @@ export function LiveViewer({ sessionId, canControl }: { sessionId: string; canCo
     keyboard.onkeydown = (k: number) => client.sendKeyEvent(1, k);
     keyboard.onkeyup = (k: number) => client.sendKeyEvent(0, k);
     const mouse = new G.Mouse(el);
-    const send = (s: any) => client.sendMouseState(s);
+    // In display units: the view is scaled to the window.
+    const send = (s: any) => client.sendMouseState(s, true);
     mouse.onmousedown = send;
     mouse.onmouseup = send;
     mouse.onmousemove = send;
@@ -83,6 +84,14 @@ export function LiveViewer({ sessionId, canControl }: { sessionId: string; canCo
       mouse.onmousemove = null;
     }
     inputRef.current = {};
+  }
+
+  // Ctrl+Alt+Del can't be typed from a browser (the local system takes it).
+  function sendCtrlAltDel() {
+    const client = clientRef.current;
+    if (!client) return;
+    for (const k of [0xffe3, 0xffe9, 0xffff]) client.sendKeyEvent(1, k);
+    for (const k of [0xffff, 0xffe9, 0xffe3]) client.sendKeyEvent(0, k);
   }
 
   async function toggleControl() {
@@ -113,9 +122,12 @@ export function LiveViewer({ sessionId, canControl }: { sessionId: string; canCo
       <div ref={ref} style={{ position: "absolute", inset: 0 }} />
       <div className="live-badge">● LIVE{controlling ? " · CONTROLLING" : ""}</div>
       {canControl && (
-        <button type="button" className="btn sm live-control" disabled={busy} onClick={toggleControl}>
-          {controlling ? "Release control" : "Take control"}
-        </button>
+        <span className="live-control">
+          {controlling && <button type="button" className="btn sm" onClick={sendCtrlAltDel}>Ctrl+Alt+Del</button>}
+          <button type="button" className="btn sm" disabled={busy} onClick={toggleControl}>
+            {controlling ? "Release control" : "Take control"}
+          </button>
+        </span>
       )}
       {error && <div className="live-error">{error}</div>}
     </div>

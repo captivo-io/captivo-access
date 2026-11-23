@@ -37,6 +37,8 @@ export interface ActiveSession {
   connectorId?: string;
   /** A native session that can still be watched: recorded native SSH (2.50+). */
   watchable?: boolean;
+  /** A native session an admin can take over: recorded native SSH and RDP (2.57+). */
+  controllable?: boolean;
 }
 
 export interface LiveFeedEvent { at: string; type: string; text: string }

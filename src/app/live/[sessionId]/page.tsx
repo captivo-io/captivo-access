@@ -40,9 +40,11 @@ async function LiveSessionPageImpl({ params }: { params: Promise<{ sessionId: st
   const match = await findOwnSession(sessionId);
   const canControl = can(user.role, "configure");
   // Recorded native sessions: a terminal for SSH; RDP plays as a remote desktop
-  // does (its connector decodes the picture), watching only.
-  if (match?.native && match.watchable && match.protocol === "ssh") return <TermLiveViewer sessionId={sessionId} />;
-  if (match?.native && match.watchable) return <LiveViewer sessionId={sessionId} canControl={false} />;
+  // does (its connector decodes the picture). Both can be taken over where the
+  // data plane offers it.
+  const nativeControl = canControl && !!match?.controllable;
+  if (match?.native && match.watchable && match.protocol === "ssh") return <TermLiveViewer sessionId={sessionId} canControl={nativeControl} />;
+  if (match?.native && match.watchable) return <LiveViewer sessionId={sessionId} canControl={nativeControl} />;
   return match?.kind === "isolated"
     ? <KasmLiveViewer sessionId={sessionId} canControl={canControl} label={match.host} />
     : <LiveViewer sessionId={sessionId} canControl={canControl} />;

@@ -117,7 +117,7 @@ func rdpNeg(typ, flags uint8, value uint32) []byte {
 // rdpFront serves the client's side on c (the inside of the gateway tunnel):
 // it takes TLS with the console's certificate, tells the connector on up what
 // the client asked for, and relays until either side ends.
-func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHelloInfo) (*tls.Certificate, error), rec *rdpRecorder, client func(pdu []byte)) error {
+func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHelloInfo) (*tls.Certificate, error), rec *rdpRecorder, client func(pdu []byte), ctl *rdpControl) error {
 	defer up.Close()
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(rdpFrontHandshake))
@@ -150,13 +150,20 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 	done := make(chan struct{}, 2)
 	go func() {
 		// The client's PDUs go on as they are; client (the keystroke log)
-		// sees each first.
+		// sees each first. While an admin holds control, ctl drops the
+		// client's input and writes the admin's between its PDUs.
 		r := bufio.NewReaderSize(tc, 64<<10)
 		w := bufio.NewWriterSize(up, 64<<10)
 		for {
 			pdu, err := readPDU(r)
 			if err != nil {
 				break
+			}
+			if ctl != nil {
+				if ctl.relayClient(w, pdu, r.Buffered() == 0, client) != nil {
+					break
+				}
+				continue
 			}
 			if client != nil {
 				client(pdu)
@@ -260,9 +267,19 @@ func (t *rdpgwTunnel) openRecorded() (net.Conn, error) {
 			}
 		}
 	}
+	if resp.Live {
+		t.ctl = newRdpControl(t.d.now(), rec.pointer, func(evs []keyEvent) {
+			if keys != nil {
+				keys.post(evs)
+			}
+			if ls := t.live(); ls != nil {
+				ls.keyEvents(evs)
+			}
+		})
+	}
 	gw, front := net.Pipe()
 	go func() {
-		if err := rdpFront(front, up, resp.NegFlags, t.d.cert, rec, client); err != nil {
+		if err := rdpFront(front, up, resp.NegFlags, t.d.cert, rec, client, t.ctl); err != nil {
 			log.Printf("rdpgw: site=%s recorded session: %v", tk.SiteID, err)
 		}
 		rec.stop()

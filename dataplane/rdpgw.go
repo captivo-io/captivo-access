@@ -282,6 +282,7 @@ type rdpgwTunnel struct {
 	lsMu    sync.Mutex
 	ls      *liveSession // the console's entry, for a recorded session's typed text
 	watchID string       // a recorded session's live picture on the connector
+	ctl     *rdpControl  // a recorded session an admin can take over (rdpcontrol.go)
 }
 
 func (t *rdpgwTunnel) live() *liveSession {
@@ -473,6 +474,9 @@ func (t *rdpgwTunnel) open() func() {
 			ls.SetCapture(true, t.target.Keystrokes)
 			if t.watchID != "" {
 				ls.setRdpWatch(t.watchID)
+				if t.ctl != nil { // an admin who watches can take it over
+					ls.setTakeover(t.ctl.fromAdmin, t.ctl.setHeld)
+				}
 			}
 		}
 		t.lsMu.Lock()
