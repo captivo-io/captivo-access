@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
-import { mysqlCommand, psqlCommand } from "@/lib/database/params";
+import { mysqlCommand, psqlCommand, sqlcmdCommand } from "@/lib/database/params";
 
-type Ticket = { ticket: string; expiresAt: string; host: string; port: number; database: string; databases: string[]; recorded: boolean; engine?: "postgres" | "mysql" };
+type Ticket = { ticket: string; expiresAt: string; host: string; port: number; database: string; databases: string[]; recorded: boolean; engine?: "postgres" | "mysql" | "mssql" };
 type Tab = "cli" | "fields" | "url";
 
 const ERRORS: Record<string, string> = {
@@ -23,7 +23,7 @@ export function DbConnectButton({ href, siteName }: { href: string; siteName: st
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="btn ink sm" onClick={() => setOpen(true)} title="Connect with your own database client (psql, mysql, DBeaver, DataGrip).">Connect</button>
+      <button type="button" className="btn ink sm" onClick={() => setOpen(true)} title="Connect with your own database client (psql, mysql, SSMS, DBeaver, DataGrip).">Connect</button>
       {open && <DbConnectModal href={href} siteName={siteName} onClose={() => setOpen(false)} />}
     </>
   );
@@ -53,6 +53,7 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
       } else {
         setT(j as Ticket);
         setNow(Date.now());
+        if (j.engine === "mssql") setTab((cur) => (cur === "cli" ? "fields" : cur)); // SSMS users fill in fields first
       }
     } finally {
       setBusy(false);
@@ -68,15 +69,16 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
   const expired = !!t && Date.parse(t.expiresAt) <= now;
   const until = t ? new Date(t.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const my = t?.engine === "mysql";
+  const ms = t?.engine === "mssql";
   const db = t ? encodeURIComponent(t.database) : "";
-  const cmd = !t ? "" : my ? mysqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database }) : psqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database });
-  const uri = !t ? "" : my ? `mysql://${t.ticket}@${t.host}:${t.port}/${db}?ssl-mode=REQUIRED` : `postgresql://${t.ticket}@${t.host}:${t.port}/${db}?sslmode=require`;
-  const jdbc = !t ? "" : my ? `jdbc:mysql://${t.host}:${t.port}/${db}?sslMode=REQUIRED&user=${t.ticket}` : `jdbc:postgresql://${t.host}:${t.port}/${db}?sslmode=require&user=${t.ticket}`;
-  const tabs: [Tab, string][] = my ? [["cli", "mysql"], ["fields", "DBeaver, DataGrip, Workbench"], ["url", "URL"]] : [["cli", "psql"], ["fields", "DBeaver, DataGrip, pgAdmin"], ["url", "URL"]];
-  const fields: [string, string][] = !t ? [] : [["Host", t.host], ["Port", String(t.port)], ...(t.database ? [["Database", t.database] as [string, string]] : []), ["User name", t.ticket], ["Password", ""], ["SSL", my ? "required" : "require"]];
+  const cmd = !t ? "" : ms ? sqlcmdCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database }) : my ? mysqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database }) : psqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database });
+  const uri = !t ? "" : ms ? `Server=tcp:${t.host},${t.port};${t.database ? `Database=${t.database};` : ""}User ID=${t.ticket};Password=x;Encrypt=True` : my ? `mysql://${t.ticket}@${t.host}:${t.port}/${db}?ssl-mode=REQUIRED` : `postgresql://${t.ticket}@${t.host}:${t.port}/${db}?sslmode=require`;
+  const jdbc = !t ? "" : ms ? `jdbc:sqlserver://${t.host}:${t.port};${t.database ? `databaseName=${t.database};` : ""}user=${t.ticket};password=x;encrypt=true` : my ? `jdbc:mysql://${t.host}:${t.port}/${db}?sslMode=REQUIRED&user=${t.ticket}` : `jdbc:postgresql://${t.host}:${t.port}/${db}?sslmode=require&user=${t.ticket}`;
+  const tabs: [Tab, string][] = ms ? [["fields", "SSMS, Azure Data Studio, DBeaver"], ["cli", "sqlcmd"], ["url", "Connection string"]] : my ? [["cli", "mysql"], ["fields", "DBeaver, DataGrip, Workbench"], ["url", "URL"]] : [["cli", "psql"], ["fields", "DBeaver, DataGrip, pgAdmin"], ["url", "URL"]];
+  const fields: [string, string][] = !t ? [] : ms ? [["Server name", `${t.host},${t.port}`], ["Authentication", "SQL Server Authentication"], ["Login", t.ticket], ["Password", "x"], ...(t.database ? [["Database", t.database] as [string, string]] : []), ["Encryption", "Mandatory"]] : [["Host", t.host], ["Port", String(t.port)], ...(t.database ? [["Database", t.database] as [string, string]] : []), ["User name", t.ticket], ["Password", ""], ["SSL", my ? "required" : "require"]];
 
   return (
-    <Modal open onClose={onClose} title={`Connect to ${siteName}`} subtitle={!t ? "With your own database client." : my ? "With your own client: mysql, DBeaver, DataGrip, MySQL Workbench." : "With your own client: psql, DBeaver, DataGrip, pgAdmin."} size="md">
+    <Modal open onClose={onClose} title={`Connect to ${siteName}`} subtitle={!t ? "With your own database client." : ms ? "With your own client: SSMS, Azure Data Studio, sqlcmd, DBeaver, DataGrip." : my ? "With your own client: mysql, DBeaver, DataGrip, MySQL Workbench." : "With your own client: psql, DBeaver, DataGrip, pgAdmin."} size="md">
       <div className="ssh-cmd">
         {error ? (
           <p className="ssh-err" role="alert">{error}</p>
@@ -95,7 +97,7 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
             {tab === "fields" && (
               <dl className="db-fields">
                 {fields.map(([k, v]) => (
-                  <div key={k}><dt>{k}</dt><dd>{v ? <><code>{v}</code>{k !== "Port" && k !== "SSL" && <CopyButton value={v} />}</> : <span className="cell-sub">leave it empty</span>}</dd></div>
+                  <div key={k}><dt>{k}</dt><dd>{v ? <><code>{v}</code>{k !== "Port" && k !== "SSL" && k !== "Authentication" && k !== "Encryption" && <CopyButton value={v} />}</> : <span className="cell-sub">leave it empty</span>}</dd></div>
                 ))}
               </dl>
             )}
@@ -114,8 +116,9 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
           </>
         )}
         <ul className="ssh-notes">
-          <li>Captivo signs in to the database for you: you don&apos;t need its password. If your client asks for one, leave it empty.</li>
+          <li>Captivo signs in to the database for you: you don&apos;t need its password. {ms ? "SQL Server clients want one: type anything (x)." : "If your client asks for one, leave it empty."}</li>
           {t && t.databases.length > 0 && <li>Databases you can open: <span className="mono">{t.databases.join(", ")}</span>.</li>}
+          {ms && <li>Use SQL Server Authentication with encryption Mandatory (not Strict). Windows and Entra ID sign-in don&apos;t apply here.</li>}
           {my && <li>The MariaDB client takes <span className="mono">--ssl</span> instead of <span className="mono">--ssl-mode=REQUIRED</span>.</li>}
           <li>{t?.recorded ? "Every query you run is logged with its time and row count. Results are not stored." : "Your connections are logged; the queries are not."} The connection ends when your access ends.</li>
           <li>The user name is yours alone: don&apos;t share it, and get new details instead of saving them for long.</li>

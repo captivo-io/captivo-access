@@ -8,7 +8,7 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { isSealedValue, isVaultPublicKey } from "@/lib/vault/seal";
-import { callConnector, canRotate, nextScheduled } from "@/lib/vault/rotation";
+import { callConnector, canRotate, nextScheduled, isDbMethod } from "@/lib/vault/rotation";
 import { kickRotation } from "@/lib/vault/rotation-pass";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { sealsOf } from "@/lib/vault/store";
@@ -59,7 +59,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   let reconcile: Record<string, unknown> = {};
   if (b.reconcile === null) reconcile = { reconcileUsername: null, reconcileKind: null, reconcileSeals: Prisma.DbNull };
   else if (b.reconcile && typeof b.reconcile === "object") {
-    const db = s.method === "postgres" || s.method === "mysql";
+    const db = isDbMethod(s.method);
     if (s.method !== "linux" && !db) return NextResponse.json({ error: "reconcile_linux_only" }, { status: 400 });
     const r = b.reconcile as Record<string, unknown>;
     const username = typeof r.username === "string" ? r.username.trim() : "";

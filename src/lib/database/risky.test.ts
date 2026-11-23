@@ -4,6 +4,10 @@ import { riskyReason } from "./risky";
 describe("riskyReason", () => {
   it("flags destructive and permission statements", () => {
     expect(riskyReason("DROP TABLE users")).toBe("Drops an object");
+    expect(riskyReason("ALTER LOGIN app WITH PASSWORD = N'***'")).toBe("Creates or changes a login");
+    expect(riskyReason("EXEC xp_cmdshell 'dir c:\\'")).toBe("Runs a program on the server");
+    expect(riskyReason("SELECT * FROM OPENROWSET(BULK 'c:\\x.csv', SINGLE_CLOB) AS t")).toBe("Reads files or other servers");
+    expect(riskyReason("EXEC sp_configure 'show advanced options', 1")).toBe("Changes the server's configuration");
     expect(riskyReason("truncate orders")).toBe("Empties a table");
     expect(riskyReason("DELETE FROM orders")).toBe("Deletes every row");
     expect(riskyReason("delete from orders;")).toBe("Deletes every row");

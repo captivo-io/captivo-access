@@ -25,7 +25,8 @@ import (
 // connection's TLS when the resource has TLS on.
 //
 // The reconcile account is a database account that may change others'
-// passwords: CREATEROLE (or superuser) in PostgreSQL, CREATE USER in MySQL.
+// passwords: CREATEROLE (or superuser) in PostgreSQL, CREATE USER in MySQL,
+// ALTER ANY LOGIN in SQL Server.
 
 const scramIterations = 4096
 
@@ -52,7 +53,7 @@ func myString(s string) string {
 }
 
 type dbAccountTarget struct {
-	engine    string // "postgres" | "mysql"
+	engine    string // "postgres" | "mysql" | "mssql"
 	host      string
 	port      string
 	username  string
@@ -85,12 +86,17 @@ func (t *dbAccountTarget) check(ctx context.Context, pw string) authResult {
 func (t *dbAccountTarget) classify(err error) authResult {
 	var pe *pgError
 	var me *myError
+	var te *tunnel.TDSServerError
 	switch {
 	case errors.As(err, &pe) && pe.Code == "28P01":
 		return authResult{kind: authBad, detail: pe.Message}
 	case errors.As(err, &me) && me.Number == 1045:
 		return authResult{kind: authBad, detail: me.Message}
 	case errors.As(err, &me) && (me.Number == 1862 || me.Number == 1820):
+		return authResult{kind: authExpired, detail: "the account's password has expired"}
+	case errors.As(err, &te) && te.Number == 18456:
+		return authResult{kind: authBad, detail: te.Msg}
+	case errors.As(err, &te) && (te.Number == 18487 || te.Number == 18488):
 		return authResult{kind: authExpired, detail: "the account's password has expired"}
 	}
 	return authResult{kind: authOther, detail: err.Error()}
@@ -108,6 +114,10 @@ func (t *dbAccountTarget) selfChange(ctx context.Context, cur, next string) erro
 			return err
 		}
 		return c.exec("ALTER ROLE CURRENT_USER PASSWORD '" + v + "'")
+	}
+	if t.engine == "mssql" {
+		// A login changes its own password when it gives the current one.
+		return c.exec("ALTER LOGIN " + msIdent(t.username) + " WITH PASSWORD = " + msString(next) + " OLD_PASSWORD = " + msString(cur))
 	}
 	err = c.exec("ALTER USER CURRENT_USER() IDENTIFIED BY " + myString(next))
 	var me *myError
@@ -138,6 +148,9 @@ func (t *dbAccountTarget) reset(ctx context.Context, next string) error {
 			return err
 		}
 		return c.exec("ALTER ROLE " + pgIdent(t.username) + " PASSWORD '" + v + "'")
+	}
+	if t.engine == "mssql" { // ALTER ANY LOGIN
+		return c.exec("ALTER LOGIN " + msIdent(t.username) + " WITH PASSWORD = " + msString(next))
 	}
 	// A MySQL account is user@host: find which, and don't guess between several.
 	hosts, err := c.column("SELECT Host FROM mysql.user WHERE User = " + myString(t.username))
@@ -181,6 +194,13 @@ func (t *dbAccountTarget) signIn(user, pw string) (dbSession, error) {
 			return nil, err
 		}
 		return s, nil
+	}
+	if t.engine == "mssql" {
+		conn, br, _, err := mssqlSignIn(t.req(user), pw)
+		if err != nil {
+			return nil, err
+		}
+		return &mssqlSession{out: conn, in: br, packetSize: tunnel.TDSDefaultPkt}, nil
 	}
 	conn, br, _, err := mySignIn(t.req(user), pw)
 	if err != nil {

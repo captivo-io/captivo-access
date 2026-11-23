@@ -433,6 +433,7 @@ enum VaultProtocol {
   VNC
   POSTGRES
   MYSQL
+  MSSQL
 }
 
 enum VaultSecretKind {

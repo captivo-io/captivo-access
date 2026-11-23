@@ -12,7 +12,7 @@ export type RotationStatus = {
   unsupported: string | null;
   /** A native client on it needs a password the user knows (nativeBlocksRotation). */
   native: boolean;
-  /** MySQL with TLS off: the new password crosses the network in the clear when set. */
+  /** MySQL or SQL Server with TLS off: the new password crosses the network in the clear when set (SQL Server encrypts only the sign-in). */
   cleartext: boolean;
   afterSession: boolean;
   everyDays: number | null;
@@ -74,7 +74,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
   return {
     method: "method" in m ? m.method : null,
     unsupported: "unsupported" in m ? m.unsupported : null,
-    cleartext: c.protocol === "MYSQL" && parseDbParams(c.dbParams, "MYSQL").tls === "disable",
+    cleartext: (c.protocol === "MYSQL" || c.protocol === "MSSQL") && parseDbParams(c.dbParams, c.protocol).tls === "disable",
     native: nativeBlocksRotation({ ...c.site, recorded: await effectiveSiteRecording(c.site.recordSessions) }),
     afterSession: c.rotateAfterSession,
     everyDays: c.rotateEveryDays,

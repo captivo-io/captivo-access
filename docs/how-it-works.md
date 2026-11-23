@@ -174,12 +174,13 @@ by the connector, so that nobody, Captivo included, knows the password in use.
   `ALTER ROLE CURRENT_USER`, sent as a SCRAM-SHA-256 verifier the connector
   makes, so the password is never in a statement a server could log; in MySQL
   with `ALTER USER CURRENT_USER()` (with `REPLACE` when the server asks for the
-  current password), in MariaDB with `SET PASSWORD`, inside the resource's TLS
+  current password), in MariaDB with `SET PASSWORD`, in SQL Server (connector
+  2.56.0) with `ALTER LOGIN ... OLD_PASSWORD`, inside the resource's TLS
   (with TLS off the new password crosses the network in the clear, and the
   panel says so). The account should be one only Captivo uses: an application
   that shares it stops connecting at the first rotation. Open database
   connections are not cut. VNC passwords and SSH keys are not rotated, and
-  neither are local Windows accounts or SQL Server yet.
+  neither are local Windows accounts yet.
 - **When.** Off by default. Per resource: a minute after the last session on it
   ends (a session still open holds it), on a schedule (7, 30 or 90 days), and
   with "Rotate now". "Check it daily" signs in once a day with the saved
@@ -195,7 +196,8 @@ by the connector, so that nobody, Captivo included, knows the password in use.
   its saved password no longer matches, a privileged account resets it: root or
   a sudo account on the Linux host (password or SSH key), a directory account
   with the *Reset password* right (Settings › Directory), or a database account
-  on the same server (PostgreSQL: CREATEROLE or a superuser; MySQL: CREATE USER,
+  on the same server (PostgreSQL: CREATEROLE or a superuser; SQL Server: ALTER
+  ANY LOGIN, such as sa; MySQL: CREATE USER,
   which finds the account's host in `mysql.user` and stops if several accounts
   share the name). It is sealed for
   `reconcile,<host>,<port>,<user>`, so the gateway can never sign a session in
@@ -577,33 +579,35 @@ flowchart LR
 
 ## Database resources (your own client, every query logged)
 
-A **Database** Resource is a PostgreSQL or MySQL (and MariaDB) server that users
-reach with their own client (psql, mysql, DBeaver, DataGrip, pgAdmin, MySQL
-Workbench) through the data plane's **database proxy**: port 15432 for
-PostgreSQL, 13306 for MySQL (in MySQL the server speaks first, so the two can't
-share a port). **Connect** on the resource in My access gives the connection
+A **Database** Resource is a PostgreSQL, MySQL (and MariaDB) or SQL Server
+that users reach with their own client (psql, mysql, sqlcmd, SSMS, Azure Data
+Studio, DBeaver, DataGrip, pgAdmin, MySQL Workbench) through the data plane's
+**database proxy**: port 15432 for PostgreSQL, 13306 for MySQL, 11433 for SQL
+Server (each engine opens its own way, so they can't share a port). **Connect** on the resource in My access gives the connection
 details; the user name is a **ticket**:
 
 ```
 psql "host=<console host> port=15432 user=<ticket> dbname=<database> sslmode=require"
 mysql -h <console host> -P 13306 -u <ticket> --ssl-mode=REQUIRED <database>
+sqlcmd -S tcp:<console host>,11433 -U <ticket> -P x -d <database>
 ```
 
 ```mermaid
 flowchart LR
     F["My access<br/>Connect · ticket"] --> C["User's client<br/>psql · DBeaver"]
-    C -->|"TLS · 15432 / 13306"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
+    C -->|"TLS · 15432 / 13306 / 11433"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
     D -->|outbound tunnel| CN["Connector<br/>signs in with the saved account"]
-    CN -->|"5432 / 3306 · TLS per resource"| S["PostgreSQL · MySQL"]
+    CN -->|"5432 / 3306 / 1433 · TLS per resource"| S["PostgreSQL · MySQL · SQL Server"]
 ```
 
 - **The password never leaves the connector.** The saved account's password is
   sealed to the connectors that serve the resource, like a remote desktop's. The
   connector signs in (PostgreSQL: SCRAM-SHA-256, md5 or password; MySQL:
   caching_sha2_password, mysql_native_password, sha256_password, or a cleartext
-  password over TLS, as the server asks) and hands the proxy a connection already
-  past authentication. The user never needs
-  or sees it; if a client asks for one, it is left empty.
+  password over TLS, as the server asks; SQL Server: a SQL Server login) and
+  hands the proxy a connection already past authentication. The user never needs
+  or sees it; if a client asks for one, it is left empty (SQL Server clients
+  want one: anything will do).
 - **The ticket** starts connections for up to eight hours, never past the grant's
   end or the browser sign-in that asked for it: signing out ends it. It is stored
   hashed. A client's connections from one ticket and address are one session in
@@ -614,12 +618,12 @@ flowchart LR
   and stores it with its time, duration, row count and error, on the connector
   that carried the session, next to keystroke timelines (so recording search
   finds statements by their text). Results and bind parameter values are never
-  stored; password literals (`PASSWORD '...'`, MySQL's `IDENTIFIED BY '...'`)
-  are masked. Values a client writes into the statement text itself (psql, the
+  stored; password literals (`PASSWORD '...'`, MySQL's `IDENTIFIED BY '...'`,
+  SQL Server's `PASSWORD = N'...'`) are masked. Values a client writes into the statement text itself (psql, the
   mysql client and most MySQL drivers do) are part of the statement. The recording page
   shows it as a table, with failed statements and ones worth review (DROP,
-  TRUNCATE, DELETE or UPDATE without WHERE, GRANT, ALTER ROLE, INTO OUTFILE)
-  marked. Admins see
+  TRUNCATE, DELETE or UPDATE without WHERE, GRANT, ALTER ROLE, INTO OUTFILE,
+  ALTER LOGIN, xp_cmdshell, OPENROWSET, sp_configure) marked. Admins see
   the statements live on the Sessions page and can end the session.
 - **Access holds while it is used:** the grant, schedule, user status and vendor
   IP allowlist are checked at every new connection and every minute; a session
@@ -628,9 +632,9 @@ flowchart LR
   SQL to block writes (that is easy to get around and gives false comfort); for
   read-only access, save an account with only SELECT rights. A PostgreSQL
   resource can also limit which databases open (a client naming no database
-  lands in the default one). MySQL has no such list: a statement can name any
-  database the account can open (`crm.orders`), so the account's own grants
-  decide.
+  lands in the default one). MySQL and SQL Server have no such list: a statement
+  can name any database the account can open (`crm.orders`, `crm.dbo.orders`),
+  so the account's own grants decide.
 - **TLS** is required from the client (the proxy refuses plaintext), including
   PostgreSQL 17's direct TLS; the mysql client needs `--ssl-mode=REQUIRED` or its
   default, the MariaDB client `--ssl`. From the connector to the server it is per
@@ -642,6 +646,18 @@ flowchart LR
   to the right server. A MySQL client is given a connection id of the proxy's;
   its `KILL QUERY <id>` from another connection of the same session reaches the
   server with the server's own id.
+- **SQL Server specifics.** The proxy answers PRELOGIN requiring encryption
+  and ends the client's TLS 1.2 itself (clients set encryption to Mandatory, or
+  Optional; Strict, which is TDS 8, is not offered yet). The sign-in is SQL Server
+  Authentication with the ticket as the login; Windows (Kerberos/NTLM) and
+  Entra ID sign-in are not offered, and MARS is not either. The connector signs
+  in with the client's own options (its TDS version, packet size, language,
+  application name), so the client gets the server's own answer: its version,
+  collation and database. Statements come from SQL batches and from the text
+  sp_executesql, sp_prepare and sp_prepexec carry, never their parameter values;
+  a prepared statement run again shows as `EXEC sp_execute`. Cancel (Attention)
+  reaches the server. From the connector, TLS Off means the login packet only
+  is encrypted (SQL Server's own minimum), unless the server forces more.
 - **MySQL specifics.** The proxy offers clients only the protocol features every
   MySQL 5.5+ and MariaDB server has (no compression, no `LOAD DATA LOCAL`), so
   any server behind it answers the way the client reads. A client sees the
@@ -649,15 +665,17 @@ flowchart LR
   knows the server; `SELECT VERSION()` gives the real one, and the session's
   feed names it. Changing the user on an open connection (`COM_CHANGE_USER`) is
   refused.
-- **Requirements:** a connector on 2.46.0 or later (2.51.0 for MySQL; it signs
-  in), the database's `host:port` in the connector's `ALLOWED_TARGETS` if that
-  is set, and port 15432 (13306 for MySQL) reachable on the console's host.
-  Self-hosted installs publish them from the data-plane (`DB_PUBLIC_PORT` /
-  `MYSQL_PUBLIC_PORT` change the published port, `DB_PUBLIC_HOST` the name in
-  the details, `DB_ADDR=off` / `MYSQL_ADDR=off` turn one off). Without
-  `DB_TLS_CERT`/`DB_TLS_KEY` the proxy keeps a self-signed certificate in the
-  data-plane's `/data` volume, which `sslmode=require` and
-  `--ssl-mode=REQUIRED` accept.
+- **Requirements:** a connector on 2.46.0 or later (2.51.0 for MySQL, 2.56.0
+  for SQL Server; it signs in), the database's `host:port` in the connector's
+  `ALLOWED_TARGETS` if that is set, and port 15432 (13306 for MySQL, 11433 for
+  SQL Server) reachable on the console's host. Self-hosted installs publish them
+  from the data-plane (`DB_PUBLIC_PORT` / `MYSQL_PUBLIC_PORT` /
+  `MSSQL_PUBLIC_PORT` change the published port, `DB_PUBLIC_HOST` the name in
+  the details, `DB_ADDR=off` / `MYSQL_ADDR=off` / `MSSQL_ADDR=off` turn one
+  off). Without `DB_TLS_CERT`/`DB_TLS_KEY` the proxy keeps a self-signed
+  certificate in the data-plane's `/data` volume, which `sslmode=require` and
+  `--ssl-mode=REQUIRED` accept; SQL Server clients need Trust server
+  certificate for it.
 - **Not yet:** SQL Server, rotating database passwords.
 
 ## The isolated-browser path (isolated)

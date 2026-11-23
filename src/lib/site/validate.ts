@@ -99,7 +99,7 @@ export function validateSiteInput(
   if (mode === "DATABASE") {
     if (!opts.nativeGateway) return { ok: false, error: "native_gateway_disabled" };
     const engine = str(body.engine).toUpperCase() || "POSTGRES";
-    if (engine !== "POSTGRES" && engine !== "MYSQL") return { ok: false, error: "invalid_engine" };
+    if (engine !== "POSTGRES" && engine !== "MYSQL" && engine !== "MSSQL") return { ok: false, error: "invalid_engine" };
     const targetHost = str(body.targetHost);
     const targetPort = typeof body.targetPort === "number" ? body.targetPort : Number(str(body.targetPort));
     const username = str(body.username);
