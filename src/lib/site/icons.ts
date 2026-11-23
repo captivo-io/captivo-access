@@ -98,7 +98,7 @@ export function kindOf(s: { accessMode: string; protocol?: string | null }): Res
   return "web";
 }
 
-/** Protocol shown under the name: HTTPS / HTTP / RDP / SSH / VNC / PostgreSQL. */
+/** Protocol shown under the name: HTTPS / HTTP / RDP / SSH / VNC / PostgreSQL (the resource form names a MySQL one itself). */
 export function protoLabel(kind: ResourceKind, target: string | null | undefined): string {
   if (kind === "database") return "PostgreSQL";
   if (kind === "rdp" || kind === "ssh" || kind === "vnc") return kind.toUpperCase();

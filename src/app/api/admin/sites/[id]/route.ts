@@ -94,8 +94,9 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
 
   if (v.mode === "DATABASE") {
     const prev = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true, targetHost: true, targetPort: true } });
-    // A credential of another kind (a remote desktop's) is not kept for a database.
-    const hadDb = prev?.protocol === "POSTGRES";
+    // A credential of another kind (a remote desktop's) is not kept for a database;
+    // one for the other engine is, as its password is sealed to the address, not the engine.
+    const hadDb = prev?.protocol === "POSTGRES" || prev?.protocol === "MYSQL";
     if (!hadDb && !v.secret) return NextResponse.json({ error: "remote_desktop_fields_required" }, { status: 400 });
     const target = { host: v.targetHost, port: v.targetPort, username: v.username };
     if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
@@ -113,7 +114,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     }
     await db.$transaction(async (tx) => {
       await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, accessMode: "DATABASE", ...logoData } });
-      const fields = { protocol: "POSTGRES" as const, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, dbParams: v.dbParams as Prisma.InputJsonValue, guacParams: Prisma.DbNull };
+      const fields = { protocol: v.engine, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, dbParams: v.dbParams as Prisma.InputJsonValue, guacParams: Prisma.DbNull };
       if (hadDb) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate, ...rotationUpdate } });
       else {
         await tx.vaultCredential.deleteMany({ where: { siteId: id } });

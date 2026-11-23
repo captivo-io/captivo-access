@@ -12,7 +12,7 @@ import { securityStatus } from "@/lib/portal/security-status";
 import { launchHref } from "@/lib/portal/launch-href";
 import { nativeRdpBlock } from "@/lib/gateway/native-rdp";
 import { nativeSshMode } from "@/lib/gateway/native-ssh";
-import { databaseBlock } from "@/lib/database/params";
+import { databaseBlock, dbEngineOf } from "@/lib/database/params";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
 import { PortalHome, type CardVM, type RecentVM } from "./portal-home";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -78,7 +78,7 @@ async function AccessPageImpl() {
         ? `/api/portal/rdp/${g.site.id}` : null,
       sshHref: sshMode === "recorded" || sshMode === "direct" ? `/api/portal/ssh/${g.site.id}` : null,
       sshRecorded: sshMode === "recorded",
-      dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/db/${g.site.id}` : null,
+      dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,
       recorded,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
     };

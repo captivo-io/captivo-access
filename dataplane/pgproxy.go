@@ -28,7 +28,7 @@ import (
 )
 
 // The database proxy: a user's own PostgreSQL client (psql, DBeaver, DataGrip,
-// pgAdmin) reaches a database resource through Captivo with a connection
+// pgAdmin), or MySQL client on its own port (mysqlproxy.go), reaches a database resource through Captivo with a connection
 // ticket from the portal as its user name:
 //
 //	psql "host=<console host> port=15432 user=<ticket> dbname=<db> sslmode=require"
@@ -71,9 +71,11 @@ type pgProxyDeps struct {
 type pgProxy struct {
 	d        pgProxyDeps
 	tls      *tls.Config
+	myTLS    *tls.Config // MySQL clients: the same certificate, no ALPN
 	mu       sync.Mutex
 	sessions map[string]*dbSession // ticket + client address
 	cancels  map[uint64]dbCancel   // the key the client was given -> the server's
+	myConns  map[uint32]myConnRef  // the connection id a MySQL client was given -> the server's
 }
 
 type dbCancel struct {
@@ -128,40 +130,57 @@ func (c *certReloader) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return c.cert, nil
 }
 
-// startPgProxy listens for PostgreSQL clients. With no certificate
+// startDbProxy listens for PostgreSQL clients on pgAddr and MySQL clients on
+// myAddr (mysqlproxy.go); "" or "off" leaves one out. With no certificate
 // configured it makes one for itself, kept in dataDir: clients connect with
-// sslmode=require, which encrypts without checking the certificate. Set
-// DB_TLS_CERT/DB_TLS_KEY (the console's own certificate) for clients that
-// verify it (sslmode=verify-full).
-func startPgProxy(addr, certFile, keyFile, dataDir string, d pgProxyDeps) (bool, error) {
-	if addr == "" || addr == "off" {
-		return false, nil
+// sslmode=require (ssl-mode=REQUIRED), which encrypts without checking the
+// certificate. Set DB_TLS_CERT/DB_TLS_KEY (the console's own certificate) for
+// clients that verify it.
+func startDbProxy(pgAddr, myAddr, certFile, keyFile, dataDir string, d pgProxyDeps) (pgOn, myOn bool, err error) {
+	off := func(a string) bool { return a == "" || a == "off" }
+	if off(pgAddr) && off(myAddr) {
+		return false, false, nil
 	}
 	if certFile == "" || keyFile == "" {
-		var err error
 		if certFile, keyFile, err = selfSignedDbCert(dataDir); err != nil {
-			return false, fmt.Errorf("certificate: %w", err)
+			return false, false, fmt.Errorf("certificate: %w", err)
 		}
 	}
 	cr := &certReloader{certFile: certFile, keyFile: keyFile}
 	if _, err := cr.get(nil); err != nil {
-		return false, fmt.Errorf("certificate: %w", err)
-	}
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return false, err
+		return false, false, fmt.Errorf("certificate: %w", err)
 	}
 	p := &pgProxy{
-		d: d, sessions: map[string]*dbSession{}, cancels: map[uint64]dbCancel{},
-		tls: &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}},
+		d: d, sessions: map[string]*dbSession{}, cancels: map[uint64]dbCancel{}, myConns: map[uint32]myConnRef{},
+		tls:   &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}},
+		myTLS: &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12},
 	}
-	go p.serve(ln)
-	go p.recheck()
-	log.Printf("db proxy: listening on %s", addr)
-	return true, nil
+	var errs []error
+	if !off(pgAddr) {
+		if ln, err := net.Listen("tcp", pgAddr); err != nil {
+			errs = append(errs, fmt.Errorf("postgresql: %w", err))
+		} else {
+			go p.serve(ln, p.handle)
+			pgOn = true
+			log.Printf("db proxy: listening on %s", pgAddr)
+		}
+	}
+	if !off(myAddr) {
+		if ln, err := net.Listen("tcp", myAddr); err != nil {
+			errs = append(errs, fmt.Errorf("mysql: %w", err))
+		} else {
+			go p.serve(ln, p.handleMySQL)
+			myOn = true
+			log.Printf("db proxy: mysql listening on %s", myAddr)
+		}
+	}
+	if pgOn || myOn {
+		go p.recheck()
+	}
+	return pgOn, myOn, errors.Join(errs...)
 }
 
-func (p *pgProxy) serve(ln net.Listener) {
+func (p *pgProxy) serve(ln net.Listener, handle func(net.Conn, func())) {
 	pending := make(chan struct{}, pgMaxPending)
 	for {
 		c, err := ln.Accept()
@@ -178,7 +197,7 @@ func (p *pgProxy) serve(ln net.Listener) {
 			c.Close() // too many at once
 			continue
 		}
-		go p.handle(c, func() { <-pending })
+		go handle(c, func() { <-pending })
 	}
 }
 
@@ -327,6 +346,10 @@ func (p *pgProxy) open(conn net.Conn, r *bufio.Reader, params map[string]string,
 			msg = "Captivo Access: this resource can't be opened as a database right now; ask your administrator"
 		}
 		_, _ = conn.Write(pgFatal(code, msg))
+		return
+	}
+	if t.Engine != "" && t.Engine != "postgres" {
+		_, _ = conn.Write(pgFatal("28000", "Captivo Access: this resource is a MySQL database; connect with a MySQL client (the Connect details in your portal)"))
 		return
 	}
 	db := params["database"]
@@ -613,7 +636,11 @@ func dialDb(s *Session, req tunnel.DbDialRequest) (net.Conn, tunnel.DbDialRespon
 	rb, err := tunnel.ReadFrame(st)
 	if err != nil {
 		st.Close()
-		return nil, resp, errors.New("the connector did not answer; it may need an update to 2.46.0")
+		need := "2.46.0"
+		if req.Engine == "mysql" {
+			need = myMinConnector
+		}
+		return nil, resp, errors.New("the connector did not answer; it may need an update to " + need)
 	}
 	_ = st.SetReadDeadline(time.Time{})
 	if err := json.Unmarshal(rb, &resp); err != nil {
@@ -687,7 +714,7 @@ func (p *pgProxy) join(ticket, clientIP string, t dbTarget, app string) (*dbSess
 	now := p.d.now()
 	s := &dbSession{p: p, key: key, id: newSessionID(), connectorID: c.ID, app: app, t: t, clientIP: clientIP, start: now, conns: map[int]func(){}, count: 1}
 	if p.d.hub != nil {
-		s.ls = p.d.hub.RegisterNative(s.id, "postgres", t.SiteID, t.UserID, t.Host, now, c.ID, clientIP)
+		s.ls = p.d.hub.RegisterNative(s.id, t.engine(), t.SiteID, t.UserID, t.Host, now, c.ID, clientIP)
 		s.ls.mu.Lock()
 		s.ls.kind = "database"
 		s.ls.mu.Unlock()
@@ -701,7 +728,7 @@ func (p *pgProxy) join(ticket, clientIP string, t dbTarget, app string) (*dbSess
 		s.log = &queryLog{
 			tenantID: t.TenantID, key: recKey,
 			send:  func(req tunnel.RecWriteRequest) (int, error) { return writeRecChunk(sess(), req) },
-			index: &recIndexReporter{send: p.d.recIndex, userID: t.UserID, siteID: t.SiteID, host: t.Host, format: "sql", proto: "postgres", connectorID: c.ID},
+			index: &recIndexReporter{send: p.d.recIndex, userID: t.UserID, siteID: t.SiteID, host: t.Host, format: "sql", proto: t.engine(), connectorID: c.ID},
 			done:  func() { notifyRecDone(sess(), t.TenantID, recKey) },
 		}
 		s.log.start()

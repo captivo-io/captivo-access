@@ -513,27 +513,32 @@ flowchart LR
 
 ## Database resources (your own client, every query logged)
 
-A **Database** Resource is a PostgreSQL server that users reach with their own
-client (psql, DBeaver, DataGrip, pgAdmin) through the data plane's **database
-proxy** on port 15432. **Connect** on the resource in My access gives the
-connection details; the user name is a **ticket**:
+A **Database** Resource is a PostgreSQL or MySQL (and MariaDB) server that users
+reach with their own client (psql, mysql, DBeaver, DataGrip, pgAdmin, MySQL
+Workbench) through the data plane's **database proxy**: port 15432 for
+PostgreSQL, 13306 for MySQL (in MySQL the server speaks first, so the two can't
+share a port). **Connect** on the resource in My access gives the connection
+details; the user name is a **ticket**:
 
 ```
 psql "host=<console host> port=15432 user=<ticket> dbname=<database> sslmode=require"
+mysql -h <console host> -P 13306 -u <ticket> --ssl-mode=REQUIRED <database>
 ```
 
 ```mermaid
 flowchart LR
     F["My access<br/>Connect · ticket"] --> C["User's client<br/>psql · DBeaver"]
-    C -->|"PostgreSQL over TLS · 15432"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
+    C -->|"TLS · 15432 / 13306"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
     D -->|outbound tunnel| CN["Connector<br/>signs in with the saved account"]
-    CN -->|"5432 · TLS per resource"| S["PostgreSQL"]
+    CN -->|"5432 / 3306 · TLS per resource"| S["PostgreSQL · MySQL"]
 ```
 
 - **The password never leaves the connector.** The saved account's password is
   sealed to the connectors that serve the resource, like a remote desktop's. The
-  connector signs in (SCRAM-SHA-256, md5 or password, as the server asks) and
-  hands the proxy a connection already past authentication. The user never needs
+  connector signs in (PostgreSQL: SCRAM-SHA-256, md5 or password; MySQL:
+  caching_sha2_password, mysql_native_password, sha256_password, or a cleartext
+  password over TLS, as the server asks) and hands the proxy a connection already
+  past authentication. The user never needs
   or sees it; if a client asks for one, it is left empty.
 - **The ticket** starts connections for up to eight hours, never past the grant's
   end or the browser sign-in that asked for it: signing out ends it. It is stored
@@ -545,31 +550,51 @@ flowchart LR
   and stores it with its time, duration, row count and error, on the connector
   that carried the session, next to keystroke timelines (so recording search
   finds statements by their text). Results and bind parameter values are never
-  stored; password literals (`PASSWORD '...'`) are masked. The recording page
+  stored; password literals (`PASSWORD '...'`, MySQL's `IDENTIFIED BY '...'`)
+  are masked. Values a client writes into the statement text itself (psql, the
+  mysql client and most MySQL drivers do) are part of the statement. The recording page
   shows it as a table, with failed statements and ones worth review (DROP,
-  TRUNCATE, DELETE or UPDATE without WHERE, GRANT, ALTER ROLE) marked. Admins see
+  TRUNCATE, DELETE or UPDATE without WHERE, GRANT, ALTER ROLE, INTO OUTFILE)
+  marked. Admins see
   the statements live on the Sessions page and can end the session.
 - **Access holds while it is used:** the grant, schedule, user status and vendor
   IP allowlist are checked at every new connection and every minute; a session
   whose access ends, or whose ticket ends, is closed.
 - **What a session can do is what the account can do.** The proxy does not parse
   SQL to block writes (that is easy to get around and gives false comfort); for
-  read-only access, save an account with only SELECT rights. The resource can
-  also limit which databases open (a client naming no database lands in the
-  default one).
+  read-only access, save an account with only SELECT rights. A PostgreSQL
+  resource can also limit which databases open (a client naming no database
+  lands in the default one). MySQL has no such list: a statement can name any
+  database the account can open (`crm.orders`), so the account's own grants
+  decide.
 - **TLS** is required from the client (the proxy refuses plaintext), including
-  PostgreSQL 17's direct TLS. From the connector to the server it is per resource:
-  Off, Encrypted, or Encrypted + verified against the server's CA.
-- **Cancel** (Ctrl+C in psql, Cancel in DBeaver) reaches the server: the proxy
-  gives the client its own cancel key and forwards a cancel to the right server.
-- **Requirements:** a connector on 2.46.0 or later (it signs in), the database's
-  `host:port` in the connector's `ALLOWED_TARGETS` if that is set, and port 15432
-  reachable on the console's host. Self-hosted installs publish it from the
-  data-plane (`DB_PUBLIC_PORT` changes the published port, `DB_PUBLIC_HOST` the
-  name in the details, `DB_ADDR=off` turns the proxy off). Without
+  PostgreSQL 17's direct TLS; the mysql client needs `--ssl-mode=REQUIRED` or its
+  default, the MariaDB client `--ssl`. From the connector to the server it is per
+  resource: Off, Encrypted, or Encrypted + verified against the server's CA. MySQL
+  5.7 builds on OpenSSL 1.0 offer only DHE key exchange, which the connector does
+  not use: turn on ECDHE ciphers there, or set TLS to Off inside the network.
+- **Cancel** (Ctrl+C in psql or mysql, Cancel in DBeaver) reaches the server. For
+  PostgreSQL the proxy gives the client its own cancel key and forwards a cancel
+  to the right server. A MySQL client is given a connection id of the proxy's;
+  its `KILL QUERY <id>` from another connection of the same session reaches the
+  server with the server's own id.
+- **MySQL specifics.** The proxy offers clients only the protocol features every
+  MySQL 5.5+ and MariaDB server has (no compression, no `LOAD DATA LOCAL`), so
+  any server behind it answers the way the client reads. A client sees the
+  version `8.0.36-Captivo-Access` at connect, as the proxy greets it before it
+  knows the server; `SELECT VERSION()` gives the real one, and the session's
+  feed names it. Changing the user on an open connection (`COM_CHANGE_USER`) is
+  refused.
+- **Requirements:** a connector on 2.46.0 or later (2.51.0 for MySQL; it signs
+  in), the database's `host:port` in the connector's `ALLOWED_TARGETS` if that
+  is set, and port 15432 (13306 for MySQL) reachable on the console's host.
+  Self-hosted installs publish them from the data-plane (`DB_PUBLIC_PORT` /
+  `MYSQL_PUBLIC_PORT` change the published port, `DB_PUBLIC_HOST` the name in
+  the details, `DB_ADDR=off` / `MYSQL_ADDR=off` turn one off). Without
   `DB_TLS_CERT`/`DB_TLS_KEY` the proxy keeps a self-signed certificate in the
-  data-plane's `/data` volume, which `sslmode=require` accepts.
-- **Not yet:** MySQL and SQL Server, rotating database passwords.
+  data-plane's `/data` volume, which `sslmode=require` and
+  `--ssl-mode=REQUIRED` accept.
+- **Not yet:** SQL Server, rotating database passwords.
 
 ## The isolated-browser path (isolated)
 

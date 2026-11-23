@@ -55,7 +55,7 @@ const STORE_KEY = "captivo:sites-view";
 /** HTTPS / HTTP for a web app or isolated browser, the session protocol for a remote one. */
 function protocolOf(s: SiteRow): string {
   if (s.accessMode === "GATEWAY") return s.protocol ?? "REMOTE";
-  if (s.accessMode === "DATABASE") return "POSTGRESQL";
+  if (s.accessMode === "DATABASE") return s.protocol === "MYSQL" ? "MYSQL" : "POSTGRESQL";
   const u = s.upstreamUrl ?? "";
   return u.startsWith("http://") ? "HTTP" : "HTTPS";
 }

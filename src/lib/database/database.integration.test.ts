@@ -87,7 +87,7 @@ describe.skipIf(!OWNER_URL)("database access", () => {
     process.env.RECORDING_ENABLED = "true";
     fakeDataplane = createServer((rq, res) => {
       if (rq.headers["x-dataplane-secret"] !== DP_SECRET) return void res.writeHead(403).end();
-      if (rq.url === "/db-info") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ enabled: true }));
+      if (rq.url === "/db-info") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ enabled: true, mysql: true }));
       res.writeHead(404).end();
     });
     await new Promise<void>((r) => fakeDataplane.listen(0, "127.0.0.1", r));
@@ -153,6 +153,24 @@ describe.skipIf(!OWNER_URL)("database access", () => {
     const res = await check(ticket);
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe("connector_outdated");
+    await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.46.0' WHERE id = $1`, conn);
+  });
+
+  it("serves a MySQL resource on its own port, from connector 2.51.0", async () => {
+    await owner.$executeRawUnsafe(`UPDATE "VaultCredential" SET protocol = 'MYSQL' WHERE "siteId" = $1`, site);
+    const old = await check(ticket);
+    expect(old.status).toBe(409);
+    expect((await old.json()).error).toBe("connector_outdated");
+    await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.51.0' WHERE id = $1`, conn);
+    const res = await portal.POST(new Request(`http://x/api/portal/db/${site}`, { method: "POST" }), { params: Promise.resolve({ siteId: site }) });
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.engine).toBe("mysql");
+    expect(j.port).toBe(13306);
+    const c = await check(j.ticket);
+    expect(c.status).toBe(200);
+    expect((await c.json()).engine).toBe("mysql");
+    await owner.$executeRawUnsafe(`UPDATE "VaultCredential" SET protocol = 'POSTGRES' WHERE "siteId" = $1`, site);
     await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.46.0' WHERE id = $1`, conn);
   });
 

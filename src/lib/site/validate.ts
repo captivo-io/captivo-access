@@ -1,7 +1,7 @@
 import { isEgressMode, parseEgressHosts, type EgressMode } from "@/lib/isolation/egress";
 import { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
-import { dbParamsFrom, type DbParams } from "@/lib/database/params";
+import { dbParamsFrom, type DbEngine, type DbParams } from "@/lib/database/params";
 
 const CLIP = ["allow", "no_copy", "no_paste", "none"];
 const FT = ["allow", "no_upload", "no_download", "none"];
@@ -65,7 +65,7 @@ export type SiteValidation =
       connectorId: string;
       name: string;
       description: string | null;
-      engine: "POSTGRES";
+      engine: DbEngine;
       targetHost: string;
       targetPort: number;
       username: string;
@@ -99,7 +99,7 @@ export function validateSiteInput(
   if (mode === "DATABASE") {
     if (!opts.nativeGateway) return { ok: false, error: "native_gateway_disabled" };
     const engine = str(body.engine).toUpperCase() || "POSTGRES";
-    if (engine !== "POSTGRES") return { ok: false, error: "invalid_engine" };
+    if (engine !== "POSTGRES" && engine !== "MYSQL") return { ok: false, error: "invalid_engine" };
     const targetHost = str(body.targetHost);
     const targetPort = typeof body.targetPort === "number" ? body.targetPort : Number(str(body.targetPort));
     const username = str(body.username);
@@ -107,10 +107,10 @@ export function validateSiteInput(
     if (!targetHost || !username) return { ok: false, error: "remote_desktop_fields_required" };
     if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) return { ok: false, error: "invalid_port" };
     if (opts.requireSecret && !secret) return { ok: false, error: "remote_desktop_fields_required" };
-    const dbParams = dbParamsFrom(body);
+    const dbParams = dbParamsFrom(body, engine);
     if ("error" in dbParams) return { ok: false, error: dbParams.error };
     return {
-      ok: true, mode: "DATABASE", connectorId, name, description, engine: "POSTGRES", targetHost, targetPort, username, secret,
+      ok: true, mode: "DATABASE", connectorId, name, description, engine, targetHost, targetPort, username, secret,
       recordSessions: opts.recordingEnabled && body.recordSessions === true, dbParams,
     };
   }

@@ -9,7 +9,7 @@ package tunnel
 // queries. The password never leaves the connector.
 type DbDialRequest struct {
 	Kind     string `json:"kind"`   // "db"
-	Engine   string `json:"engine"` // "postgres"
+	Engine   string `json:"engine"` // "postgres" | "mysql"
 	Host     string `json:"host"`
 	Port     string `json:"port"`
 	Username string `json:"username"`
@@ -24,6 +24,11 @@ type DbDialRequest struct {
 	// client_encoding, DateStyle...). The connector drops the ones that would
 	// change who signs in or where (user, database, replication, options).
 	Params map[string]string `json:"params,omitempty"`
+	// MySQL: the capability flags the user's client agreed with the data plane
+	// and its character set. The connector signs in with the ones the server
+	// also has, so what the server sends next reads the way the client expects.
+	Capabilities uint32 `json:"capabilities,omitempty"`
+	Collation    uint8  `json:"collation,omitempty"`
 }
 
 // DbDialResponse reports the sign-in. An empty Error means the server accepted
@@ -36,6 +41,11 @@ type DbDialResponse struct {
 	Code string `json:"code,omitempty"`
 	// Whether the connection to the server is encrypted.
 	TLS bool `json:"tls,omitempty"`
+	// MySQL: the server's connection id (KILL QUERY takes it), its version and
+	// the capability flags the sign-in settled on.
+	ConnID        uint32 `json:"connId,omitempty"`
+	ServerVersion string `json:"serverVersion,omitempty"`
+	Capabilities  uint32 `json:"capabilities,omitempty"`
 }
 
 // DbCancelRequest (Kind "db-cancel") asks the connector to send PostgreSQL's

@@ -11,6 +11,7 @@ const RULES: [RegExp, string][] = [
   [/^\s*(grant|revoke)\b/i, "Changes permissions"],
   [/^\s*(create|alter)\s+(role|user)\b/i, "Creates or changes a role"],
   [/^\s*copy\s+[^;]*\bto\s+program\b/i, "Runs a program on the server"],
+  [/\binto\s+(outfile|dumpfile)\b/i, "Writes a file on the server"],
 ];
 
 /** Why a statement is risky, or null. Comments at the start are skipped. */

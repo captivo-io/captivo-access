@@ -423,6 +423,15 @@ type dbTarget struct {
 	Record     bool             `json:"record"`
 }
 
+// engine is the resource's database engine; a control plane older than
+// MySQL support sends none.
+func (t dbTarget) engine() string {
+	if t.Engine == "" {
+		return "postgres"
+	}
+	return t.Engine
+}
+
 // DatabaseTarget resolves a connection ticket (the user name a database
 // client signs in with). The manager refuses with a status: 404 an unknown or
 // expired ticket (or its browser session ended), 403 no active grant, 409 a

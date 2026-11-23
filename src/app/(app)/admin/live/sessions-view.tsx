@@ -29,7 +29,7 @@ const TERMINAL = ["ssh", "telnet"];
 const keyOf = (r: LiveRow) => (r.kind === "web" ? `web:${r.liveKey ?? `${r.userId}:${r.siteId}`}` : r.sessionId);
 const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" | "sql" => (r.database ? "sql" : r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
 const nativeApp = (r: LiveRow) => (r.kind === "gateway" && r.protocol === "ssh" ? "SSH" : "Remote Desktop");
-const labelOf = (r: LiveRow) => (r.database ? "POSTGRESQL" : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
+const labelOf = (r: LiveRow) => (r.database ? (r.kind === "gateway" && r.protocol === "mysql" ? "MYSQL" : "POSTGRESQL") : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
 const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native && !r.watchable ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);

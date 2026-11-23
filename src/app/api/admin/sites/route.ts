@@ -124,7 +124,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     });
     await tx.vaultCredential.create({
       data: v.mode === "DATABASE"
-        ? { siteId: site.id, protocol: "POSTGRES", targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", dbParams: v.dbParams as Prisma.InputJsonValue }
+        ? { siteId: site.id, protocol: v.engine, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", dbParams: v.dbParams as Prisma.InputJsonValue }
         : { siteId: site.id, protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, ...storedSecretColumns(stored), secretKind: "PASSWORD", guacParams: v.guacParams as Prisma.InputJsonValue },
     });
     return site.id;
