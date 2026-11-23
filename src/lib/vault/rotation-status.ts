@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 import { sealsOf } from "@/lib/vault/store";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { canRotate, directoryForRotation, nativeBlocksRotation, rotationMethod, rotationOn, ROTATION_MIN_CONNECTOR, type RotationMethod } from "@/lib/vault/rotation";
+import { canRotate, directoryForRotation, nativeBlocksRotation, rotationMethod, rotationMinConnector, rotationOn, type RotationMethod } from "@/lib/vault/rotation";
+import { parseDbParams } from "@/lib/database/params";
 
 // What the resource page shows about rotation, and what the settings API
 // checks against. Server-only; nothing here can open a password.
@@ -11,6 +12,8 @@ export type RotationStatus = {
   unsupported: string | null;
   /** A native client on it needs a password the user knows (nativeBlocksRotation). */
   native: boolean;
+  /** MySQL with TLS off: the new password crosses the network in the clear when set. */
+  cleartext: boolean;
   afterSession: boolean;
   everyDays: number | null;
   verifyDaily: boolean;
@@ -37,7 +40,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
   const c = await db.vaultCredential.findUnique({
     where: { siteId },
     select: {
-      protocol: true, secretKind: true, secret: true, sealedTo: true, extraSeals: true, targetHost: true, targetPort: true, username: true,
+      protocol: true, secretKind: true, secret: true, dbParams: true, sealedTo: true, extraSeals: true, targetHost: true, targetPort: true, username: true,
       rotateAfterSession: true, rotateEveryDays: true, rotateVerifyDaily: true, rotateDueAt: true, rotatedAt: true, verifiedAt: true,
       rotationState: true, rotationDetail: true, pendingSeals: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true,
       site: {
@@ -65,12 +68,13 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
   };
   const holdsCopy = keyed.filter((h) => seals[h.vaultPublicKey!]);
   const waiting = !c.sealedTo ? "The saved password is not sealed to a connector yet."
-    : holdsCopy.some((h) => canRotate(h)) ? null
-    : holdsCopy.some((h) => h.status === "ONLINE") ? `The connectors that have this password run a version older than ${ROTATION_MIN_CONNECTOR}. Update one to rotate it.`
+    : holdsCopy.some((h) => canRotate(h, "method" in m ? m.method : null)) ? null
+    : holdsCopy.some((h) => h.status === "ONLINE") ? `The connectors that have this password run a version older than ${rotationMinConnector("method" in m ? m.method : null)}. Update one to rotate it.`
     : "No connector that has this password is online.";
   return {
     method: "method" in m ? m.method : null,
     unsupported: "unsupported" in m ? m.unsupported : null,
+    cleartext: c.protocol === "MYSQL" && parseDbParams(c.dbParams, "MYSQL").tls === "disable",
     native: nativeBlocksRotation({ ...c.site, recorded: await effectiveSiteRecording(c.site.recordSessions) }),
     afterSession: c.rotateAfterSession,
     everyDays: c.rotateEveryDays,

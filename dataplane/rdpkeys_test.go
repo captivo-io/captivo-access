@@ -104,3 +104,13 @@ func TestRdpKeysUnknownLayoutIsNotGuessed(t *testing.T) {
 		t.Fatalf("noted twice or guessed: %+v", got)
 	}
 }
+
+func TestRdpKeysNoLayoutReadsUS(t *testing.T) {
+	now := time.Now()
+	o := newRdpKeyObserver(now)
+	o.connectInitial(coreData(0)) // the macOS app names none
+	got := typedOf(t, o, now, append(append(tap(0x15), tap(0x17)...), tap(0x1C)...)...)
+	if len(got) != 2 || got[0].Text != "[the client named no keyboard layout: typed text is read as a US keyboard]" || got[1].Text != "yi" {
+		t.Fatalf("got %+v", got)
+	}
+}

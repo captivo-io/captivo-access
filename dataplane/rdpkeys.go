@@ -12,8 +12,9 @@ import (
 // timeline of a browser session shows it. A client sends key positions
 // (scancodes), so the text depends on its keyboard layout, which it names in
 // its MCS Connect Initial; the layouts below are known, and for any other the
-// log says so instead of guessing. Unicode events (an input method) are taken
-// as they are.
+// log says so instead of guessing. A client that names none (0, as the macOS
+// and iOS apps do: the server's own layout applies) is read as US, and the
+// log says so. Unicode events (an input method) are taken as they are.
 
 const (
 	layoutUS        = 0x0409
@@ -82,10 +83,10 @@ var rdpLayouts = map[uint32]*rdpLayout{
 var numpad = map[byte]rune{0x47: '7', 0x48: '8', 0x49: '9', 0x4A: '-', 0x4B: '4', 0x4C: '5', 0x4D: '6', 0x4E: '+', 0x4F: '1', 0x50: '2', 0x51: '3', 0x52: '0', 0x53: ','}
 
 type rdpKeyObserver struct {
-	start   time.Time
-	layout  *rdpLayout
-	unknown uint32 // a layout not in the table: noted once, nothing guessed
-	noted   bool
+	start  time.Time
+	layout *rdpLayout
+	note   string // said once, ahead of the first text
+	noted  bool
 
 	shiftL, shiftR, ctrl, alt, altgr bool
 	caps, num                        bool
@@ -103,10 +104,13 @@ func (o *rdpKeyObserver) connectInitial(pdu []byte) {
 	gccClientBlocks(pdu, func(typ uint16, b []byte) {
 		if typ == 0xC001 && len(b) >= 20 {
 			id := binary.LittleEndian.Uint32(b[16:]) & 0xFFFF
-			if l, ok := rdpLayouts[id]; ok {
+			switch l, ok := rdpLayouts[id]; {
+			case ok:
 				o.layout = l
-			} else {
-				o.layout, o.unknown = nil, id
+			case id == 0:
+				o.layout, o.note = rdpLayouts[layoutUS], "[the client named no keyboard layout: typed text is read as a US keyboard]"
+			default:
+				o.layout, o.note = nil, fmt.Sprintf("[typed text not logged: keyboard layout %#04x is not supported]", id)
 			}
 		}
 	})
@@ -165,10 +169,6 @@ func (o *rdpKeyObserver) input(pdu []byte, now time.Time) []keyEvent {
 		p++
 	}
 	var out []keyEvent
-	if o.layout == nil && !o.noted {
-		o.noted = true
-		out = append(out, keyEvent{AtMs: now.Sub(o.start).Milliseconds(), Kind: "text", Text: fmt.Sprintf("[typed text not logged: keyboard layout %#04x is not supported]", o.unknown)})
-	}
 	for i := 0; i < count && p < len(pdu); i++ {
 		h := pdu[p]
 		code, flags := h>>5, h&0x1F
@@ -241,7 +241,17 @@ func (o *rdpKeyObserver) scancode(sc, flags byte, now time.Time) []keyEvent {
 		}
 		return nil
 	}
-	if !down || o.layout == nil {
+	if !down {
+		return nil
+	}
+	if o.note != "" && !o.noted {
+		// Only once a key is read by its position: a client that sends
+		// Unicode events needs no layout.
+		o.noted = true
+		ev := keyEvent{AtMs: now.Sub(o.start).Milliseconds(), Kind: "text", Text: o.note}
+		return append([]keyEvent{ev}, o.scancode(sc, flags, now)...)
+	}
+	if o.layout == nil {
 		return nil
 	}
 	switch sc {

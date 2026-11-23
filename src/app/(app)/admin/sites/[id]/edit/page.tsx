@@ -37,7 +37,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
     resourceContext(),
     site.accessMode === "GATEWAY" || site.accessMode === "DATABASE" ? getVaultCredentialMeta(site.id) : Promise.resolve(null),
     site.accessMode === "ISOLATED" ? recentEgressEvents(site.id) : Promise.resolve(undefined),
-    site.accessMode === "GATEWAY" ? rotationStatus(site.id) : Promise.resolve(null),
+    site.accessMode === "GATEWAY" || site.accessMode === "DATABASE" ? rotationStatus(site.id) : Promise.resolve(null),
   ]);
 
   return (

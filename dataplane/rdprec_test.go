@@ -162,3 +162,32 @@ func TestRdpFrontRefusesAClientWithoutTLS(t *testing.T) {
 		t.Fatalf("got %x %v", cc, err)
 	}
 }
+
+// The client's channel list goes ahead of the server's PDUs, as a client
+// record holding only the network data block.
+func TestRdpRecorderKeepsTheClientsChannels(t *testing.T) {
+	sink := &recSink{}
+	rec := newRdpRecorder(sink.send, nil, nil, "t1", "k1", "s1", time.Now())
+	core := make([]byte, 216)
+	binary.LittleEndian.PutUint16(core, 0xC001)
+	binary.LittleEndian.PutUint16(core[2:], 216)
+	net := make([]byte, 8+24)
+	binary.LittleEndian.PutUint16(net, csNetBlock)
+	binary.LittleEndian.PutUint16(net[2:], uint16(len(net)))
+	binary.LittleEndian.PutUint32(net[4:], 2)
+	copy(net[8:], "rdpdr\x00\x00\x00")
+	copy(net[20:], "drdynvc\x00")
+	body := append(append([]byte{}, core...), net...)
+	ci := append([]byte("....Duca"), byte(0x80|len(body)>>8), byte(len(body)))
+	ci = append(ci, body...)
+	rec.clientChannels(ci)
+	rec.server([]byte{3, 0, 0, 5, 9})
+	rec.stop()
+	d := sink.data
+	if d[8] != 1 || binary.LittleEndian.Uint64(d[13:]) != uint64(len(net)) || string(d[21:21+len(net)]) != string(net) {
+		t.Fatalf("first record %x", d[:min(len(d), 60)])
+	}
+	if d[21+len(net)+8] != 0 {
+		t.Fatal("the server's PDU is not marked as the server's")
+	}
+}

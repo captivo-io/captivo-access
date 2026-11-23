@@ -16,7 +16,7 @@ package tunnel
 type RotateRequest struct {
 	Kind     string   `json:"kind"` // "rotate"
 	Op       string   `json:"op"`
-	Method   string   `json:"method"` // "linux" (SSH) | "ad" (directory account)
+	Method   string   `json:"method"` // "linux" (SSH) | "ad" (directory account) | "postgres" | "mysql"
 	Host     string   `json:"host"`
 	Port     string   `json:"port"`
 	Username string   `json:"username"`
@@ -31,6 +31,8 @@ type RotateRequest struct {
 	Reconcile *RotateReconcile `json:"reconcile,omitempty"`
 	// AD: the domain controller the account lives in.
 	Directory *RotateDirectory `json:"directory,omitempty"`
+	// A database account: how to connect, as the resource's sessions do.
+	DB *RotateDB `json:"db,omitempty"`
 	// Shown in the connector's own record of rotated passwords (show-password).
 	Label string `json:"label,omitempty"`
 }
@@ -69,4 +71,13 @@ type RotateResponse struct {
 	SSHHostKey string            `json:"sshHostKey,omitempty"`
 	Detail     string            `json:"detail,omitempty"`
 	Error      string            `json:"error,omitempty"`
+}
+
+// RotateDB is how the connector signs in to a database resource's server for a
+// rotation: the database to connect to (PostgreSQL needs one) and TLS as the
+// resource sets it ("disable", "require", "verify-full").
+type RotateDB struct {
+	Database  string `json:"database,omitempty"`
+	TLS       string `json:"tls"`
+	CACertPEM string `json:"caCertPem,omitempty"`
 }

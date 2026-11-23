@@ -132,12 +132,28 @@ func startRdpLive(watchID string) *rdpLive {
 }
 
 // server queues a PDU the server sent for the decoder.
-func (l *rdpLive) server(pdu []byte) {
+func (l *rdpLive) server(pdu []byte) { l.feed(false, pdu) }
+
+// clientChannels gives the decoder the static channels the client asked for
+// (its Connect Initial's network data block), ahead of the server's PDUs: the
+// server numbers channels in that order, so the decoder asks for the same.
+func (l *rdpLive) clientChannels(connectInitial []byte) {
+	gccBlocks(connectInitial, "Duca", func(typ uint16, b []byte) {
+		if typ == csNet {
+			l.feed(true, append([]byte(nil), b...))
+		}
+	})
+}
+
+func (l *rdpLive) feed(fromClient bool, pdu []byte) {
 	if l == nil {
 		return
 	}
 	rec := make([]byte, 21, 21+len(pdu))
 	binary.LittleEndian.PutUint64(rec, uint64(time.Since(l.start).Milliseconds())+1)
+	if fromClient {
+		rec[8] = 1
+	}
 	binary.LittleEndian.PutUint32(rec[9:], crc32.ChecksumIEEE(pdu))
 	binary.LittleEndian.PutUint64(rec[13:], uint64(len(pdu)))
 	rec = append(rec, pdu...)

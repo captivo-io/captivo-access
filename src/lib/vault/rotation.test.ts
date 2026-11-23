@@ -33,6 +33,8 @@ describe("rotationMethod", () => {
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, dir)).toEqual({ method: "ad" });
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, { ...dir, security: "PLAIN" })).toHaveProperty("unsupported");
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
+    expect(rotationMethod({ protocol: "POSTGRES", secretKind: "PASSWORD" }, null)).toEqual({ method: "postgres" });
+    expect(rotationMethod({ protocol: "MYSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mysql" });
   });
 });
 
@@ -60,6 +62,11 @@ describe("scheduling", () => {
     expect(canRotate({ status: "ONLINE", version: "2.44.1" })).toBe(false);
     expect(canRotate({ status: "OFFLINE", version: "2.45.0" })).toBe(false);
   });
+  it("needs 2.54.0 for a database account", () => {
+    expect(canRotate({ status: "ONLINE", version: "2.53.0" }, "postgres")).toBe(false);
+    expect(canRotate({ status: "ONLINE", version: "2.54.0" }, "mysql")).toBe(true);
+    expect(canRotate({ status: "ONLINE", version: "2.53.0" }, "linux")).toBe(true);
+  });
 });
 
 describe("planJob", () => {
@@ -73,6 +80,19 @@ describe("planJob", () => {
     const old = row({ site: { id: "s1", name: "Build", connector: conn("a", { version: "2.44.0" }), connectorGroup: null } });
     expect(planJob(old, null, NOW)).toHaveProperty("reason");
     expect(planJob(row({ rotateDueAt: null }), null, NOW)).toBeNull();
+  });
+  it("plans a database account with how to connect and its reconcile account", () => {
+    const db = row({
+      protocol: "MYSQL", dbParams: { database: "crm", tls: "disable", caCertPem: null },
+      reconcileUsername: "root", reconcileKind: "PASSWORD", reconcileSeals: { "k-a": SEAL(7), "k-b": SEAL(8) },
+      site: { id: "s1", name: "CRM", connector: conn("a", { version: "2.54.0" }), connectorGroup: null },
+    });
+    const j = planJob(db, null, NOW) as RotationJob;
+    expect(j.method).toBe("mysql");
+    expect(j.db).toEqual({ database: "crm", tls: "disable", caCertPem: "" });
+    expect(j.reconcile).toMatchObject({ username: "root", host: j.target.host, port: j.target.port, secretKey: false });
+    const old = row({ protocol: "POSTGRES", dbParams: {}, site: { id: "s1", name: "CRM", connector: conn("a", { version: "2.53.0" }), connectorGroup: null } });
+    expect(planJob(old, null, NOW)).toMatchObject({ reason: expect.stringContaining("2.54.0") });
   });
   it("picks a connector that holds the pending seal when one is pending", () => {
     const j = planJob(row({ pendingSeals: { "k-b": SEAL(5) }, site: { id: "s1", name: "B", connector: conn("a"), connectorGroup: { members: [{ connector: conn("a") }, { connector: conn("b") }] } } }), null, NOW) as RotationJob;
