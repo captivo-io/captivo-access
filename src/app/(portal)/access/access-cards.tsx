@@ -85,7 +85,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                   <span className="ma-norec" title={c.sshHref && !c.sshRecorded ? "Sessions opened with Open are recorded. Sessions in your own SSH app are not." : "Sessions opened with Open are recorded. Sessions in your own Remote Desktop app are not."}>not recorded</span>
                 )}
                 {c.status === "active" && c.rdpHref && (
-                  <a className="btn sm" href={c.rdpHref} download title={c.rdpRecorded ? "Connect with your own Remote Desktop app. The file works for two minutes. Captivo signs you in, so leave any password prompt empty; the session is recorded." : `Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.${c.recorded ? " These sessions are not recorded." : ""}`}>.rdp file</a>
+                  <a className="btn sm" href={c.rdpHref} download title={c.rdpRecorded ? "Connect with your own Remote Desktop app. The file works for two minutes. Captivo signs you in, so leave any password prompt empty; the session is recorded and may be watched live." : `Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.${c.recorded ? " These sessions are not recorded." : ""}`}>.rdp file</a>
                 )}
                 {c.status === "active" && c.sshHref && <SshCommandButton href={c.sshHref} siteId={c.siteId} siteName={c.siteName} recorded={!!c.recorded} sshRecorded={!!c.sshRecorded} />}
                 {isDb

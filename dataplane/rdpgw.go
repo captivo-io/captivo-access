@@ -279,8 +279,9 @@ type rdpgwTunnel struct {
 	target rdpTarget
 	remote net.Conn
 
-	lsMu sync.Mutex
-	ls   *liveSession // the console's entry, for a recorded session's typed text
+	lsMu    sync.Mutex
+	ls      *liveSession // the console's entry, for a recorded session's typed text
+	watchID string       // a recorded session's live picture on the connector
 }
 
 func (t *rdpgwTunnel) live() *liveSession {
@@ -470,6 +471,9 @@ func (t *rdpgwTunnel) open() func() {
 		ls := t.d.hub.RegisterNative(sessionID, "rdp", tk.SiteID, tk.UserID, host, start, t.target.ConnectorID, t.clientIP)
 		if t.target.Recorded {
 			ls.SetCapture(true, t.target.Keystrokes)
+			if t.watchID != "" {
+				ls.setRdpWatch(t.watchID)
+			}
 		}
 		t.lsMu.Lock()
 		t.ls = ls

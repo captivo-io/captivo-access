@@ -49,19 +49,20 @@ RUN ./guacenc_test.sh
 # into video the same way: rdpenc replays the stream into a headless FreeRDP
 # 3 client, without a server, and hands the screen to ffmpeg (recmaint.go).
 # Alpine 3.24's FreeRDP decodes H.264 (OpenH264), which the graphics pipeline
-# of a current Windows server sends; 3.22's had no H.264 at all.
+# of a current Windows server sends; 3.22's had no H.264 at all. The same
+# binary, --live, decodes a running session for live watching (rdplive.go).
 FROM alpine:3.24 AS rdpenc
-RUN apk add --no-cache build-base pkgconf freerdp-dev
+RUN apk add --no-cache build-base pkgconf freerdp-dev libjpeg-turbo-dev
 COPY connector/rdpenc/rdpenc.c /build/rdpenc.c
 RUN gcc -O2 -Wall -Wno-deprecated-declarations -o /build/rdpenc /build/rdpenc.c \
-      $(pkg-config --cflags --libs freerdp3 freerdp-client3 winpr3)
+      $(pkg-config --cflags --libs freerdp3 freerdp-client3 winpr3) -lturbojpeg -lpthread
 
 # ---- run ----
 FROM alpine:3.24
 # ffmpeg: guacenc's codecs, and ffprobe/ffmpeg to check a finished video and to
 # repair an isolated-browser one whose session was cut off before it was closed.
-# freerdp-libs: rdpenc's decoder (no X11, no audio).
-RUN apk add --no-cache ffmpeg cairo libjpeg-turbo libpng libwebp libuuid freerdp-libs \
+# freerdp-libs: rdpenc's decoder (no X11, no audio); libturbojpeg: its live picture.
+RUN apk add --no-cache ffmpeg cairo libjpeg-turbo libpng libwebp libuuid freerdp-libs libturbojpeg \
  && mkdir -p /data && adduser -D -H -u 10001 connector && chown connector /data
 COPY --from=guacenc /opt/guacamole /opt/guacamole
 COPY --from=rdpenc /build/rdpenc /usr/local/bin/rdpenc

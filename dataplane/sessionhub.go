@@ -60,6 +60,7 @@ type liveSession struct {
 	closer       func()    // closes the underlying tunnel; set by guactunnel after Register
 	term         *termLive // recorded native SSH: its terminals, for viewers (sshlive.go)
 	notify       func(text string, watch bool) string
+	rdpWatch     string       // recorded native RDP: the live picture's id on its connector (rdpview.go)
 	act          liveActivity // the console's feed and activity bars (liveactivity.go)
 }
 
@@ -81,6 +82,20 @@ func (ls *liveSession) termHooks() (*termLive, func(string, bool) string) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	return ls.term, ls.notify
+}
+
+// setRdpWatch makes a recorded native RDP session watchable: its connector
+// decodes the picture, which viewers get under this id.
+func (ls *liveSession) setRdpWatch(watchID string) {
+	ls.mu.Lock()
+	ls.rdpWatch = watchID
+	ls.mu.Unlock()
+}
+
+func (ls *liveSession) rdpWatchHook() (connectorID, watchID string) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.connectorID, ls.rdpWatch
 }
 
 func (ls *liveSession) kasmAttach() (string, string, int, string) {
@@ -250,7 +265,7 @@ func (h *SessionHub) List() []SessionInfo {
 			SessionID: ls.id, SiteID: ls.siteID, UserID: ls.userID, Kind: ls.kind, Protocol: ls.protocol,
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
 			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
-			Native: ls.native, ConnectorID: ls.connectorID, Watchable: ls.term != nil,
+			Native: ls.native, ConnectorID: ls.connectorID, Watchable: ls.term != nil || ls.rdpWatch != "",
 		})
 		ls.mu.Unlock()
 	}

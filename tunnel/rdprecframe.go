@@ -19,6 +19,9 @@ type RdpRecRequest struct {
 	// Static channels the resource keeps off (cliprdr, rdpdr, rdpsnd...): the
 	// server is asked for none of them, whatever the client requests.
 	BlockChannels []string `json:"blockChannels,omitempty"`
+	// Names the session's live picture, which a viewer asks for with an
+	// RdpWatchRequest; empty: none is kept.
+	WatchID string `json:"watchId,omitempty"`
 }
 
 // RdpRecResponse reports the sign-in. An empty Error means the connector is
@@ -30,10 +33,26 @@ type RdpRecResponse struct {
 	Error      string `json:"error,omitempty"`
 	CertSHA256 string `json:"certSha256,omitempty"`
 	NegFlags   uint8  `json:"negFlags,omitempty"`
+	// Live: the connector decodes the session as it runs, so it can be
+	// watched (RdpWatchRequest with the request's WatchID).
+	Live bool `json:"live,omitempty"`
 }
 
 // RdpRecStart follows once the user's client has negotiated TLS with the data
 // plane: what it asked for, then the RDP sequence.
 type RdpRecStart struct {
 	ClientProtocols uint32 `json:"clientProtocols"`
+}
+
+// RdpWatchRequest (Kind "rdp-watch") attaches a viewer to a recorded native
+// RDP session's live picture (connector/rdplive.go). After an RdpWatchResponse
+// without an Error the stream carries Guacamole protocol: the screen's size and
+// all of it, then what changes.
+type RdpWatchRequest struct {
+	Kind    string `json:"kind"` // "rdp-watch"
+	WatchID string `json:"watchId"`
+}
+
+type RdpWatchResponse struct {
+	Error string `json:"error,omitempty"`
 }

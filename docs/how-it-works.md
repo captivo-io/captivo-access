@@ -428,7 +428,18 @@ flowchart LR
   isn't supported instead of guessing).
 - **The clipboard and drives** follow the resource's rules on the server's side
   too: a channel the rules keep off is not opened at all, whatever the app asks.
-- **Live watching** of these sessions is not there yet; an admin can end them.
+- **Watching live.** Sessions shows these sessions with **Watch live**, in the
+  same viewer as a browser session, watching only. The connector decodes each
+  session as it runs (the picture is the sum of everything the server sent, so
+  it can't start when a viewer comes), and while someone watches sends what
+  changed, at most ten times a second. An ordinary desktop costs it 1-2% of a
+  core; a full-HD video playing, most of one; about 180 MB of memory either way.
+  At most `RDP_LIVE_MAX` sessions (default 4; 0 turns live watching off) are
+  decoded at once on a connector; later ones are recorded but can't be watched,
+  and a decoder that falls behind ends watching, never the session. The user
+  isn't told inside their Remote Desktop app (Captivo has nowhere there to write),
+  and messages can't reach it: the portal and the .rdp file say sessions may be
+  watched live.
 - **What stays the same:** the grant, its schedule and expiry, the user's status
   and the vendor IP allowlist are checked when the tunnel opens and every minute
   after; the session is listed on the Sessions page (as `RDP · NATIVE`), an admin

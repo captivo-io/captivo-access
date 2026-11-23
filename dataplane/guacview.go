@@ -45,6 +45,11 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 		serveTermView(ls, live, notify, viewerUserID, w, r)
 		return
 	}
+	// A recorded native RDP session: its connector decodes the picture.
+	if connectorID, watchID := ls.rdpWatchHook(); watchID != "" {
+		serveRdpView(ls, reg.Get(connectorID), watchID, viewerUserID, w, r)
+		return
+	}
 	connID, connectorID, guacdAddr := ls.shareInfo()
 	if connID == "" {
 		http.Error(w, "session not ready", http.StatusConflict)

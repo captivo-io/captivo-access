@@ -265,7 +265,9 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 	}
 	server, selected := in.conn, in.selected
 	defer server.Close()
-	if !writeRdpRecResp(st, tunnel.RdpRecResponse{CertSHA256: in.fingerprint, NegFlags: in.negFlags}) {
+	live := startRdpLive(req.WatchID)
+	defer live.stop(req.WatchID)
+	if !writeRdpRecResp(st, tunnel.RdpRecResponse{CertSHA256: in.fingerprint, NegFlags: in.negFlags, Live: live != nil}) {
 		return
 	}
 	// The client negotiates TLS with the data plane meanwhile; the server
@@ -319,6 +321,7 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 				rewriteConnectResponse(pdu, start.ClientProtocols)
 				first = false
 			}
+			live.server(pdu)
 			if _, err := st.Write(pdu); err != nil {
 				return
 			}
