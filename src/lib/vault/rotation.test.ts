@@ -6,7 +6,7 @@ vi.mock("@/lib/connector/history", () => ({ recordConnectorEvent: vi.fn() }));
 vi.mock("@/lib/mobile/push", () => ({ pushToCapability: vi.fn() }));
 vi.mock("@/lib/tenant/console-url", () => ({ consoleBaseUrl: async () => "" }));
 
-import { acceptPrepared, canRotate, nextScheduled, planJob, retryDelayMs, rotationMethod, runJob, type RotationJob } from "./rotation";
+import { acceptPrepared, canRotate, nativeBlocksRotation, nextScheduled, planJob, retryDelayMs, rotationMethod, runJob, type RotationJob } from "./rotation";
 import { planCopy } from "./reconcile-reshare";
 
 const SEAL = (n: number) => "cv1:" + Buffer.alloc(60, n).toString("base64");
@@ -33,6 +33,15 @@ describe("rotationMethod", () => {
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, dir)).toEqual({ method: "ad" });
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, { ...dir, security: "PLAIN" })).toHaveProperty("unsupported");
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
+  });
+});
+
+describe("nativeBlocksRotation", () => {
+  it("blocks for native RDP and unrecorded native SSH, not for recorded native SSH", () => {
+    expect(nativeBlocksRotation({ nativeRdp: true, nativeSsh: false, recorded: true })).toBe(true);
+    expect(nativeBlocksRotation({ nativeRdp: false, nativeSsh: true, recorded: false })).toBe(true);
+    expect(nativeBlocksRotation({ nativeRdp: false, nativeSsh: true, recorded: true })).toBe(false);
+    expect(nativeBlocksRotation({ nativeRdp: false, nativeSsh: false, recorded: false })).toBe(false);
   });
 });
 

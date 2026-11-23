@@ -6,6 +6,7 @@ import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
 import { resolvedGuacParamDefaults, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
 import { parseGuacParams, resolveGuacParams } from "@/lib/gateway/guac-params";
 import { getVaultCredential } from "@/lib/vault/store";
+import { rotationOn } from "@/lib/vault/rotation";
 import { nativeSshMode, NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR, type NativeSshBlock, type NativeSshMode } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 
@@ -23,7 +24,7 @@ export type NativeSshRecorded = {
 
 export type NativeSshTarget =
   | ({ ok: true; mode: NativeSshMode; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number } & Partial<NativeSshRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | NativeSshBlock; reason?: string };
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | NativeSshBlock; reason?: string };
 
 /** The resource's file transfer rule, as its browser SSH session would have it. */
 export function sshFileTransfer(p: { enableFileTransfer?: boolean; blockUpload?: boolean; blockDownload?: boolean }): NativeSshRecorded["fileTransfer"] {
@@ -46,7 +47,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
     where: { id: siteId },
     select: {
       name: true, accessMode: true, nativeSsh: true, recordSessions: true, keystrokeLogging: true, ...siteRoutingSelect,
-      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true } },
+      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true } },
     },
   });
   if (!site) return { ok: false, status: 404, error: "not_found" };
@@ -63,6 +64,9 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const where = { siteName: site.name, targetHost: cred.targetHost, targetPort: cred.targetPort };
 
   if (mode === "direct") {
+    // The user would sign in with a password Captivo rotates and nobody knows.
+    // Saving refuses this; it happens when recording is switched off afterwards.
+    if (rotationOn(cred)) return { ok: false, status: 409, error: "rotated" };
     // On a group, only members new enough to relay the tunnel carry it.
     const members = routeMembers(site, { minVersion: NATIVE_SSH_MIN_CONNECTOR }).eligible;
     if (members.length === 0) return { ok: false, status: 409, error: "connector_outdated" };

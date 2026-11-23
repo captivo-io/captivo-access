@@ -18,7 +18,7 @@ const STATE: Record<string, [string, string]> = {
 };
 
 const ERRORS: Record<string, string> = {
-  rotation_with_native: "Turn off the native RDP/SSH client first: a native client needs a password the user knows.",
+  rotation_with_native: "Turn off the native RDP/SSH client first: a native client needs a password the user knows. Native SSH on a recorded resource works with rotation, as Captivo signs in for the user.",
   reason_required: "Say why you need it (at least 10 characters). The reason goes into the audit log.",
   invalid_reconcile_user: "Use a Linux user name (letters, digits, . _ -).",
   vault_key_changed: "None of this resource's connectors has a key yet. Reload the page and try again.",

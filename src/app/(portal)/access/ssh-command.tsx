@@ -25,6 +25,7 @@ const ERRORS: Record<string, string> = {
   connector_outdated: "This resource's connector needs an update before your own SSH app can reach it.",
   vault_secret_reenter: "The saved account for this resource must be entered again by an admin.",
   ssh_off: "Connecting with your own SSH app isn't set up on this service.",
+  rotated: "This resource's password changes automatically, so it opens only in the browser now. Ask an admin to turn recording back on for it.",
 };
 
 const userKey = (siteId: string) => `captivo.ssh-user.${siteId}`;

@@ -198,8 +198,11 @@ connector, so that nobody, Captivo included, knows the password in use.
   keeps its own sealed copy of it (`/data/rotated.json`, next to its key); the
   resource page names that connector. On its host:
   `docker exec access-connector connector show-password "<resource>"`.
-- **Native clients.** A resource that rotates cannot offer the native RDP or SSH
-  client: the user would need a password nobody knows.
+- **Native clients.** A resource that rotates cannot offer the native RDP
+  client, or the native SSH client unrecorded: the user would need a password
+  nobody knows. Recorded native SSH works with rotation, as Captivo signs in
+  with the saved password. If recording is later switched off for the
+  resource, its native SSH command is refused until it is back on.
 - Every rotation, failure, reveal and settings change is in the admin audit log
   and in the connector's history.
 
@@ -470,7 +473,8 @@ flowchart LR
 - **The terminal is recorded** as what it showed (asciicast, on the connector,
   encrypted like every recording) and plays in Recordings with the same controls;
   a password typed at a prompt that doesn't echo is never in it. Typed lines are
-  logged when the resource logs keystrokes, masked at password prompts. A command
+  logged when the resource logs keystrokes, masked at password prompts; keys typed
+  into a full-screen program (vim, top, less) are left out. A command
   run without a terminal (`ssh host cmd`) is recorded with its output; binary
   output is marked and left out.
 - **File transfer follows the resource's file transfer setting**: SFTP is read

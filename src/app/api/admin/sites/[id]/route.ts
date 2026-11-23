@@ -20,7 +20,8 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { reshareGroupSecrets } from "@/lib/vault/reshare";
-import { rotationOn } from "@/lib/vault/rotation";
+import { nativeBlocksRotation, rotationOn } from "@/lib/vault/rotation";
+import { effectiveSiteRecording } from "@/lib/recording/effective";
 
 export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -131,8 +132,9 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
 
   // GATEWAY update: a first-time credential must include a secret.
   const hadVault = (await db.vaultCredential.count({ where: { siteId: id } })) > 0;
-  // A native client signs in with a password the user types; a rotated one nobody knows.
-  if (v.nativeRdp || v.nativeSsh) {
+  // A native client signs in with a password the user types; a rotated one nobody
+  // knows. Recorded native SSH is the exception: Captivo signs in for the user.
+  if (nativeBlocksRotation({ nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, recorded: await effectiveSiteRecording(v.recordSessions) })) {
     const rot = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { rotateAfterSession: true, rotateEveryDays: true } });
     if (rot && rotationOn(rot)) return NextResponse.json({ error: "native_with_rotation" }, { status: 400 });
   }
