@@ -452,7 +452,9 @@ flowchart LR
   and drive channels answered the real app, and is dropped. The connector takes
   "server may compress channel data" out of the app's capabilities (Windows'
   and Apple's apps offer it; FreeRDP can't decompress channel data), so the
-  server sends channel data as it is, which the app reads the same way. The pointer is
+  server sends channel data as it is, which the app reads the same way. The
+  replay keeps the graphics pipeline's cache at its largest (25,600 slots):
+  the server fills what the app offered, and Windows' app offers that one. The pointer is
   drawn in: the server sends its shape, and the recording keeps where the app
   moved it (the position only, no other input). Typed text is logged as the
   resource's keystroke setting says, for the US and Turkish Q keyboard layouts

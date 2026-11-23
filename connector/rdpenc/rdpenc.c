@@ -926,6 +926,12 @@ int main(int argc, char* argv[])
 	rdpSettings* settings = context->settings;
 	freerdp_settings_set_bool(settings, FreeRDP_TransportDumpReplay, TRUE);
 	freerdp_settings_set_bool(settings, FreeRDP_DeactivateClientDecoding, FALSE);
+	/* The graphics pipeline's cache as large as the protocol allows (25600
+	 * slots, not 4096): the server fills what the recorded app offered, and
+	 * Windows' Remote Desktop app offers the large one. With the small one a
+	 * slot past 4096 is refused and everything drawn from the cache after it
+	 * stays black. */
+	freerdp_settings_set_bool(settings, FreeRDP_GfxSmallCache, FALSE);
 
 	rdpTransportIo io = *freerdp_get_io_callbacks(context);
 	io.ReadPdu = enc_read_pdu;
