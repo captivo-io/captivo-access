@@ -27,7 +27,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
   }
   const estimatedMs = rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0;
   const lengthMs = rec.durationMs ?? estimatedMs;
-  const [ws, user, site, retention, transfers] = await Promise.all([
+  const [ws, user, site, retention, transfers, carrier] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } }),
     db.site.findUnique({ where: { id: rec.siteId }, select: { name: true, connector: { select: { version: true } } } }),
@@ -42,6 +42,8 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
       take: 200,
       select: { timestamp: true, method: true, path: true, bytesOut: true },
     }),
+    // The connector that carried the session, and so keeps its recording.
+    rec.connectorId ? db.connector.findUnique({ where: { id: rec.connectorId }, select: { name: true } }) : Promise.resolve(null),
   ]);
   const startSec = Number(t);
   const view = {
@@ -55,6 +57,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     measured: rec.durationMs !== null,
     bytes: rec.bytes,
     host: rec.host,
+    connector: carrier?.name ?? null,
     encrypted: rec.encrypted,
     purgePending: rec.purgePendingAt !== null,
   };

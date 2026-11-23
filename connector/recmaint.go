@@ -1095,8 +1095,11 @@ func (t execTools) EncodeRdp(ctx context.Context, in io.Reader, out string) (tim
 			var n, ms int64
 			if _, err := fmt.Sscanf(lines.Text(), "frames %d, %d ms", &n, &ms); err == nil {
 				span = time.Duration(ms) * time.Millisecond
-			} else if l := lines.Text(); len(said) < 5 && !strings.Contains(l, "check_fds() failed") && !strings.Contains(l, "channels, got") {
-				// Not the end of the dump, nor a channel the recorded client lacked.
+			} else if l := lines.Text(); strings.HasPrefix(l, "stats ") {
+				logInfo("rdpenc: %s", l) // what drew the screen, always
+			} else if len(said) < 5 && !strings.Contains(l, "check_fds() failed") && !strings.Contains(l, "channels, got") && !strings.Contains(l, "dvcman_close_request") {
+				// Not the end of the dump, a channel the recorded client lacked,
+				// nor the server closing a channel no plugin here opened.
 				said = append(said, l)
 			}
 		}

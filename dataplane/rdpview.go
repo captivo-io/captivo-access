@@ -12,6 +12,9 @@ import (
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
+// rdpViewKeepalive is how often a viewer gets a nop when nothing else is sent.
+const rdpViewKeepalive = 5 * time.Second
+
 // serveRdpView shows a viewer a recorded native RDP session as it runs. Its
 // connector decodes the picture (connector/rdplive.go) and sends Guacamole
 // protocol, the same the browser's live view gets from guacd for a session
@@ -57,7 +60,8 @@ func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w h
 	ls.addViewer()
 	defer ls.removeViewer()
 	log.Printf("rdp-view session=%s viewer=%s: watching", ls.id, viewerUserID)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if err := c.Write(ctx, websocket.MessageText, encodeInstruction("ready", "$"+watchID)); err != nil {
 		return
 	}
@@ -72,6 +76,24 @@ func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w h
 			}
 			if err := c.Write(ctx, websocket.MessageText, inst); err != nil {
 				errc <- err
+				return
+			}
+		}
+	}()
+	// A still screen sends nothing, and guacamole-common-js gives up on a
+	// tunnel it hears nothing from for 15 seconds ("The session ended or is no
+	// longer available"); guacd sends syncs all along, the decoder only what
+	// changed. A nop now and then keeps the view open.
+	go func() {
+		tick := time.NewTicker(rdpViewKeepalive)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				if err := c.Write(ctx, websocket.MessageText, encodeInstruction("nop")); err != nil {
+					return
+				}
+			case <-ctx.Done():
 				return
 			}
 		}

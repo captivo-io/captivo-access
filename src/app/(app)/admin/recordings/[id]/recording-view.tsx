@@ -29,6 +29,8 @@ export interface RecordingInfo {
   measured: boolean;
   bytes: number;
   host: string;
+  /** The connector that carried the session and keeps the recording. */
+  connector?: string | null;
   encrypted: boolean;
   purgePending: boolean;
 }
@@ -223,6 +225,7 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
                   ["User", <>{name}{user.email && user.name ? <div className="cell-sub">{user.email}</div> : null}</>],
                   ["Resource", siteName],
                   ["Host", <span key="h" className="mono">{rec.host}</span>],
+                  ...(rec.connector ? [["Connector", rec.connector] as [string, React.ReactNode]] : []),
                   ["Protocol", protocolLabel(rec)],
                   ["Started", <span key="s" className="mono">{isoWithOffset(rec.startedAt, zone)}</span>],
                   ["Length", <span key="l" className="mono">{clockOf(rec.lengthMs)}{rec.measured ? "" : " (estimated)"}</span>],

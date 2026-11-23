@@ -54,8 +54,8 @@ export async function liveRows(): Promise<LiveRow[]> {
       : Promise.resolve([]),
   ]);
   const users = new Map(userList.map((u) => [u.id, u]));
-  // On a group resource, which member carries each session.
-  const carrierIds = [...new Set(sessions.filter((s) => s.connectorId && siteList.some((x) => x.id === s.siteId && x.connectorGroupId)).map((s) => s.connectorId!))];
+  // Which connector carries each session (on a group resource, which member).
+  const carrierIds = [...new Set(sessions.filter((s) => s.connectorId).map((s) => s.connectorId!))];
   const carriers = new Map((carrierIds.length ? await db.connector.findMany({ where: { id: { in: carrierIds } }, select: { id: true, name: true } }) : []).map((c) => [c.id, c.name]));
   const via = (s: { connectorId?: string }) => (s.connectorId ? carriers.get(s.connectorId) ?? null : null);
   const sites = new Map(siteList.map((s) => [s.id, s]));

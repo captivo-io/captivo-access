@@ -37,16 +37,26 @@ export function storedHostAction(v: unknown): StoredHostAction | null {
 
 export type RemoteControl =
   | { ok: true; updaterVersion: string }
-  | { ok: false; reason: "offline" | "no_updater" | "no_docker" };
+  | { ok: false; reason: "offline" | "no_updater" | "no_docker" | "installing" };
+
+/**
+ * How long after pairing a connector without an updater counts as still being
+ * installed: the install command starts the updater last, after the session
+ * engines' images (the isolated browser's is over a gigabyte) have downloaded.
+ */
+export const UPDATER_INSTALL_GRACE_MS = 20 * 60_000;
 
 /**
  * Whether the console can update or remove this connector right now. The
  * connector reports an updater only while the updater's heartbeat is fresh, and
  * only connectors from 2.41.0 report one at all.
  */
-export function remoteControl(online: boolean, t: ConnectorTelemetry | null | undefined): RemoteControl {
+export function remoteControl(online: boolean, t: ConnectorTelemetry | null | undefined, pairedAt?: Date | string | null, now = Date.now()): RemoteControl {
   if (!online || !t) return { ok: false, reason: "offline" };
-  if (!t.updater) return { ok: false, reason: "no_updater" };
+  if (!t.updater) {
+    const paired = pairedAt ? new Date(pairedAt).getTime() : NaN;
+    return { ok: false, reason: now - paired < UPDATER_INSTALL_GRACE_MS ? "installing" : "no_updater" };
+  }
   if (!t.updater.dockerOk) return { ok: false, reason: "no_docker" };
   return { ok: true, updaterVersion: t.updater.version };
 }

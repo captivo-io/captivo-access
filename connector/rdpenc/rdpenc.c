@@ -80,6 +80,107 @@ static void emit_until(UINT64 ts)
 	}
 }
 
+/* ---- what the server sent, for the log: why a video can come out black ---- */
+
+static struct {
+	UINT32 paints, bitmaps, surfaceBits, sbCodecs[256];
+	UINT32 gfxVersion, gfxFlags, surfaces, resets, maps, scaledMaps, gfxCmds[16];
+	UINT32 resetW, resetH, resetMonitors, mapX, mapY, surfW, surfH;
+	UINT32 desktopW, desktopH, resizes;
+} st;
+
+static pcRdpgfxSurfaceCommand gfxSurfaceCommand;
+static pcRdpgfxCreateSurface gfxCreateSurface;
+static pcRdpgfxResetGraphics gfxResetGraphics;
+static pcRdpgfxMapSurfaceToOutput gfxMapSurfaceToOutput;
+static pcRdpgfxMapSurfaceToScaledOutput gfxMapSurfaceToScaledOutput;
+static pcRdpgfxCapsConfirm gfxCapsConfirm;
+static pBitmapUpdate bitmapUpdate;
+static pSurfaceBits surfaceBits;
+
+static UINT st_surface_command(RdpgfxClientContext* c, const RDPGFX_SURFACE_COMMAND* cmd)
+{
+	st.gfxCmds[cmd->codecId & 0x0F]++;
+	return gfxSurfaceCommand ? gfxSurfaceCommand(c, cmd) : CHANNEL_RC_OK;
+}
+static UINT st_create_surface(RdpgfxClientContext* c, const RDPGFX_CREATE_SURFACE_PDU* p)
+{
+	st.surfaces++;
+	st.surfW = p->width, st.surfH = p->height;
+	return gfxCreateSurface ? gfxCreateSurface(c, p) : CHANNEL_RC_OK;
+}
+static UINT st_reset_graphics(RdpgfxClientContext* c, const RDPGFX_RESET_GRAPHICS_PDU* p)
+{
+	st.resets++;
+	st.resetW = p->width, st.resetH = p->height, st.resetMonitors = p->monitorCount;
+	return gfxResetGraphics ? gfxResetGraphics(c, p) : CHANNEL_RC_OK;
+}
+static UINT st_map_output(RdpgfxClientContext* c, const RDPGFX_MAP_SURFACE_TO_OUTPUT_PDU* p)
+{
+	st.maps++;
+	st.mapX = p->outputOriginX, st.mapY = p->outputOriginY;
+	return gfxMapSurfaceToOutput ? gfxMapSurfaceToOutput(c, p) : CHANNEL_RC_OK;
+}
+static UINT st_map_scaled(RdpgfxClientContext* c, const RDPGFX_MAP_SURFACE_TO_SCALED_OUTPUT_PDU* p)
+{
+	st.scaledMaps++;
+	st.mapX = p->outputOriginX, st.mapY = p->outputOriginY;
+	return gfxMapSurfaceToScaledOutput ? gfxMapSurfaceToScaledOutput(c, p) : CHANNEL_RC_OK;
+}
+static UINT st_caps_confirm(RdpgfxClientContext* c, const RDPGFX_CAPS_CONFIRM_PDU* p)
+{
+	if (p->capsSet)
+		st.gfxVersion = p->capsSet->version, st.gfxFlags = p->capsSet->flags;
+	return gfxCapsConfirm ? gfxCapsConfirm(c, p) : CHANNEL_RC_OK; /* gdi sets none */
+}
+static BOOL st_bitmap_update(rdpContext* c, const BITMAP_UPDATE* b)
+{
+	st.bitmaps++;
+	return bitmapUpdate ? bitmapUpdate(c, b) : TRUE;
+}
+static BOOL st_surface_bits(rdpContext* c, const SURFACE_BITS_COMMAND* cmd)
+{
+	st.surfaceBits++;
+	st.sbCodecs[cmd->bmp.codecID & 0xFF]++;
+	return surfaceBits ? surfaceBits(c, cmd) : TRUE;
+}
+
+/* After the client's own handler has set up the graphics pipeline. A callback
+ * gdi leaves unset stays unset: the wrapper only counts. */
+static void st_channel_connected(void* ctx, const ChannelConnectedEventArgs* e)
+{
+	if (strcmp(e->name, RDPGFX_DVC_CHANNEL_NAME) != 0)
+		return;
+	RdpgfxClientContext* gfx = (RdpgfxClientContext*)e->pInterface;
+	if (!gfx || gfx->SurfaceCommand == st_surface_command)
+		return;
+	gfxSurfaceCommand = gfx->SurfaceCommand, gfx->SurfaceCommand = st_surface_command;
+	gfxCreateSurface = gfx->CreateSurface, gfx->CreateSurface = st_create_surface;
+	gfxResetGraphics = gfx->ResetGraphics, gfx->ResetGraphics = st_reset_graphics;
+	gfxMapSurfaceToOutput = gfx->MapSurfaceToOutput, gfx->MapSurfaceToOutput = st_map_output;
+	gfxMapSurfaceToScaledOutput = gfx->MapSurfaceToScaledOutput, gfx->MapSurfaceToScaledOutput = st_map_scaled;
+	gfxCapsConfirm = gfx->CapsConfirm, gfx->CapsConfirm = st_caps_confirm;
+}
+
+/* One line on stderr: what drew the screen, and how much of the last picture is not black. */
+static void print_stats(void)
+{
+	UINT64 lit = 0, all = (UINT64)outW * outH;
+	for (UINT64 i = 0; lastFrame && i < all; i++)
+		if (lastFrame[i * 4] | lastFrame[i * 4 + 1] | lastFrame[i * 4 + 2])
+			lit++;
+	fprintf(stderr, "stats paints=%u desktop=%ux%u resizes=%u bitmaps=%u surfacebits=%u", st.paints, st.desktopW, st.desktopH, st.resizes, st.bitmaps, st.surfaceBits);
+	for (int i = 0; i < 256; i++)
+		if (st.sbCodecs[i])
+			fprintf(stderr, " sb[%d]=%u", i, st.sbCodecs[i]);
+	fprintf(stderr, " gfx=%#x/%#x surfaces=%u(%ux%u) resets=%u(%ux%u,%u mon) maps=%u scaled=%u at=%u,%u", st.gfxVersion, st.gfxFlags,
+	        st.surfaces, st.surfW, st.surfH, st.resets, st.resetW, st.resetH, st.resetMonitors, st.maps, st.scaledMaps, st.mapX, st.mapY);
+	for (int i = 0; i < 16; i++)
+		if (st.gfxCmds[i])
+			fprintf(stderr, " codec[%#x]=%u", i, st.gfxCmds[i]);
+	fprintf(stderr, " lit=%llu%%\n", all ? (unsigned long long)(lit * 100 / all) : 0ULL);
+}
+
 /* ---- the pointer ---- */
 
 typedef struct {
@@ -367,6 +468,7 @@ static void live_command(void)
 static BOOL enc_end_paint(rdpContext* context)
 {
 	rdpGdi* gdi = context->gdi;
+	st.paints++;
 	if (gdi->primary->hdc->hwnd->invalid->null)
 		return TRUE;
 	if (live) {
@@ -497,6 +599,9 @@ static BOOL enc_pointer_set_position(rdpContext* context, UINT32 x, UINT32 y)
 static BOOL enc_desktop_resize(rdpContext* context)
 {
 	rdpSettings* settings = context->settings;
+	st.resizes++;
+	st.desktopW = freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth);
+	st.desktopH = freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight);
 	pthread_mutex_lock(&liveMu);
 	BOOL ok = gdi_resize(context->gdi, freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth),
 	                     freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight));
@@ -726,6 +831,7 @@ static BOOL enc_pre_connect(freerdp* instance)
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_OsMajorType, OSMAJORTYPE_UNIX))
 		return FALSE;
 	PubSub_SubscribeChannelConnected(instance->context->pubSub, freerdp_client_OnChannelConnectedEventHandler);
+	PubSub_SubscribeChannelConnected(instance->context->pubSub, st_channel_connected);
 	PubSub_SubscribeChannelDisconnected(instance->context->pubSub, freerdp_client_OnChannelDisconnectedEventHandler);
 	return TRUE;
 }
@@ -740,6 +846,10 @@ static BOOL enc_post_connect(freerdp* instance)
 	instance->context->update->BeginPaint = enc_begin_paint;
 	instance->context->update->EndPaint = enc_end_paint;
 	instance->context->update->DesktopResize = enc_desktop_resize;
+	bitmapUpdate = instance->context->update->BitmapUpdate, instance->context->update->BitmapUpdate = st_bitmap_update;
+	surfaceBits = instance->context->update->SurfaceBits, instance->context->update->SurfaceBits = st_surface_bits;
+	st.desktopW = freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopWidth);
+	st.desktopH = freerdp_settings_get_uint32(instance->context->settings, FreeRDP_DesktopHeight);
 	rdpPointer pointer = { 0 };
 	pointer.size = sizeof(encPointer);
 	pointer.New = enc_pointer_new;
@@ -847,6 +957,8 @@ int main(int argc, char* argv[])
 	}
 	emit_until(curTs + 1000); /* the last picture, for a second */
 	fflush(stdout);
+	if (!live)
+		print_stats();
 	fprintf(stderr, "frames %llu, %llu ms\n", (unsigned long long)framesOut, (unsigned long long)(curTs - firstTs));
 	freerdp_disconnect(instance);
 	freerdp_client_context_free(context);
