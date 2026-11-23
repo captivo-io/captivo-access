@@ -31,6 +31,7 @@ const NO_REMOTE: Record<string, string> = {
   no_updater: "Updates from the console need the updater beside the connector. This command installs it along with the update; after that, an update is one click here.",
   no_docker: "The updater on this host can't reach Docker (a rootless Docker, or a socket somewhere other than /var/run/docker.sock?). Run the update on the host instead.",
   offline: "It is offline, so the console can't update it.",
+  installing: "Its updater is still being installed (it starts last, after the images download); in a few minutes an update is one click here.",
 };
 
 /**
@@ -159,12 +160,14 @@ export function NoUpdaterBand({ connectorId, commands, managerUrlIsLocal, remote
   return (
     <div className="cn-band info">
       <span className="cn-band-t">
-        {remote.reason === "no_docker"
-          ? "Updates from the console are off: the updater on this host can't reach Docker."
-          : "Updates from the console are off: this connector has no updater. Run the update command on its host once to add it."}
+        {remote.reason === "installing"
+          ? "The updater is still being installed on this host: it starts last, once the session engines' images have downloaded (a few minutes on a new host). Updates from the console start then; nothing to run."
+          : remote.reason === "no_docker"
+            ? "Updates from the console are off: the updater on this host can't reach Docker."
+            : "Updates from the console are off: this connector has no updater. Run the update command on its host once to add it."}
       </span>
-      <UpdateConnectorButton connectorId={connectorId} commands={commands} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={null}
-        from={version} openTunnels={0} label="Show command" className="btn sm" />
+      {remote.reason !== "installing" && <UpdateConnectorButton connectorId={connectorId} commands={commands} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={null}
+        from={version} openTunnels={0} label="Show command" className="btn sm" />}
     </div>
   );
 }
@@ -302,7 +305,9 @@ export function RemoveFromHostModal({ open, onClose, id, name, resources, remote
               ? "The connector is offline, so the console can't reach its host."
               : remote && !remote.ok && remote.reason === "no_docker"
                 ? "The updater on this host can't reach Docker, so it can't remove anything."
-                : "This connector's host has no updater, so the console can't reach into it."}{" "}
+                : remote && !remote.ok && remote.reason === "installing"
+                  ? "The updater on this host is still being installed; try again in a few minutes."
+                  : "This connector's host has no updater, so the console can't reach into it."}{" "}
             Revoke the connector from its menu instead, then run <b>Clean up the host</b> on the host.
           </p>
           <div className="row-actions">

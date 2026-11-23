@@ -13,6 +13,12 @@ describe("remoteControl", () => {
     expect(remoteControl(true, tele({ updater: { version: "2.41.0", dockerOk: false } }))).toEqual({ ok: false, reason: "no_docker" });
     expect(remoteControl(true, tele({ updater: { version: "2.41.0", dockerOk: true } }))).toEqual({ ok: true, updaterVersion: "2.41.0" });
   });
+  it("says a newly paired connector's updater is still being installed", () => {
+    const now = Date.parse("2026-11-23T18:00:00Z");
+    expect(remoteControl(true, tele(), "2026-11-23T17:50:00Z", now)).toEqual({ ok: false, reason: "installing" });
+    expect(remoteControl(true, tele(), "2026-11-23T17:30:00Z", now)).toEqual({ ok: false, reason: "no_updater" });
+    expect(remoteControl(true, tele({ updater: { version: "2.58.1", dockerOk: true } }), "2026-11-23T17:59:00Z", now)).toEqual({ ok: true, updaterVersion: "2.58.1" });
+  });
 });
 
 describe("updateTarget", () => {

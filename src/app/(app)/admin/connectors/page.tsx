@@ -95,7 +95,7 @@ async function AdminConnectorsPageImpl() {
       unreachable: c.sites.filter((s) => s.probeOk === false).length,
       uptime: summarizeUptime(c.days, now),
       events: c.events.map((e) => ({ at: e.at.toISOString(), level: e.level as EventLevel, text: e.text })),
-      remote: remoteControl(!!live[i]?.online && c.status === "ONLINE", t),
+      remote: remoteControl(!!live[i]?.online && c.status === "ONLINE", t, c.createdAt),
       target: updateTarget(c.version, mgr),
       hostAction: liveHostAction(t?.hostAction ?? null, storedHostAction(c.hostAction), now),
       stored: storedHostAction(c.hostAction),

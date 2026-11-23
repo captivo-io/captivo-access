@@ -38,13 +38,13 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
   const action = body.action;
   if (action !== "update" && action !== "uninstall" && action !== "cancel") return NextResponse.json({ error: "invalid_action" }, { status: 400 });
 
-  const c = await db.connector.findUnique({ where: { id }, select: { id: true, name: true, status: true, version: true, hostAction: true } });
+  const c = await db.connector.findUnique({ where: { id }, select: { id: true, name: true, status: true, version: true, hostAction: true, createdAt: true } });
   if (!c) return NextResponse.json({ error: "not_found" }, { status: 404 });
   if (c.status === "REVOKED") return NextResponse.json({ error: "revoked" }, { status: 409 });
 
   const tele = await getConnectorTelemetry(id).catch(() => ({ online: false as const, telemetry: null }));
   const t = tele.online ? tele.telemetry ?? null : null;
-  const rc = remoteControl(tele.online && c.status === "ONLINE", t);
+  const rc = remoteControl(tele.online && c.status === "ONLINE", t, c.createdAt);
   const actor = { id: admin.id, email: admin.email };
   const ip = clientIp(req.headers) ?? null;
   const save = (v: StoredHostAction) => db.connector.update({ where: { id }, data: { hostAction: v as unknown as Prisma.InputJsonValue } });
