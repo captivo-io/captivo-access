@@ -382,18 +382,28 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
     ["Access", accessOf(r, now)],
   ] as [string, string][], [r, zone, now]);
 
+  // Full screen takes the stage with it: the picture, its watermark and the admin banner.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const fullScreen = () => {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen?.().catch(() => {});
+  };
+
   return (
     <div className="sv-modal-wrap" onClick={onClose}>
       <div ref={ref} className="sv-modal" role="dialog" aria-modal="true" aria-label={`Live: ${r.userLabel} on ${r.siteName}`} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <header className="sv-mhead">
           <span className="sv-livepill"><i aria-hidden="true" />LIVE · {elapsed(r.startedAt, now)}</span>
           <span className="sv-mtitle"><b>{r.userLabel}</b><span className="sv-arrow">→</span><span className={kindOf(r) === "rdp" ? "rv-chip remote" : "rv-chip"}>{labelOf(r)}</span><b>{r.siteName}</b>{hostOf(r) && <span className="mono cell-sub">{hostOf(r)}</span>}</span>
+          {src && <button type="button" className="btn sm sv-full" onClick={fullScreen} title="Full screen (Esc to leave)">Full screen</button>}
           <button type="button" className="sv-x" aria-label="Close" onClick={onClose}>×</button>
         </header>
         <div className="sv-mbody">
           <div className="sv-mleft">
-            <div className="sv-stage">
-              {src ? <iframe src={src} title={`Live view: ${r.siteName}`} allow="clipboard-read; clipboard-write" /> : <span className="sv-nostage">This web app does not record, so it can&apos;t be watched.</span>}
+            <div ref={stageRef} className="sv-stage">
+              {src ? <iframe src={src} title={`Live view: ${r.siteName}`} allow="clipboard-read; clipboard-write; fullscreen" /> : <span className="sv-nostage">This web app does not record, so it can&apos;t be watched.</span>}
               <span className="rv-mark mono" aria-hidden="true">{[workspace, r.userEmail ?? r.userLabel, r.siteName, clock].filter(Boolean).join(" · ")}</span>
               {banner && <span className="sv-banner"><b>ADMIN</b>{banner}</span>}
             </div>
