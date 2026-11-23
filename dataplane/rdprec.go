@@ -247,6 +247,9 @@ func (t *rdpgwTunnel) openRecorded() (net.Conn, error) {
 			}
 			return
 		}
+		if x, y, ok := tunnel.RdpFastPathPointer(pdu); ok {
+			rec.pointer(x, y)
+		}
 		if obs == nil {
 			return
 		}

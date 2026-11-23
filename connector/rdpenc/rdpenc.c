@@ -27,6 +27,10 @@
  * the replay asks for the same list; what arrives on a channel it has no
  * plugin for is dropped. Without that record (older recordings) it asks for
  * its own.
+ *
+ * The pointer: the server sends its shape, the client moves it. Client records
+ * of tunnel.PointerRecord ("PT", x, y) say where it went; the video has the
+ * pointer drawn in, and live watching sends it as Guacamole cursor and mouse.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +52,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <turbojpeg.h>
+#include <zlib.h>
 
 typedef struct {
 	rdpClientContext common;
@@ -63,7 +68,7 @@ static BOOL ended;
 
 static void emit_until(UINT64 ts)
 {
-	if (!lastFrame)
+	if (!lastFrame || ts < firstTs)
 		return;
 	const UINT64 want = ((ts - firstTs) * fps) / 1000 + 1;
 	while (framesOut < want) {
@@ -75,6 +80,47 @@ static void emit_until(UINT64 ts)
 	}
 }
 
+/* ---- the pointer ---- */
+
+typedef struct {
+	rdpPointer pointer;
+	BYTE* pixels; /* BGRA */
+} encPointer;
+
+static BYTE* ptPixels;            /* the current shape, BGRA */
+static UINT32 ptW, ptH, ptHotX, ptHotY;
+static BOOL ptVisible;
+static INT32 ptX = -1, ptY = -1;  /* where the client moved it */
+static BOOL ptShapeSent, ptPosSent;
+
+static BYTE* screenFrame;         /* the screen; lastFrame is it with the pointer */
+
+/* Put the pointer on the screen into lastFrame. */
+static void compose(void)
+{
+	if (!lastFrame)
+		return;
+	memcpy(lastFrame, screenFrame, (size_t)outW * outH * 4);
+	if (!ptVisible || !ptPixels || ptX < 0)
+		return;
+	const INT32 ox = ptX - (INT32)ptHotX, oy = ptY - (INT32)ptHotY;
+	for (UINT32 y = 0; y < ptH; y++) {
+		const INT32 fy = oy + (INT32)y;
+		if (fy < 0 || fy >= (INT32)outH)
+			continue;
+		for (UINT32 x = 0; x < ptW; x++) {
+			const INT32 fx = ox + (INT32)x;
+			if (fx < 0 || fx >= (INT32)outW)
+				continue;
+			const BYTE* s = ptPixels + ((size_t)y * ptW + x) * 4;
+			BYTE* d = lastFrame + ((size_t)fy * outW + (size_t)fx) * 4;
+			const unsigned a = s[3];
+			for (int c = 0; c < 3; c++)
+				d[c] = (BYTE)((s[c] * a + d[c] * (255 - a)) / 255);
+		}
+	}
+}
+
 /* Copy the GDI surface into the fixed-size frame (cropped or padded). */
 static void grab(rdpGdi* gdi)
 {
@@ -82,12 +128,14 @@ static void grab(rdpGdi* gdi)
 		outW = gdi->width & ~1u;
 		outH = gdi->height & ~1u;
 		lastFrame = calloc((size_t)outW * outH, 4);
+		screenFrame = calloc((size_t)outW * outH, 4);
 		fprintf(stderr, "size %ux%u\n", outW, outH);
 		fflush(stderr);
 	}
 	const UINT32 w = MIN(outW, (UINT32)gdi->width), h = MIN(outH, (UINT32)gdi->height);
 	for (UINT32 y = 0; y < h; y++)
-		memcpy(lastFrame + (size_t)y * outW * 4, gdi->primary_buffer + (size_t)y * gdi->stride, (size_t)w * 4);
+		memcpy(screenFrame + (size_t)y * outW * 4, gdi->primary_buffer + (size_t)y * gdi->stride, (size_t)w * 4);
+	compose();
 }
 
 static BOOL enc_begin_paint(rdpContext* context)
@@ -127,23 +175,16 @@ static void guac(int n, const char** el)
 
 static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/* Send one area of the screen as a JPEG image stream. Callers hold liveMu. */
-static void send_area(INT32 x, INT32 y, INT32 w, INT32 h)
+/* Send an image to a layer as a Guacamole image stream. */
+static void send_image(const char* mask, const char* layer, const char* mime, INT32 x, INT32 y,
+                       const unsigned char* jpeg, unsigned long size)
 {
-	rdpGdi* gdi = liveGdi;
-	if (w <= 0 || h <= 0 || !gdi || !gdi->primary_buffer)
-		return;
-	unsigned char* jpeg = NULL;
-	unsigned long size = 0;
-	const BYTE* src = gdi->primary_buffer + (size_t)y * gdi->stride + (size_t)x * 4;
-	if (tjCompress2(tj, src, w, (int)gdi->stride, h, TJPF_BGRX, &jpeg, &size, TJSAMP_420, 80, TJFLAG_FASTDCT) != 0)
-		return;
 	char sn[16], xs[16], ys[16];
 	streamNo = streamNo % 1000 + 1;
 	snprintf(sn, sizeof sn, "%u", streamNo);
 	snprintf(xs, sizeof xs, "%d", x);
 	snprintf(ys, sizeof ys, "%d", y);
-	const char* img[] = { "img", sn, "14", "0", "image/jpeg", xs, ys };
+	const char* img[] = { "img", sn, mask, layer, mime, xs, ys };
 	guac(7, img);
 	/* The data in blobs of at most 6 KiB of base64. */
 	char chunk[6144 + 4];
@@ -165,7 +206,95 @@ static void send_area(INT32 x, INT32 y, INT32 w, INT32 h)
 	}
 	const char* end[] = { "end", sn };
 	guac(2, end);
+}
+
+/* Send one area of the screen as a JPEG image stream. Callers hold liveMu. */
+static void send_area(INT32 x, INT32 y, INT32 w, INT32 h)
+{
+	rdpGdi* gdi = liveGdi;
+	if (w <= 0 || h <= 0 || !gdi || !gdi->primary_buffer)
+		return;
+	unsigned char* jpeg = NULL;
+	unsigned long size = 0;
+	const BYTE* src = gdi->primary_buffer + (size_t)y * gdi->stride + (size_t)x * 4;
+	if (tjCompress2(tj, src, w, (int)gdi->stride, h, TJPF_BGRX, &jpeg, &size, TJSAMP_420, 80, TJFLAG_FASTDCT) != 0)
+		return;
+	send_image("14", "0", "image/jpeg", x, y, jpeg, size);
 	tjFree(jpeg);
+}
+
+static void png_chunk(BYTE** out, size_t* len, const char* type, const BYTE* data, size_t n)
+{
+	BYTE* p = *out + *len;
+	p[0] = (BYTE)(n >> 24), p[1] = (BYTE)(n >> 16), p[2] = (BYTE)(n >> 8), p[3] = (BYTE)n;
+	memcpy(p + 4, type, 4);
+	if (n)
+		memcpy(p + 8, data, n);
+	uLong crc = crc32(crc32(0, NULL, 0), p + 4, (uInt)(n + 4));
+	p[8 + n] = (BYTE)(crc >> 24), p[9 + n] = (BYTE)(crc >> 16), p[10 + n] = (BYTE)(crc >> 8), p[11 + n] = (BYTE)crc;
+	*len += 12 + n;
+}
+
+/* A BGRA image as PNG (the pointer needs its transparency, which JPEG has not). */
+static BYTE* png_encode(const BYTE* bgra, UINT32 w, UINT32 h, size_t* outLen)
+{
+	const size_t rawLen = (size_t)h * (1 + (size_t)w * 4);
+	BYTE* raw = malloc(rawLen);
+	uLongf zLen = compressBound((uLong)rawLen);
+	BYTE* z = malloc(zLen);
+	BYTE* out = malloc(zLen + 64);
+	if (!raw || !z || !out) {
+		free(raw), free(z), free(out);
+		return NULL;
+	}
+	for (UINT32 y = 0; y < h; y++) {
+		BYTE* r = raw + (size_t)y * (1 + (size_t)w * 4);
+		r[0] = 0;
+		for (UINT32 x = 0; x < w; x++) {
+			const BYTE* s = bgra + ((size_t)y * w + x) * 4;
+			r[1 + x * 4] = s[2], r[2 + x * 4] = s[1], r[3 + x * 4] = s[0], r[4 + x * 4] = s[3];
+		}
+	}
+	if (compress2(z, &zLen, raw, (uLong)rawLen, 6) != Z_OK) {
+		free(raw), free(z), free(out);
+		return NULL;
+	}
+	static const BYTE sig[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+	size_t len = 8;
+	memcpy(out, sig, 8);
+	BYTE ihdr[13] = { (BYTE)(w >> 24), (BYTE)(w >> 16), (BYTE)(w >> 8), (BYTE)w,
+		              (BYTE)(h >> 24), (BYTE)(h >> 16), (BYTE)(h >> 8), (BYTE)h, 8, 6, 0, 0, 0 };
+	png_chunk(&out, &len, "IHDR", ihdr, 13);
+	png_chunk(&out, &len, "IDAT", z, zLen);
+	png_chunk(&out, &len, "IEND", NULL, 0);
+	free(raw), free(z);
+	*outLen = len;
+	return out;
+}
+
+/* The pointer's shape to the viewers: drawn on buffer layer -1, which the
+ * cursor instruction takes. Hidden, it is one transparent pixel. Callers hold liveMu. */
+static void send_cursor(void)
+{
+	static const BYTE clear[4] = { 0 };
+	const BOOL shown = ptVisible && ptPixels;
+	const BYTE* px = shown ? ptPixels : clear;
+	const UINT32 w = shown ? ptW : 1, h = shown ? ptH : 1;
+	size_t n = 0;
+	BYTE* png = png_encode(px, w, h, &n);
+	if (!png)
+		return;
+	char ws[16], hs[16], hx[16], hy[16];
+	snprintf(ws, sizeof ws, "%u", w);
+	snprintf(hs, sizeof hs, "%u", h);
+	snprintf(hx, sizeof hx, "%u", shown ? ptHotX : 0);
+	snprintf(hy, sizeof hy, "%u", shown ? ptHotY : 0);
+	const char* size[] = { "size", "-1", ws, hs };
+	guac(4, size);
+	send_image("12", "-1", "image/png", 0, 0, png, n);
+	const char* cursor[] = { "cursor", hx, hy, "-1", "0", "0", ws, hs };
+	guac(8, cursor);
+	free(png);
 }
 
 /* Send what changed (or the whole screen for a new viewer). Callers hold liveMu. */
@@ -186,6 +315,7 @@ static void live_flush(BOOL force)
 		guac(4, size);
 		send_area(0, 0, gdi->width, gdi->height);
 		wantKey = dirty = FALSE;
+		ptShapeSent = ptPosSent = FALSE; /* a new viewer has neither */
 		any = TRUE;
 	} else if (dirty) {
 		INT32 x1 = MAX(0, dx1), y1 = MAX(0, dy1);
@@ -193,6 +323,18 @@ static void live_flush(BOOL force)
 		send_area(x1, y1, x2 - x1, y2 - y1);
 		dirty = FALSE;
 		any = TRUE;
+	}
+	if (!ptShapeSent) {
+		send_cursor();
+		ptShapeSent = any = TRUE;
+	}
+	if (!ptPosSent && ptX >= 0) {
+		char xs[16], ys[16];
+		snprintf(xs, sizeof xs, "%d", ptX);
+		snprintf(ys, sizeof ys, "%d", ptY);
+		const char* mouse[] = { "mouse", xs, ys, "0" };
+		guac(4, mouse);
+		ptPosSent = any = TRUE;
 	}
 	if (any) {
 		char ts[24];
@@ -244,6 +386,111 @@ static BOOL enc_end_paint(rdpContext* context)
 	}
 	emit_until(curTs);  /* the previous picture lasts until now */
 	grab(gdi);
+	return TRUE;
+}
+
+/* A pointer change: in the video the frames before it (pointer_before, at the
+ * change's time) keep the old pointer; live, the viewers get the new one. */
+static void pointer_changed(BOOL shape)
+{
+	if (!live)
+		compose();
+	else if (shape)
+		ptShapeSent = FALSE;
+	else
+		ptPosSent = FALSE;
+}
+
+static void pointer_before(UINT64 ts)
+{
+	if (!live)
+		emit_until(ts);
+}
+
+static void set_shape(const BYTE* px, UINT32 w, UINT32 h, UINT32 hx, UINT32 hy)
+{
+	BYTE* copy = malloc((size_t)w * h * 4);
+	if (!copy)
+		return;
+	memcpy(copy, px, (size_t)w * h * 4);
+	pthread_mutex_lock(&liveMu);
+	pointer_before(curTs);
+	free(ptPixels);
+	ptPixels = copy, ptW = w, ptH = h, ptHotX = hx, ptHotY = hy, ptVisible = TRUE;
+	pointer_changed(TRUE);
+	pthread_mutex_unlock(&liveMu);
+}
+
+static BOOL enc_pointer_new(rdpContext* context, rdpPointer* pointer)
+{
+	encPointer* p = (encPointer*)pointer;
+	p->pixels = calloc((size_t)pointer->width * pointer->height, 4);
+	if (!p->pixels)
+		return FALSE;
+	return freerdp_image_copy_from_pointer_data(p->pixels, PIXEL_FORMAT_BGRA32, 0, 0, 0, pointer->width, pointer->height,
+	                                            pointer->xorMaskData, pointer->lengthXorMask, pointer->andMaskData,
+	                                            pointer->lengthAndMask, pointer->xorBpp, &context->gdi->palette);
+}
+
+static void enc_pointer_free(rdpContext* context, rdpPointer* pointer)
+{
+	free(((encPointer*)pointer)->pixels);
+	((encPointer*)pointer)->pixels = NULL;
+}
+
+static BOOL enc_pointer_set(rdpContext* context, rdpPointer* pointer)
+{
+	const encPointer* p = (const encPointer*)pointer;
+	if (p->pixels && pointer->width && pointer->height)
+		set_shape(p->pixels, pointer->width, pointer->height, pointer->xPos, pointer->yPos);
+	return TRUE;
+}
+
+static BOOL enc_pointer_set_null(rdpContext* context)
+{
+	pthread_mutex_lock(&liveMu);
+	pointer_before(curTs);
+	ptVisible = FALSE;
+	pointer_changed(TRUE);
+	pthread_mutex_unlock(&liveMu);
+	return TRUE;
+}
+
+/* The system pointer: an arrow, drawn here. */
+static BOOL enc_pointer_set_default(rdpContext* context)
+{
+	static const char* arrow[] = {
+		"X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ", "X....X      ",
+		"X.....X     ", "X......X    ", "X.......X   ", "X........X  ", "X.........X ", "X......XXXXX",
+		"X...X..X    ", "X..XX..X    ", "X.X  X..X   ", "XX   X..X   ", "X     X..X  ", "      X..X  ",
+		"       XX   ",
+	};
+	enum { W = 12, H = 19 };
+	BYTE px[W * H * 4] = { 0 };
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++) {
+			BYTE* d = px + (y * W + x) * 4;
+			if (arrow[y][x] == 'X')
+				d[3] = 255;
+			else if (arrow[y][x] == '.')
+				d[0] = d[1] = d[2] = d[3] = 255;
+		}
+	set_shape(px, W, H, 0, 0);
+	return TRUE;
+}
+
+static void move_pointer(UINT64 ts, INT32 x, INT32 y)
+{
+	pthread_mutex_lock(&liveMu);
+	pointer_before(ts);
+	ptX = x, ptY = y;
+	pointer_changed(FALSE);
+	pthread_mutex_unlock(&liveMu);
+}
+
+static BOOL enc_pointer_set_position(rdpContext* context, UINT32 x, UINT32 y)
+{
+	move_pointer(curTs, (INT32)x, (INT32)y);
 	return TRUE;
 }
 
@@ -351,6 +598,12 @@ static BOOL apply_client_channels(rdpSettings* settings)
 	UINT32 n = recChannelCount;
 	memcpy(defs, recChannels, sizeof(CHANNEL_DEF) * n);
 	const UINT32 loaded = freerdp_settings_get_uint32(settings, FreeRDP_ChannelCount);
+	fprintf(stderr, "plugins");
+	for (UINT32 j = 0; j < loaded; j++) {
+		const CHANNEL_DEF* d = freerdp_settings_get_pointer_array(settings, FreeRDP_ChannelDefArray, j);
+		fprintf(stderr, "%s%s", j ? "," : " ", d ? d->name : "?");
+	}
+	fprintf(stderr, "\n");
 	for (UINT32 j = 0; j < loaded; j++) {
 		const CHANNEL_DEF* d = freerdp_settings_get_pointer_array(settings, FreeRDP_ChannelDefArray, j);
 		if (!d)
@@ -393,8 +646,12 @@ static int enc_read_pdu(rdpTransport* transport, wStream* s)
 			ended = TRUE;
 			return -1;
 		}
-		if (recReceived)
-			continue; /* what the client sent: not replayed */
+		if (recReceived) {
+			/* What the client sent is not replayed; where it moved the pointer is drawn. */
+			if (recLen == 6 && recBuf[0] == 'P' && recBuf[1] == 'T')
+				move_pointer(recTs, recBuf[2] | recBuf[3] << 8, recBuf[4] | recBuf[5] << 8);
+			continue;
+		}
 		Stream_SetPosition(s, 0);
 		if (!Stream_EnsureCapacity(s, recLen)) {
 			ended = TRUE;
@@ -423,11 +680,34 @@ static int enc_tcp_connect(rdpContext* context, rdpSettings* settings, const cha
 /* The plugins load here, before the Connect Initial is made. */
 static pConnectCallback defaultLoadChannels;
 
+/* The replay loads only what draws the screen: the graphics pipeline and the
+ * dynamic channel manager under it. The server's traffic on the other channels
+ * (sound, clipboard, drives) answers what the real client said, which a plugin
+ * here did not say: replayed into one, it ends in a protocol error (a sound
+ * channel opened twice, a drive message out of turn) that stops the replay.
+ * Without a plugin that traffic is dropped. FreeRDP loads the drive channel
+ * (and a sound one with it) whenever auto-detect, heartbeat or multitransport
+ * are on, so those are off while plugins load and back on for the replay.
+ * A recording without the client's channel list (older ones) keeps them all:
+ * its channel numbers are those of FreeRDP's own list. */
 static BOOL enc_load_channels(freerdp* instance)
 {
-	if (defaultLoadChannels && !defaultLoadChannels(instance))
-		return FALSE;
-	return apply_client_channels(instance->context->settings);
+	rdpSettings* settings = instance->context->settings;
+	static const FreeRDP_Settings_Keys_Bool off[] = {
+		FreeRDP_RedirectClipboard, FreeRDP_AudioPlayback, FreeRDP_AudioCapture, FreeRDP_DeviceRedirection,
+		FreeRDP_NetworkAutoDetect, FreeRDP_SupportHeartbeatPdu, FreeRDP_SupportMultitransport,
+	};
+	BOOL was[ARRAYSIZE(off)];
+	for (size_t i = 0; i < ARRAYSIZE(off); i++) {
+		was[i] = freerdp_settings_get_bool(settings, off[i]);
+		if (haveRecChannels)
+			(void)freerdp_settings_set_bool(settings, off[i], FALSE);
+	}
+	const BOOL ok = !defaultLoadChannels || defaultLoadChannels(instance);
+	/* The first four had plugins: they stay off. The rest are no plugins. */
+	for (size_t i = haveRecChannels ? 4 : 0; i < ARRAYSIZE(off); i++)
+		(void)freerdp_settings_set_bool(settings, off[i], was[i]);
+	return ok && apply_client_channels(settings);
 }
 
 static BOOL enc_tls(rdpTransport* transport)
@@ -460,6 +740,15 @@ static BOOL enc_post_connect(freerdp* instance)
 	instance->context->update->BeginPaint = enc_begin_paint;
 	instance->context->update->EndPaint = enc_end_paint;
 	instance->context->update->DesktopResize = enc_desktop_resize;
+	rdpPointer pointer = { 0 };
+	pointer.size = sizeof(encPointer);
+	pointer.New = enc_pointer_new;
+	pointer.Free = enc_pointer_free;
+	pointer.Set = enc_pointer_set;
+	pointer.SetNull = enc_pointer_set_null;
+	pointer.SetDefault = enc_pointer_set_default;
+	pointer.SetPosition = enc_pointer_set_position;
+	graphics_register_pointer(instance->context->graphics, &pointer);
 	return TRUE;
 }
 

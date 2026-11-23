@@ -437,7 +437,11 @@ flowchart LR
   numbers the app's channels in the order the app asked for them, so the
   recording keeps that list (names and options, nothing else the app sent) and
   the replay asks for the same; that is what makes recordings from the macOS,
-  iOS and Windows apps play, whose lists differ. Typed text is logged as the
+  iOS and Windows apps play, whose lists differ. The replay runs only what draws
+  the screen (the graphics pipeline): what the server sent on sound, clipboard
+  and drive channels answered the real app, and is dropped. The pointer is
+  drawn in: the server sends its shape, and the recording keeps where the app
+  moved it (the position only, no other input). Typed text is logged as the
   resource's keystroke setting says, for the US and Turkish Q keyboard layouts
   (the app names its layout; for another one the log says it isn't supported
   instead of guessing; an app that names none, as the macOS and iOS apps do, is
