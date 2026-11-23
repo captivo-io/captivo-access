@@ -31,7 +31,7 @@ const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" | "sql" => (r.database ? "sql
 const nativeApp = (r: LiveRow) => (r.kind === "gateway" && r.protocol === "ssh" ? "SSH" : "Remote Desktop");
 const labelOf = (r: LiveRow) => (r.database ? "POSTGRESQL" : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
-const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native ? null : `/live/${r.sessionId}`);
+const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native && !r.watchable ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);
 
 /** Seconds ticking on the client only, so the server render and the first client render agree. */
@@ -203,7 +203,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
   const src = watchSrc(r);
   return (
     <article className={watching ? "sv-card on" : "sv-card"}>
-      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : r.native ? (r.recording ? `A session in the user's own ${nativeApp(r)} app can't be watched live; it is recorded` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
+      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : r.native ? (r.recording ? `This session in the user's own ${nativeApp(r)} app is recorded; it can't be watched live` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
         {tail.length ? (
           <span className="rc-art ssh sv-term" aria-hidden="true">
             {tail.map((t, i) => <span key={i} className="mono">{r.database ? "›" : "$"} {t}</span>)}
@@ -361,9 +361,14 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
     const res = await fetch(`/api/admin/live/${id}/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: t }) }).catch(() => null);
     setSending(false);
     if (res?.ok) {
+      const { delivery } = (await res.json().catch(() => ({}))) as { delivery?: "shown" | "queued" | "none" };
       setText("");
+      if (delivery === "none") {
+        onToast("No terminal is open in this session, so the message can't be shown. It is in the activity list.", false);
+        return;
+      }
       setBanner(t);
-      onToast("Message shown on the user's screen");
+      onToast(delivery === "queued" ? "The user is in a full-screen program. The message shows in their terminal when they leave it." : delivery === "shown" ? "Message shown in the user's terminal" : "Message shown on the user's screen");
     } else {
       onToast("Couldn't deliver the message. The session may have ended.", false);
     }
@@ -392,7 +397,7 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
               <span className="rv-mark mono" aria-hidden="true">{[workspace, r.userEmail ?? r.userLabel, r.siteName, clock].filter(Boolean).join(" · ")}</span>
               {banner && <span className="sv-banner"><b>ADMIN</b>{banner}</span>}
             </div>
-            <p className="sv-note"><i aria-hidden="true" />The user is told that this session is being watched. The screen and commands keep being recorded.</p>
+            <p className="sv-note"><i aria-hidden="true" />{r.native ? "A line in the user's terminal tells them an admin is watching. You can't type into it. The terminal and commands keep being recorded." : "The user is told that this session is being watched. The screen and commands keep being recorded."}</p>
           </div>
           <aside className="sv-side">
             <dl className="sv-facts">{facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === "Started" || k === "Duration" || k === "IP address" ? "mono" : undefined}>{v}</dd></div>)}</dl>

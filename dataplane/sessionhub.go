@@ -32,6 +32,9 @@ type SessionInfo struct {
 	Native bool `json:"native,omitempty"`
 	// The connector carrying it: one of several on a connector-group resource.
 	ConnectorID string `json:"connectorId,omitempty"`
+	// A native session an admin can still watch: recorded native SSH, whose
+	// terminal passes through the jump host (sshlive.go).
+	Watchable bool `json:"watchable,omitempty"`
 	// Input over the last two minutes, in 5-second buckets, oldest first.
 	Activity []int `json:"activity"`
 }
@@ -52,9 +55,11 @@ type liveSession struct {
 	native                             bool   // RD Gateway session: rechecked without a sign-in token
 
 	mu           sync.Mutex
-	controlOwner string       // userID holding control, or "" for the vendor
-	viewers      int          // attached live viewers (for the console list)
-	closer       func()       // closes the underlying tunnel; set by guactunnel after Register
+	controlOwner string    // userID holding control, or "" for the vendor
+	viewers      int       // attached live viewers (for the console list)
+	closer       func()    // closes the underlying tunnel; set by guactunnel after Register
+	term         *termLive // recorded native SSH: its terminals, for viewers (sshlive.go)
+	notify       func(text string, watch bool) string
 	act          liveActivity // the console's feed and activity bars (liveactivity.go)
 }
 
@@ -62,6 +67,20 @@ func (ls *liveSession) shareInfo() (string, string, string) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 	return ls.connID, ls.connectorID, ls.guacdAddr
+}
+
+// setTerm makes a recorded native SSH session watchable: viewers get its
+// terminals and notify writes a line into the user's.
+func (ls *liveSession) setTerm(live *termLive, notify func(string, bool) string) {
+	ls.mu.Lock()
+	ls.term, ls.notify = live, notify
+	ls.mu.Unlock()
+}
+
+func (ls *liveSession) termHooks() (*termLive, func(string, bool) string) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return ls.term, ls.notify
 }
 
 func (ls *liveSession) kasmAttach() (string, string, int, string) {
@@ -231,7 +250,7 @@ func (h *SessionHub) List() []SessionInfo {
 			SessionID: ls.id, SiteID: ls.siteID, UserID: ls.userID, Kind: ls.kind, Protocol: ls.protocol,
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
 			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
-			Native: ls.native, ConnectorID: ls.connectorID,
+			Native: ls.native, ConnectorID: ls.connectorID, Watchable: ls.term != nil,
 		})
 		ls.mu.Unlock()
 	}

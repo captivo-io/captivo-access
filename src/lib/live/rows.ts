@@ -17,8 +17,9 @@ export interface LiveExtra {
   grantScheduled?: boolean;
   /** The resource's tile (icon or logo). */
   site?: SiteTile;
-  /** A native RDP client on the RD Gateway: it can be ended, not watched. */
+  /** The user's own RDP or SSH app: it can be ended; only recorded SSH can be watched. */
   native?: boolean;
+  watchable?: boolean;
   /** A database session (the user's own client through the proxy): its queries show in the feed. */
   database?: boolean;
   /** A connector-group resource: the member carrying this session. */
@@ -84,6 +85,7 @@ export async function liveRows(): Promise<LiveRow[]> {
     ...extra(s.userId, s.siteId),
     clientIp: s.clientIp || null, recording: s.recording, keystrokes: s.keystrokes, activity: s.activity,
     native: !!s.native,
+    watchable: !!s.watchable,
     database: s.kind === "database",
     via: via(s),
   }));

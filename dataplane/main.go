@@ -467,7 +467,11 @@ func main() {
 			writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "reason": "not_found"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": m})
+		res := map[string]any{"ok": true, "message": m}
+		if d := hub.NoticeTerminal(body.SessionID, text); d != "" {
+			res["delivery"] = d
+		}
+		writeJSON(w, http.StatusOK, res)
 	})
 	in.HandleFunc("/kasm-files", func(w http.ResponseWriter, r *http.Request) {
 		if !dpAuthorized(r, secret) {

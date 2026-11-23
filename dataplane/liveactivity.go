@@ -189,6 +189,20 @@ func (h *SessionHub) Message(id, text string) (LiveMessage, bool) {
 	return ls.setMessage(text), true
 }
 
+// NoticeTerminal writes an admin's message into the user's terminal on a
+// recorded native SSH session, which has no page to show it. It returns how it
+// was delivered, or "" for any other session.
+func (h *SessionHub) NoticeTerminal(id, text string) string {
+	ls := h.Get(id)
+	if ls == nil {
+		return ""
+	}
+	if _, notify := ls.termHooks(); notify != nil {
+		return notify("Message from an admin: "+text, false)
+	}
+	return ""
+}
+
 // PendingMessage is the message the user's page should show, if any is recent.
 func (h *SessionHub) PendingMessage(userID, siteID string, now time.Time) *LiveMessage {
 	h.mu.RLock()

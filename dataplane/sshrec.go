@@ -188,19 +188,25 @@ type sshRecSession struct {
 	ls   *liveSession
 	term *termRecorder
 	keys *keyWriter
+	live *termLive
 
-	mu        sync.Mutex
-	down      int64
-	refusedFw bool
-	closers   []func()
+	mu         sync.Mutex
+	down       int64
+	refusedFw  bool
+	closers    []func()
+	chans      map[*sshRecChannel]struct{}
+	lastNotice time.Time // of "an admin is watching"
 }
 
 func (r *sshRecSession) begin(s *Session) {
 	j, t := r.j, r.target
 	r.closers = append(r.closers, func() { r.client.Close() })
+	r.live = newTermLive()
+	r.chans = map[*sshRecChannel]struct{}{}
 	if j.d.hub != nil {
 		r.ls = j.d.hub.RegisterNative(r.id, "ssh", j.tk.SiteID, j.tk.UserID, t.Host, r.start, t.ConnectorID, j.clientIP)
 		r.ls.SetCapture(true, t.Keystrokes)
+		r.ls.setTerm(r.live, r.notify)
 		j.d.hub.clearEnded(j.tk.UserID, j.tk.SiteID)
 		j.d.hub.SetCloser(r.id, func() { r.client.Close() })
 	}
@@ -224,6 +230,7 @@ func (r *sshRecSession) end() {
 	if j.d.hub != nil {
 		j.d.hub.Remove(r.id)
 	}
+	r.live.end()
 	r.term.marker("Session ended")
 	r.term.stop()
 	dur := compactDur(j.d.now().Sub(r.start))
@@ -232,6 +239,37 @@ func (r *sshRecSession) end() {
 	r.mu.Unlock()
 	j.auditClose(dur, r.target.Host, down)
 	log.Printf("ssh jump: site=%s user=%s recorded session %s closed after %s", j.tk.SiteID, j.tk.UserID, r.id, dur)
+}
+
+// notify writes a line from Captivo into each of the user's terminals: that an
+// admin started watching (watch, said once a minute at most) or an admin's
+// message. A terminal running a full-screen program gets it when that ends.
+func (r *sshRecSession) notify(text string, watch bool) string {
+	r.mu.Lock()
+	if watch {
+		if now := time.Now(); now.Sub(r.lastNotice) < watchNoticeQuiet {
+			r.mu.Unlock()
+			return noticeShown
+		} else {
+			r.lastNotice = now
+		}
+	}
+	terms := make([]*sshRecChannel, 0, len(r.chans))
+	for c := range r.chans {
+		if c.isTerminal() {
+			terms = append(terms, c)
+		}
+	}
+	r.mu.Unlock()
+	res := noticeNone
+	for _, c := range terms {
+		if c.notice(text) {
+			res = noticeShown
+		} else if res == noticeNone {
+			res = noticeQueued
+		}
+	}
+	return res
 }
 
 func (r *sshRecSession) liveEvent(typ, text string) {
@@ -294,7 +332,13 @@ func (r *sshRecSession) channel(nc ssh.NewChannel) {
 		return
 	}
 	c := &sshRecChannel{r: r, user: ch, server: tch, started: make(chan struct{})}
+	r.mu.Lock()
+	r.chans[c] = struct{}{}
+	r.mu.Unlock()
 	c.run(creqs, treqs)
+	r.mu.Lock()
+	delete(r.chans, c)
+	r.mu.Unlock()
 }
 
 // What a session channel turned out to be.
@@ -314,6 +358,9 @@ type sshRecChannel struct {
 	kind    int
 	pty     bool
 	num     int
+	cols    int
+	rows    int
+	notices []string
 	command string
 	upload  bool
 	out     utf8Stream
@@ -413,12 +460,18 @@ func (c *sshRecChannel) userRequests(creqs <-chan *ssh.Request) {
 			}
 			c.mu.Lock()
 			c.pty = true
+			c.cols, c.rows = int(p.Cols), int(p.Rows)
 			c.mu.Unlock()
 			c.forward(q)
 		case "window-change":
 			var p struct{ Cols, Rows, Width, Height uint32 }
 			if ssh.Unmarshal(q.Payload, &p) == nil {
 				r.term.size(int(p.Cols), int(p.Rows))
+				c.mu.Lock()
+				c.cols, c.rows = int(p.Cols), int(p.Rows)
+				num := c.num
+				c.mu.Unlock()
+				r.live.resize(num, int(p.Cols), int(p.Rows))
 			}
 			c.forward(q)
 		case "env", "signal", "break", "eow@openssh.com", "keepalive@openssh.com":
@@ -429,7 +482,9 @@ func (c *sshRecChannel) userRequests(creqs <-chan *ssh.Request) {
 			if r.keys != nil || r.ls != nil {
 				c.lines = &lineObserver{start: r.start}
 			}
+			num, cols, rows := c.num, c.cols, c.rows
 			c.mu.Unlock()
+			r.live.open(num, "Terminal", cols, rows)
 			if c.forward(q) {
 				r.term.marker("Shell opened")
 			}
@@ -514,7 +569,13 @@ func (c *sshRecChannel) exec(q *ssh.Request, command string) {
 	c.mu.Lock()
 	c.command = command
 	c.num = r.term.opened()
+	num, cols, rows := c.num, c.cols, c.rows
 	c.mu.Unlock()
+	label := "$ " + command
+	if len(label) > 60 {
+		label = label[:57] + "..."
+	}
+	r.live.open(num, label, cols, rows)
 	r.term.marker("$ " + command)
 	if r.keys != nil {
 		r.keys.post([]keyEvent{{AtMs: r.j.d.now().Sub(r.start).Milliseconds(), Kind: "command", Text: command}})
@@ -637,7 +698,16 @@ func (c *sshRecChannel) pumpDown(stderr bool) {
 			c.r.mu.Lock()
 			c.r.down += int64(n)
 			c.r.mu.Unlock()
-			if _, werr := dst.Write(buf[:n]); werr != nil {
+			if !stderr {
+				// A notice goes in between two writes, never inside one.
+				c.writeMu.Lock()
+			}
+			_, werr := dst.Write(buf[:n])
+			if !stderr {
+				c.writeMu.Unlock()
+				c.flushNotices()
+			}
+			if werr != nil {
 				return
 			}
 		}
@@ -673,6 +743,7 @@ func (c *sshRecChannel) shown(b []byte, kind int, stderr bool) {
 			r.term.marker("Binary output not recorded")
 		}
 		r.term.output(num, text)
+		r.live.output(num, text)
 	case chanTransfer:
 		if !c.upload {
 			c.mu.Lock()
@@ -747,6 +818,60 @@ func (c *sshRecChannel) finish() {
 			c.r.term.marker(fmt.Sprintf("%d bytes of binary output were not recorded", skipped))
 		}
 	}
+	if kind == chanTerminal || kind == chanExec {
+		c.mu.Lock()
+		num := c.num
+		c.mu.Unlock()
+		c.r.live.closeTerm(num)
+	}
+}
+
+// isTerminal: an interactive shell the user sees, where a notice can go.
+func (c *sshRecChannel) isTerminal() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.kind == chanTerminal && c.pty
+}
+
+// notice queues a line for the user's terminal and writes it at once if it
+// can (true); otherwise it goes after the server's next output that leaves
+// the terminal settled.
+func (c *sshRecChannel) notice(text string) bool {
+	c.mu.Lock()
+	c.notices = append(c.notices, text)
+	c.mu.Unlock()
+	return c.flushNotices()
+}
+
+func (c *sshRecChannel) flushNotices() bool {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.mu.Lock()
+	num, pending, split := c.num, len(c.notices), len(c.out.pending) > 0
+	c.mu.Unlock()
+	if pending == 0 {
+		return true
+	}
+	settled, prompt := c.r.live.settled(num)
+	if split || !settled {
+		return false
+	}
+	c.mu.Lock()
+	texts := c.notices
+	c.notices = nil
+	c.mu.Unlock()
+	var b strings.Builder
+	for _, text := range texts {
+		b.WriteString(noticeLine(text))
+		c.r.term.marker("Shown to the user: " + text)
+	}
+	// The prompt and anything typed after it, drawn again below the notice.
+	b.WriteString(prompt)
+	if _, err := io.WriteString(c.user, b.String()); err != nil {
+		return false
+	}
+	c.r.live.output(num, b.String())
+	return true
 }
 
 // channelConn lets an SSH server run inside an SSH channel: the jump's

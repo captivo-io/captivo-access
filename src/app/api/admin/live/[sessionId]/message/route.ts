@@ -10,7 +10,8 @@ const MAX_MESSAGE = 280;
 
 /**
  * Show a message on the user's screen during a live session (it appears on
- * their session page within a few seconds). Every message is in the admin
+ * their session page within a few seconds, or as a line in their terminal on
+ * recorded native SSH). Every message is in the admin
  * audit chain, with the text.
  */
 export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<{ sessionId: string }> }) => {
@@ -22,8 +23,8 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
   if (!text) return NextResponse.json({ error: "empty" }, { status: 400 });
   const session = await findOwnSession(sessionId);
   if (!session) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  const message = await sendSessionMessage(sessionId, text);
-  if (!message) return NextResponse.json({ error: "not_delivered" }, { status: 502 });
+  const sent = await sendSessionMessage(sessionId, text);
+  if (!sent) return NextResponse.json({ error: "not_delivered" }, { status: 502 });
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "session.message",
@@ -32,5 +33,5 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
     metadata: { userId: session.userId, siteId: session.siteId },
     clientIp: clientIp(req.headers) ?? null,
   });
-  return NextResponse.json({ ok: true, message });
+  return NextResponse.json({ ok: true, message: sent.message, delivery: sent.delivery });
 });
