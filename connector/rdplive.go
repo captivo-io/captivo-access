@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -56,6 +57,7 @@ type rdpViewer struct {
 	out     chan []byte
 	gone    chan struct{}
 	waiting bool // until the next whole screen
+	resyncs int  // how often it fell behind and was sent the whole screen again
 }
 
 var rdpLives = struct {
@@ -247,21 +249,36 @@ func (l *rdpLive) fanOut(stdout io.Reader) {
 		if err != nil {
 			return
 		}
+		// The whole screen starts with the size of layer 0 (the pointer's
+		// buffer, layer -1, has a size of its own).
+		whole := op == "size" && bytes.HasPrefix(inst, []byte("4.size,1.0,"))
 		l.mu.Lock()
+		resync := false
 		for v := range l.viewers {
 			if v.waiting {
-				if op != "size" {
+				if !whole {
 					continue
 				}
 				v.waiting = false
 			}
 			select {
 			case v.out <- inst:
-			default: // too slow: let it go
-				close(v.gone)
-				delete(l.viewers, v)
-				l.idleIfAlone()
+			default:
+				// Too slow for now (a busy screen, a slow link): drop what it
+				// has queued and start it again at the next whole screen, rather
+				// than end its view.
+				for len(v.out) > 0 {
+					<-v.out
+				}
+				v.waiting, resync = true, true
+				v.resyncs++
+				if v.resyncs == 1 || v.resyncs%20 == 0 {
+					logInfo("rdp live: a viewer fell behind (%d times); sending it the whole screen again", v.resyncs)
+				}
 			}
+		}
+		if resync {
+			_, _ = l.ctrl.Write([]byte("join\n"))
 		}
 		l.mu.Unlock()
 	}

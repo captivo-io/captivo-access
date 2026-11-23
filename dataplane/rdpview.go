@@ -89,5 +89,8 @@ func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w h
 			ls.fromController(viewerUserID, msg)
 		}
 	}()
-	<-errc
+	// Why the view ended: the viewer left, or the connector's side stopped.
+	if err := <-errc; err != nil {
+		log.Printf("rdp-view session=%s viewer=%s: view ended: %v", ls.id, viewerUserID, err)
+	}
 }
