@@ -379,6 +379,7 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
     ["Started", hm(r.startedAt, zone)],
     ["Duration", elapsed(r.startedAt, now)],
     ["IP address", r.clientIp || "—"],
+    ...(r.via ? [["Connector", r.via] as [string, string]] : []),
     ["Access", accessOf(r, now)],
   ] as [string, string][], [r, zone, now]);
 
