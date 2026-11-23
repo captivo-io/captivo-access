@@ -198,3 +198,39 @@ func TestClearVCCompression(t *testing.T) {
 		t.Fatal("a short PDU changed")
 	}
 }
+
+// dataPDU builds a slow-path Share Data PDU (no security header) with pduType2 and data.
+func dataPDU(mcsType byte, typ2 byte, data []byte) []byte {
+	body := binary.LittleEndian.AppendUint32(nil, 0x103EA) // shareId
+	body = append(body, 0, 1)                              // pad, streamId
+	body = binary.LittleEndian.AppendUint16(body, uint16(4+len(data)))
+	body = append(body, typ2, 0)
+	body = binary.LittleEndian.AppendUint16(body, 0)
+	body = append(body, data...)
+	share := binary.LittleEndian.AppendUint16(nil, uint16(6+len(body)))
+	share = binary.LittleEndian.AppendUint16(share, 0x17)
+	share = binary.LittleEndian.AppendUint16(share, 0x3EA)
+	share = append(share, body...)
+	mcs := append([]byte{mcsType, 0, 6, 0x03, 0xEB, 0x70}, perLength(len(share))...)
+	x := append([]byte{2, 0xF0, 0x80}, append(mcs, share...)...)
+	return append([]byte{3, 0, byte((4 + len(x)) >> 8), byte(4 + len(x))}, x...)
+}
+
+func TestRdpGoodbye(t *testing.T) {
+	idle := dataPDU(mcsSendDataInd, pduType2SetErrorInfo, binary.LittleEndian.AppendUint32(nil, 0x3))
+	if got := rdpGoodbye(idle, true); !strings.Contains(got, "idle timeout") {
+		t.Fatalf("idle: %q", got)
+	}
+	if got := rdpGoodbye(dataPDU(mcsSendDataInd, pduType2SetErrorInfo, make([]byte, 4)), true); got != "" {
+		t.Fatalf("error info 0 is no goodbye: %q", got)
+	}
+	if got := rdpGoodbye(dataPDU(mcsSendDataRq, pduType2ShutdownRequest, nil), false); !strings.Contains(got, "Shutdown Request") {
+		t.Fatalf("shutdown: %q", got)
+	}
+	if got := rdpGoodbye([]byte{3, 0, 0, 9, 2, 0xF0, 0x80, 0x21, 0x80}, false); got != "sent MCS disconnect" {
+		t.Fatalf("ultimatum: %q", got)
+	}
+	if rdpGoodbye(confirmActive(false, capSet(capsVirtualChannel, make([]byte, 8))), false) != "" {
+		t.Fatal("a Confirm Active taken for a goodbye")
+	}
+}

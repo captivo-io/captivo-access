@@ -283,6 +283,18 @@ type rdpgwTunnel struct {
 	ls      *liveSession // the console's entry, for a recorded session's typed text
 	watchID string       // a recorded session's live picture on the connector
 	ctl     *rdpControl  // a recorded session an admin can take over (rdpcontrol.go)
+
+	endMu sync.Mutex
+	end   string // which side ended the session first, for the log
+}
+
+// ending notes why the session ends; the first reason given counts.
+func (t *rdpgwTunnel) ending(why string) {
+	t.endMu.Lock()
+	if t.end == "" {
+		t.end = why
+	}
+	t.endMu.Unlock()
 }
 
 func (t *rdpgwTunnel) live() *liveSession {
@@ -311,6 +323,7 @@ func (t *rdpgwTunnel) run() {
 	for {
 		typ, body, err := readTsgPacket(t.conn)
 		if err != nil {
+			t.ending("the app's gateway connection ended (" + err.Error() + ")")
 			if t.remote != nil {
 				t.remote.Close()
 			}
@@ -402,11 +415,13 @@ func (t *rdpgwTunnel) run() {
 				return
 			}
 			if _, err := t.remote.Write(body[2 : 2+n]); err != nil {
+				t.ending("writing to the server side failed (" + err.Error() + ")")
 				return
 			}
 		case tsgKeepalive:
 			// Sent while idle; nothing to answer.
 		case tsgCloseChannel:
+			t.ending("the app closed the channel")
 			_ = t.write(tsgPacket(tsgCloseChannelResponse, le32(0)))
 			if t.remote != nil {
 				t.remote.Close()
@@ -484,6 +499,7 @@ func (t *rdpgwTunnel) open() func() {
 		t.lsMu.Unlock()
 		t.d.hub.clearEnded(tk.UserID, tk.SiteID)
 		t.d.hub.SetCloser(sessionID, func() {
+			t.ending("ended from the console or by the access recheck")
 			_ = t.write(tsgPacket(tsgCloseChannel, le32(0)))
 			t.remote.Close()
 			t.conn.Close()
@@ -509,6 +525,7 @@ func (t *rdpgwTunnel) open() func() {
 				}
 			}
 			if err != nil {
+				t.ending("the server side ended (" + err.Error() + ")")
 				break
 			}
 		}
@@ -522,6 +539,9 @@ func (t *rdpgwTunnel) open() func() {
 		if t.d.audit != nil {
 			t.d.audit.Enqueue(auditEvent("ALLOW", "session_close "+compactDur(t.d.now().Sub(start)), tk.UserID, tk.SiteID, host, t.r, http.StatusSwitchingProtocols, down.Load()))
 		}
-		log.Printf("rdpgw: site=%s user=%s session %s closed after %s (down %d B)", tk.SiteID, tk.UserID, sessionID, compactDur(t.d.now().Sub(start)), down.Load())
+		t.endMu.Lock()
+		why := t.end
+		t.endMu.Unlock()
+		log.Printf("rdpgw: site=%s user=%s session %s closed after %s (down %d B): %s", tk.SiteID, tk.UserID, sessionID, compactDur(t.d.now().Sub(start)), down.Load(), why)
 	}
 }

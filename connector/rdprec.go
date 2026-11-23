@@ -6,9 +6,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 
@@ -40,9 +42,14 @@ const (
 	infoUnicode   = 0x00000010
 	mcsSendDataRq = 0x64 // DomainMCSPDU sendDataRequest (25) << 2
 
-	pduConfirmActive   = 0x3
-	capsVirtualChannel = 0x0014
-	vcCapsComprSC      = 0x00000001
+	pduConfirmActive = 0x3
+	pduData          = 0x7
+	mcsSendDataInd   = 0x68 // DomainMCSPDU sendDataIndication (26) << 2
+
+	pduType2ShutdownRequest = 0x24
+	pduType2SetErrorInfo    = 0x2F
+	capsVirtualChannel      = 0x0014
+	vcCapsComprSC           = 0x00000001
 
 	rdpMaxPDU = 1 << 16
 )
@@ -340,6 +347,15 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 	_ = setStreamDeadline(st, time.Time{})
 	user, domain := splitAccount(req.Username)
 	done := make(chan struct{}, 2)
+	// Why the session ended, for the log: the first side to stop, and what
+	// either side said on the way out.
+	var endMu sync.Mutex
+	var ends []string
+	ended := func(s string) {
+		endMu.Lock()
+		ends = append(ends, s)
+		endMu.Unlock()
+	}
 	// Client -> server.
 	go func() {
 		defer func() { done <- struct{}{} }()
@@ -348,7 +364,11 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 		for {
 			pdu, err := readRdpPDU(r)
 			if err != nil {
+				ended("the app's side closed (" + endErr(err) + ")")
 				return
+			}
+			if what := rdpGoodbye(pdu, false); what != "" {
+				ended("the app " + what)
 			}
 			if first {
 				live.clientChannels(pdu)
@@ -366,6 +386,7 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 				}
 			}
 			if _, err := server.Write(pdu); err != nil {
+				ended("writing to the server failed (" + endErr(err) + ")")
 				return
 			}
 		}
@@ -378,11 +399,14 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 		for {
 			pdu, err := readRdpPDU(r)
 			if err != nil {
+				ended("the server closed (" + endErr(err) + ")")
 				return
 			}
 			if first {
 				rewriteConnectResponse(pdu, start.ClientProtocols)
 				first = false
+			} else if what := rdpGoodbye(pdu, true); what != "" {
+				ended("the server " + what)
 			}
 			live.server(pdu)
 			if _, err := st.Write(pdu); err != nil {
@@ -394,4 +418,90 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 	server.Close()
 	st.Close()
 	<-done
+	endMu.Lock()
+	logInfo("rdp rec: session with %s ended: %s", net.JoinHostPort(req.Host, req.Port), strings.Join(ends, "; "))
+	endMu.Unlock()
+}
+
+func endErr(err error) string {
+	if errors.Is(err, io.EOF) {
+		return "EOF"
+	}
+	return err.Error()
+}
+
+// rdpGoodbye recognizes what a side says when it ends a session: the
+// server's Set Error Info (why it disconnects), an app's Shutdown Request,
+// or MCS Disconnect Provider Ultimatum. "" for anything else.
+func rdpGoodbye(pdu []byte, fromServer bool) string {
+	// TPKT (4), X.224 data (3), then MCS.
+	if len(pdu) < 9 || pdu[0] != 3 {
+		return ""
+	}
+	if pdu[7]&0xFC == 0x20 { // DisconnectProviderUltimatum
+		return "sent MCS disconnect"
+	}
+	if pdu[7] != mcsSendDataRq && pdu[7] != mcsSendDataInd {
+		return ""
+	}
+	p := 7 + 6
+	if p >= len(pdu) {
+		return ""
+	}
+	if pdu[p]&0x80 != 0 {
+		p += 2
+	} else {
+		p++
+	}
+	// Share Control Header (6) of a data PDU, Share Data Header (12).
+	if p+18 > len(pdu) || binary.LittleEndian.Uint16(pdu[p+2:])&0x0F != pduData {
+		return ""
+	}
+	typ2, compressed := pdu[p+14], pdu[p+15]&0x20 != 0
+	switch {
+	case typ2 == pduType2ShutdownRequest && !fromServer:
+		return "asked to end the session (Shutdown Request)"
+	case typ2 == pduType2SetErrorInfo && fromServer && !compressed && p+22 <= len(pdu):
+		code := binary.LittleEndian.Uint32(pdu[p+18:])
+		if code == 0 {
+			return ""
+		}
+		return fmt.Sprintf("sent error info %#x (%s)", code, rdpErrorInfo(code))
+	}
+	return ""
+}
+
+// rdpErrorInfo names the Set Error Info codes a disconnect most often carries (MS-RDPBCGR 2.2.5.1.1).
+func rdpErrorInfo(code uint32) string {
+	switch code {
+	case 0x1:
+		return "disconnected by an administrator or another tool"
+	case 0x2:
+		return "logged off by an administrator or another tool"
+	case 0x3:
+		return "the server's idle timeout"
+	case 0x4:
+		return "the server's session time limit"
+	case 0x5:
+		return "another connection took over the session"
+	case 0x6:
+		return "the server is out of memory"
+	case 0x7:
+		return "the server refused the connection"
+	case 0x9:
+		return "the user has no right to log on"
+	case 0xB:
+		return "disconnected by the user (from the session)"
+	case 0xC:
+		return "logged off by the user"
+	case 0xF:
+		return "the session's close timed out"
+	}
+	if code >= 0x100 && code < 0x1000 {
+		return "licensing"
+	}
+	if code >= 0x10C9 {
+		return "a protocol error"
+	}
+	return "see MS-RDPBCGR Set Error Info"
 }
