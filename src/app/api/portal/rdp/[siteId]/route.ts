@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 
 // A .rdp file for the signed-in user's own Remote Desktop client: the
 // resource's server behind this host's RD Gateway, with a ticket that can
-// start a session for the next two minutes. Each click makes a new one.
+// start a session for the next two minutes. Each click makes a new one. On a
+// recorded resource Captivo signs in, so the file asks for no credentials.
 export const GET = withTenantRoute(async (req: Request, ctx: { params: Promise<{ siteId: string }> }) => {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -25,7 +26,7 @@ export const GET = withTenantRoute(async (req: Request, ctx: { params: Promise<{
 
   const gatewayHost = new URL(managerBaseUrlFromHeaders(req.headers, { fallbackOrigin: new URL(req.url).origin })).host;
   const ticket = mintRdpTicket({ tenantId: currentTenantId(), siteId, userId: user.id }, { secret, now });
-  const body = rdpFile({ gatewayHost, targetHost: t.targetHost, targetPort: t.targetPort, token: ticket.token, redirection: t.redirection });
+  const body = rdpFile({ gatewayHost, targetHost: t.targetHost, targetPort: t.targetPort, token: ticket.token, redirection: t.redirection, recorded: t.mode === "recorded" });
   return new NextResponse(body, {
     headers: {
       "content-type": "application/x-rdp; charset=utf-8",

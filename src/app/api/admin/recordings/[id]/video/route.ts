@@ -31,7 +31,7 @@ export const GET = withTenantRoute(async (req: Request, { params }: { params: Pr
   const rec = await db.sessionRecording.findUnique({ where: { id } });
   // An isolated-browser recording is video from the start; an RDP/VNC one once
   // its connector has converted it (both stored as the "video" stream).
-  if (!rec || !(rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady))) {
+  if (!rec || !(rec.format === "VIDEO" || ((rec.format === "GUAC" || rec.format === "RDP") && rec.videoReady))) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 

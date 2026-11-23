@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -251,11 +252,27 @@ func (m *recMaint) process(ctx context.Context, tenantID, key string) {
 		m.convert(ctx, tenantID, key, recDir, &st)
 	}
 
+	// A recorded native RDP session plays only as its video: the server's
+	// PDUs are kept until the control plane has the video, then go too.
+	if has("rdp") && st.Video == "converted" {
+		if src := streamStamp(filepath.Join(recDir, "rdp")); src != st.Source {
+			logInfo("recording %s: grew after conversion, converting again", key)
+			m.removeStream(recDir, "video")
+			st = maintState{Acked: st.Acked}
+		} else if st.Acked != nil && st.Acked.Video && m.now().Sub(st.ConvertedAt) >= m.grace {
+			m.removeStream(recDir, "rdp")
+			logInfo("recording %s: RDP stream removed, the video replaces it", key)
+		}
+	}
+	if has("rdp") && m.tools != nil && m.dueForConversion(st) {
+		m.convertRdp(ctx, tenantID, key, recDir, &st)
+	}
+
 	// Compress what is kept. A converted instruction stream is on its way out.
 	if !st.Compressed {
 		for _, f := range m.store.Formats(tenantID, key) {
 			switch {
-			case !compressible(f) || (f == "guac" && st.Video == "converted"):
+			case !compressible(f) || ((f == "guac" || f == "rdp") && st.Video == "converted"):
 			case repackable(f) && m.streamBytes(tenantID, key, f) <= repackMaxBytes:
 				m.repackStream(tenantID, key, recDir, f)
 			default:
@@ -374,6 +391,71 @@ func (m *recMaint) convert(ctx context.Context, tenantID, key, recDir string, st
 	st.DurationMs = dur.Milliseconds()
 	logInfo("recording %s: converted to video in %s (%d -> %d bytes, %s)",
 		key, m.now().Sub(started).Round(time.Second), scan.bytes, info.Size(), dur.Round(time.Second))
+}
+
+// convertRdp turns a recorded native RDP session's PDU stream into its video.
+func (m *recMaint) convertRdp(ctx context.Context, tenantID, key, recDir string, st *maintState) {
+	source := streamStamp(filepath.Join(recDir, "rdp"))
+	st.Tries++
+	st.LastTry = m.now()
+	tmp, err := os.MkdirTemp("", maintTempPrefix)
+	if err != nil {
+		m.failed(key, st, err)
+		return
+	}
+	defer os.RemoveAll(tmp)
+	out := filepath.Join(tmp, "out.webm")
+	// Replay runs far ahead of real time; this only ends one that hangs.
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancel()
+	pr, pw := io.Pipe()
+	go func() {
+		pw.CloseWithError(m.store.EachChunk(tenantID, key, "rdp", 0, func(b []byte) error {
+			_, err := pw.Write(b)
+			return err
+		}))
+	}()
+	started := m.now()
+	want, err := m.tools.EncodeRdp(ctx, pr, out)
+	pr.Close()
+	if errors.Is(err, errNothingDrawn) {
+		st.Video = "kept"
+		logInfo("recording %s: the RDP session showed nothing, no video made", key)
+		return
+	}
+	if err != nil {
+		m.failed(key, st, err)
+		return
+	}
+	dur, ok, err := m.tools.Duration(ctx, out)
+	if err != nil || !ok {
+		m.failed(key, st, fmt.Errorf("the video has no duration (%v)", err))
+		return
+	}
+	// The encoder holds the last picture a second past the last PDU.
+	want += time.Second
+	slack := 2 * time.Second
+	if want/50 > slack {
+		slack = want / 50
+	}
+	if dur < want-slack || dur > want+slack {
+		m.failed(key, st, fmt.Errorf("the video is %s long, the recording %s", dur.Round(time.Millisecond), want))
+		return
+	}
+	if err := m.installStream(recDir, "video", out, videoChunkBytes, nil); err != nil {
+		m.failed(key, st, err)
+		return
+	}
+	info, _ := os.Stat(out)
+	st.Video = "converted"
+	st.ConvertedAt = m.now()
+	st.Source = source
+	st.DurationMs = dur.Milliseconds()
+	size := int64(0)
+	if info != nil {
+		size = info.Size()
+	}
+	logInfo("recording %s: RDP session converted to video in %s (%d bytes, %s)", key, m.now().Sub(started).Round(time.Second), size, dur.Round(time.Second))
 }
 
 func (m *recMaint) failed(key string, st *maintState, err error) {
@@ -887,14 +969,20 @@ type mediaTools interface {
 	// Remux rewrites a WebM without re-encoding it, which writes its duration
 	// and seek index.
 	Remux(ctx context.Context, in, out string) error
+	// EncodeRdp turns a recorded native RDP session (the server's PDUs, read
+	// from in) into a VP9 WebM at out and returns the time the recording spans.
+	// errNothingDrawn: the session showed nothing.
+	EncodeRdp(ctx context.Context, in io.Reader, out string) (time.Duration, error)
 }
+
+var errNothingDrawn = errors.New("nothing was drawn")
 
 // vp9Options: constant quality, which spends nothing on a still screen; the
 // realtime speed preset (a 12-minute session encodes in under two minutes on one
 // core); tuned for screen content; two threads at most.
 const vp9Options = "crf=36:qmin=0:qmax=63:deadline=realtime:cpu-used=8:row-mt=1:tune-content=screen:threads=2"
 
-type execTools struct{ guacenc, ffmpeg, ffprobe, nice string }
+type execTools struct{ guacenc, rdpenc, ffmpeg, ffprobe, nice string }
 
 // findMediaTools returns the image's encoders, or nil when they are missing (a
 // development build): the store then keeps every recording as written.
@@ -911,6 +999,9 @@ func findMediaTools() mediaTools {
 		return nil
 	}
 	t.nice, _ = exec.LookPath("nice")
+	if _, err := os.Stat("/usr/local/bin/rdpenc"); err == nil {
+		t.rdpenc = "/usr/local/bin/rdpenc"
+	}
 	return t
 }
 
@@ -954,6 +1045,74 @@ func (t execTools) Duration(ctx context.Context, path string) (time.Duration, bo
 		return 0, false, nil // "N/A": a WebM cut off before its end was written
 	}
 	return time.Duration(sec * float64(time.Second)), true, nil
+}
+
+// EncodeRdp runs rdpenc (rdpenc/rdpenc.c), which replays the server's PDUs into
+// a FreeRDP client without a server and writes the screen as raw frames, ten a
+// second, after naming its size on stderr; ffmpeg encodes them as it goes.
+func (t execTools) EncodeRdp(ctx context.Context, in io.Reader, out string) (time.Duration, error) {
+	if t.rdpenc == "" {
+		return 0, errors.New("this image has no RDP encoder")
+	}
+	// The graphics pipeline (H.264 included) and bulk compression: what any
+	// client asks for; a server answers with less when the client asked for less.
+	dec := t.command(ctx, t.rdpenc, "-", "10", "/gfx", "+compression")
+	dec.Stdin = in
+	frames, err := dec.StdoutPipe()
+	if err != nil {
+		return 0, err
+	}
+	errOut, err := dec.StderrPipe()
+	if err != nil {
+		return 0, err
+	}
+	if err := dec.Start(); err != nil {
+		return 0, err
+	}
+	lines := bufio.NewScanner(errOut)
+	var w, h int
+	var tail []string
+	for lines.Scan() {
+		l := lines.Text()
+		if _, err := fmt.Sscanf(l, "size %dx%d", &w, &h); err == nil {
+			break
+		}
+		tail = append(tail, l)
+	}
+	if w <= 0 || h <= 0 {
+		_, _ = io.Copy(io.Discard, frames)
+		_ = dec.Wait()
+		if len(tail) > 0 {
+			logInfo("rdpenc: %s", strings.Join(tail[max(0, len(tail)-5):], "; "))
+		}
+		return 0, errNothingDrawn
+	}
+	spanc := make(chan time.Duration, 1)
+	go func() {
+		var span time.Duration
+		for lines.Scan() {
+			var n, ms int64
+			if _, err := fmt.Sscanf(lines.Text(), "frames %d, %d ms", &n, &ms); err == nil {
+				span = time.Duration(ms) * time.Millisecond
+			}
+		}
+		spanc <- span
+	}()
+	vw, vh := videoSize(w, h)
+	enc := t.command(ctx, t.ffmpeg, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr0", "-s", fmt.Sprintf("%dx%d", w, h), "-r", "10", "-i", "-",
+		"-vf", fmt.Sprintf("scale=%d:%d", vw, vh), "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "36", "-deadline", "realtime", "-cpu-used", "8",
+		"-row-mt", "1", "-tune-content", "screen", "-threads", "2", "-g", "300", "-f", "webm", out)
+	enc.Stdin = frames
+	encErr := runTool(enc)
+	decErr := dec.Wait()
+	span := <-spanc
+	if encErr != nil {
+		return 0, encErr
+	}
+	if decErr != nil {
+		return 0, fmt.Errorf("rdpenc: %v (%s)", decErr, strings.Join(tail, "; "))
+	}
+	return span, nil
 }
 
 func (t execTools) Remux(ctx context.Context, in, out string) error {

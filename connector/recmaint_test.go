@@ -54,6 +54,22 @@ type fakeTools struct {
 	remuxed    int
 }
 
+func (f *fakeTools) EncodeRdp(_ context.Context, in io.Reader, out string) (time.Duration, error) {
+	b, err := io.ReadAll(in)
+	if err != nil {
+		return 0, err
+	}
+	f.encoded = b
+	if f.encodeErr != nil {
+		return 0, f.encodeErr
+	}
+	// The encoder holds the last picture a second; the recording spans the rest.
+	if err := os.WriteFile(out, bytes.Repeat([]byte("V"), f.videoBytes), 0o600); err != nil {
+		return 0, err
+	}
+	return f.duration - time.Second, nil
+}
+
 func (f *fakeTools) EncodeGuac(_ context.Context, in io.Reader, w, h int, out string) error {
 	b, err := io.ReadAll(in)
 	if err != nil {
@@ -600,5 +616,44 @@ func TestMaintStartsAtOnceOnARecordingTheDataPlaneSaysIsComplete(t *testing.T) {
 	f.m.markDone("../x", "r1") // untrusted ids are refused
 	if len(f.m.done) != 0 {
 		t.Fatal("accepted a traversing tenant id")
+	}
+}
+
+func TestMaintConvertsARecordedNativeRdpSession(t *testing.T) {
+	f := newMaintFixture(t)
+	dump := bytes.Repeat([]byte("PDU"), 400)
+	f.write("r1", "rdp", "rdp", dump)
+	f.write("r1", "keys", "", []byte(`[{"atMs":5,"kind":"text","text":"dir"}]`))
+
+	f.m.cycle(context.Background())
+
+	if !bytes.Equal(f.tools.encoded, dump) {
+		t.Fatal("the encoder was not given the whole stream")
+	}
+	st := f.state("r1")
+	if st.Video != "converted" || len(f.stream("r1", "video")) != 1000 {
+		t.Fatalf("state %+v", st)
+	}
+	if items := f.m.reports(10); len(items) != 1 || !items[0].Video {
+		t.Fatalf("report %+v", items)
+	}
+	f.ack()
+	f.clock = f.clock.Add(maintGrace)
+	f.m.cycle(context.Background())
+	if f.has("r1", "rdp") || !f.has("r1", "video") || !f.has("r1", "keys") {
+		t.Fatal("after the grace period only the video and the keystrokes should be left")
+	}
+}
+
+func TestMaintRdpSessionThatShowedNothing(t *testing.T) {
+	f := newMaintFixture(t)
+	f.tools.encodeErr = errNothingDrawn
+	f.write("r1", "rdp", "rdp", []byte("PDU"))
+	f.m.cycle(context.Background())
+	if st := f.state("r1"); st.Video != "kept" || f.has("r1", "video") {
+		t.Fatalf("state %+v", st)
+	}
+	if items := f.m.reports(10); len(items) != 1 || items[0].Video {
+		t.Fatalf("report %+v", items)
 	}
 }

@@ -176,10 +176,15 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
               <b>Empty session</b>
               <span>The connection closed at once. There is nothing to replay.</span>
             </div>
-          ) : rec.format === "VIDEO" || (rec.format === "GUAC" && rec.videoReady) ? (
+          ) : rec.format === "VIDEO" || ((rec.format === "GUAC" || rec.format === "RDP") && rec.videoReady) ? (
             <VideoRecordingPlayer id={rec.id} durationMs={rec.lengthMs} shell={shell} />
           ) : rec.preparing ? (
             <PreparingRecording id={rec.id} estimatedMs={rec.lengthMs} shell={shell} />
+          ) : rec.format === "RDP" ? (
+            <div className="rv-empty">
+              <b>No video of this session</b>
+              <span>Its connector could not turn the recording into video. The recording is kept on the connector; ask your administrator to check the connector&apos;s logs.</span>
+            </div>
           ) : rec.format === "GUAC" ? (
             <GuacRecordingPlayer recordingId={rec.id} estimatedMs={rec.lengthMs} shell={shell} />
           ) : rec.format === "TERM" ? (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nativeRdpBlock, nativeRedirection, rdpFile, rdpFileName, redirectFlags } from "./native-rdp";
+import { blockedChannels, nativeRdpBlock, nativeRdpMode, nativeRedirection, rdpFile, rdpFileName, redirectFlags } from "./native-rdp";
 
 const base = { accessMode: "GATEWAY", nativeRdp: true, protocol: "RDP", recordingRequired: false, connectorVersion: "2.39.0" };
 
@@ -13,8 +13,18 @@ describe("nativeRdpBlock", () => {
     expect(nativeRdpBlock({ ...base, protocol: "SSH" })).toBe("not_rdp");
     expect(nativeRdpBlock({ ...base, accessMode: "ISOLATED" })).toBe("not_rdp");
     expect(nativeRdpBlock({ ...base, nativeRdp: false })).toBe("off");
-    expect(nativeRdpBlock({ ...base, recordingRequired: true })).toBe("recording_required");
+    expect(nativeRdpBlock({ ...base, recordingRequired: true })).toBe("connector_outdated");
     expect(nativeRdpBlock({ ...base, connectorVersion: "2.35.1" })).toBe("connector_outdated");
+  });
+});
+
+describe("nativeRdpMode", () => {
+  it("records on a recorded resource once the connector can sign in", () => {
+    expect(nativeRdpMode({ ...base, recorded: true, connectorVersion: "2.52.0" })).toBe("recorded");
+    expect(nativeRdpMode({ ...base, recordingRequired: true, connectorVersion: "2.52.0" })).toBe("recorded");
+    // An older connector keeps the direct, unrecorded way, unless the Policy requires recording.
+    expect(nativeRdpMode({ ...base, recorded: true, connectorVersion: "2.51.0" })).toBe("direct");
+    expect(nativeRdpMode({ ...base, connectorVersion: "2.52.0" })).toBe("direct");
   });
 });
 
@@ -55,5 +65,19 @@ describe("rdpFileName", () => {
   it("makes a safe file name", () => {
     expect(rdpFileName("DC (main) / İstanbul")).toBe("DC-main-Istanbul.rdp");
     expect(rdpFileName("***")).toBe("remote-desktop.rdp");
+  });
+});
+
+describe("recorded sessions", () => {
+  it("names the console as the computer and asks for no credentials", () => {
+    const f = rdpFile({ gatewayHost: "acme.cloud.captivo.io", targetHost: "10.0.0.5", targetPort: 3389, token: "cr1.x", redirection: { clipboard: true, drives: false, printers: false }, recorded: true });
+    expect(f).toContain("full address:s:acme.cloud.captivo.io\r\n");
+    expect(f).toContain("enablecredsspsupport:i:0");
+    expect(f).toContain("prompt for credentials:i:0");
+    expect(f).not.toContain("10.0.0.5");
+  });
+  it("keeps the clipboard and device channels closed as the rules say", () => {
+    expect(blockedChannels({ clipboard: false, drives: false, printers: false })).toEqual(["cliprdr", "rdpdr"]);
+    expect(blockedChannels({ clipboard: true, drives: false, printers: true })).toEqual([]);
   });
 });

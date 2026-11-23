@@ -112,6 +112,8 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleLdap(cst, allow, reqBytes)
 	case "rdp":
 		handleRdp(cst, allow, reqBytes)
+	case "rdp-rec":
+		handleRdpRec(cst, allow, reqBytes)
 	case "db":
 		handleDb(cst, allow, reqBytes)
 	case "db-cancel":

@@ -131,24 +131,17 @@ func (c *certReloader) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 }
 
 // startDbProxy listens for PostgreSQL clients on pgAddr and MySQL clients on
-// myAddr (mysqlproxy.go); "" or "off" leaves one out. With no certificate
-// configured it makes one for itself, kept in dataDir: clients connect with
-// sslmode=require (ssl-mode=REQUIRED), which encrypts without checking the
-// certificate. Set DB_TLS_CERT/DB_TLS_KEY (the console's own certificate) for
-// clients that verify it.
-func startDbProxy(pgAddr, myAddr, certFile, keyFile, dataDir string, d pgProxyDeps) (pgOn, myOn bool, err error) {
+// myAddr (mysqlproxy.go); "" or "off" leaves one out. The certificate is
+// newEdgeCert's: a self-signed one is taken by clients that connect with
+// sslmode=require (ssl-mode=REQUIRED), which encrypts without checking it; set
+// DB_TLS_CERT/DB_TLS_KEY (the console's own) for clients that verify it.
+func startDbProxy(pgAddr, myAddr string, cr *certReloader, d pgProxyDeps) (pgOn, myOn bool, err error) {
 	off := func(a string) bool { return a == "" || a == "off" }
 	if off(pgAddr) && off(myAddr) {
 		return false, false, nil
 	}
-	if certFile == "" || keyFile == "" {
-		if certFile, keyFile, err = selfSignedDbCert(dataDir); err != nil {
-			return false, false, fmt.Errorf("certificate: %w", err)
-		}
-	}
-	cr := &certReloader{certFile: certFile, keyFile: keyFile}
-	if _, err := cr.get(nil); err != nil {
-		return false, false, fmt.Errorf("certificate: %w", err)
+	if cr == nil {
+		return false, false, errors.New("no certificate")
 	}
 	p := &pgProxy{
 		d: d, sessions: map[string]*dbSession{}, cancels: map[uint64]dbCancel{}, myConns: map[uint32]myConnRef{},
@@ -199,6 +192,23 @@ func (p *pgProxy) serve(ln net.Listener, handle func(net.Conn, func())) {
 		}
 		go handle(c, func() { <-pending })
 	}
+}
+
+// newEdgeCert is the certificate clients see where this side ends their TLS
+// (the database proxies, recorded native RDP): DB_TLS_CERT/DB_TLS_KEY, the
+// console's own, or else a self-signed one kept in dataDir.
+func newEdgeCert(certFile, keyFile, dataDir string) (*certReloader, error) {
+	if certFile == "" || keyFile == "" {
+		var err error
+		if certFile, keyFile, err = selfSignedDbCert(dataDir); err != nil {
+			return nil, err
+		}
+	}
+	cr := &certReloader{certFile: certFile, keyFile: keyFile}
+	if _, err := cr.get(nil); err != nil {
+		return nil, err
+	}
+	return cr, nil
 }
 
 // selfSignedDbCert returns the proxy's own certificate files, making them on

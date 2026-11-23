@@ -3,29 +3,50 @@ import type { GuacParams } from "@/lib/gateway/guac-params";
 
 // Native RDP: a remote desktop resource the user may also open in their own
 // Remote Desktop client (mstsc, the Windows App, FreeRDP) through the data
-// plane's RD Gateway. The RDP stream is end-to-end between that client and the
-// server, so Captivo can't record it, log keystrokes, sign in for the user or
-// let an admin watch. A recorded resource may still offer it: its browser
-// sessions stay recorded and the native ones are marked as not recorded. Only
-// a Policy that requires recording turns it off.
+// plane's RD Gateway.
+//
+// On a recorded resource the session is recorded: the data plane ends the
+// client's TLS inside the gateway tunnel and the connector signs in to the
+// server with the saved account (dataplane/rdprec.go, connector/rdprec.go), so
+// the user types no password, and the screen and keys are recorded. That needs
+// connector 2.52.0. On a resource that is not recorded, or a recorded one whose
+// connector is older (while the Policy doesn't require recording), the RDP
+// stream runs end to end between the client and the server and Captivo sees
+// none of it.
 
 /** The first connector that relays native RDP (the "rdp" tunnel stream). */
 export const NATIVE_RDP_MIN_CONNECTOR = "2.39.0";
 
-export type NativeRdpBlock = "off" | "not_rdp" | "recording_required" | "connector_outdated";
+/** Connectors sign in for a recorded native RDP session from this release on. */
+export const NATIVE_RDP_RECORDED_MIN_CONNECTOR = "2.52.0";
 
-/**
- * Why a resource can't be opened natively right now, or null when it can.
- * `recorded` is the effective decision (capability, tenant policy, the toggle).
- */
-export function nativeRdpBlock(s: { accessMode: string; nativeRdp: boolean; protocol: string | null | undefined; recordingRequired: boolean; connectorVersion: string | null | undefined }): NativeRdpBlock | null {
+export type NativeRdpBlock = "off" | "not_rdp" | "recording_required" | "connector_outdated";
+export type NativeRdpMode = "recorded" | "direct";
+
+type NativeRdpFacts = {
+  accessMode: string; nativeRdp: boolean; protocol: string | null | undefined;
+  /** Sessions on this resource are recorded (the Policy and its own setting). */
+  recorded?: boolean;
+  recordingRequired: boolean; connectorVersion: string | null | undefined;
+};
+
+/** How the user's own RDP client reaches this resource now, or why it can't. */
+export function nativeRdpMode(s: NativeRdpFacts): NativeRdpMode | NativeRdpBlock {
   if (s.accessMode !== "GATEWAY" || String(s.protocol ?? "").toUpperCase() !== "RDP") return "not_rdp";
   if (!s.nativeRdp) return "off";
-  if (s.recordingRequired) return "recording_required";
+  const recorded = s.recorded || s.recordingRequired;
   // A version that isn't plain semver (a dev build) is let through; the gateway
-  // still reports a connector that can't relay the stream.
+  // still reports a connector that can't carry the stream.
+  if (recorded && compareSemver(s.connectorVersion, NATIVE_RDP_RECORDED_MIN_CONNECTOR) !== -1) return "recorded";
+  if (s.recordingRequired) return "connector_outdated";
   if (compareSemver(s.connectorVersion, NATIVE_RDP_MIN_CONNECTOR) === -1) return "connector_outdated";
-  return null;
+  return "direct";
+}
+
+/** Why a resource can't be opened natively right now, or null when it can. */
+export function nativeRdpBlock(s: NativeRdpFacts): NativeRdpBlock | null {
+  const m = nativeRdpMode(s);
+  return m === "recorded" || m === "direct" ? null : m;
 }
 
 // MS-TSGU tunnel redirection flags (HTTP_TUNNEL_REDIR_*): the gateway tells the
@@ -60,12 +81,27 @@ export function redirectFlags(r: NativeRedirection): number {
 const oneLine = (v: string) => v.replace(/[\r\n]/g, "");
 
 /**
+ * Static channels a recorded session keeps closed on the server, from the
+ * resource's rules: the clipboard, and device redirection when neither drives
+ * nor printers may come through (both share one channel).
+ */
+export function blockedChannels(r: NativeRedirection): string[] {
+  const out: string[] = [];
+  if (!r.clipboard) out.push("cliprdr");
+  if (!r.drives && !r.printers) out.push("rdpdr");
+  return out;
+}
+
+/**
  * The .rdp file: the server, our RD Gateway with the ticket as its access
  * token, and the same redirection the gateway enforces, so the client doesn't
- * offer what will be refused. The user signs in to the server themselves.
+ * offer what will be refused. The user signs in to the server themselves,
+ * except on a recorded session: there the computer named is the console
+ * (whose certificate the data plane shows inside the tunnel) and the client
+ * asks for no credentials, as Captivo signs in.
  */
-export function rdpFile(o: { gatewayHost: string; targetHost: string; targetPort: number; token: string; redirection: NativeRedirection }): string {
-  const address = o.targetPort === 3389 ? o.targetHost : `${o.targetHost}:${o.targetPort}`;
+export function rdpFile(o: { gatewayHost: string; targetHost: string; targetPort: number; token: string; redirection: NativeRedirection; recorded?: boolean }): string {
+  const address = o.recorded ? o.gatewayHost.replace(/:\d+$/, "") : o.targetPort === 3389 ? o.targetHost : `${o.targetHost}:${o.targetPort}`;
   const r = o.redirection;
   const lines = [
     `full address:s:${oneLine(address)}`,
@@ -76,7 +112,8 @@ export function rdpFile(o: { gatewayHost: string; targetHost: string; targetPort
     "promptcredentialonce:i:0",
     `gatewayaccesstoken:s:${oneLine(o.token)}`,
     "authentication level:i:2",
-    "enablecredsspsupport:i:1",
+    `enablecredsspsupport:i:${o.recorded ? 0 : 1}`,
+    ...(o.recorded ? ["prompt for credentials:i:0"] : []),
     "screen mode id:i:2",
     "smart sizing:i:1",
     "dynamic resolution:i:1",

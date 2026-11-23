@@ -10,7 +10,7 @@ import { ResourceIcon } from "@/components/resource-icon";
 import { autoIcon, defaultColor, protoLabel, slugFromName, type IconColor, type ResourceKind } from "@/lib/site/icons";
 import { recordToggleLock } from "@/lib/recording/mode";
 import { compareSemver } from "@/lib/updates/semver";
-import { NATIVE_RDP_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
+import { NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
 import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
 import { SshHostKeyLine } from "./ssh-host-key";
 import { dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
@@ -98,7 +98,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "isolation_disabled": return "The isolated browser is not enabled on this installation.";
     case "vault_secret_required": return "Enter the password again: it was encrypted for the previous address, username or connector.";
     case "vault_key_changed": return "The connector's encryption key changed. Reload the page and enter the password again.";
-    case "native_with_rotation": return "This resource rotates its password, so nobody knows it to type into a native client. Turn rotation off first. Native SSH can stay on if the resource is recorded: Captivo then signs in for the user.";
+    case "native_with_rotation": return "This resource rotates its password, so nobody knows it to type into a native client. Turn rotation off first, or record the resource: Captivo then signs in for the user in their own app.";
     case "invalid_sealed_secret": case "vault_unsupported_browser": return "This browser can't encrypt the password for the connector. Use a current Chrome, Edge, Firefox or Safari.";
     case "invalid_egress_hosts": return "Allowed hosts must be host names (sso.example.local, *.okta.com) or IP addresses, at most 50.";
     case "logo_too_large": return "The logo must be 512 KB or smaller.";
@@ -339,15 +339,18 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off" && kind !== "database";
   const keystrokes = keystrokeChoice ?? remote;
   const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
-  // Native RDP: a session in the user's own client can't be recorded. A
-  // recorded resource may still offer it (its browser sessions stay recorded);
-  // only a Policy that requires recording rules it out.
+  // Native RDP, through the RD Gateway. On a recorded resource Captivo signs in
+  // and records the session (connector 2.52.0); an older connector leaves it
+  // unrecorded, or, when the Policy requires recording, unavailable.
   const nativeRdpShown = kind === "remote" && protocol === "RDP";
   const nativeRdpLocked = ctx.recordingEnabled && ctx.recordingMode === "required";
   const nativeUnrecorded = ctx.recordingEnabled && effRecord;
-  const nativeRdpOn = nativeRdpShown && nativeRdp && !nativeRdpLocked;
+  const nativeRdpOn = nativeRdpShown && nativeRdp;
+  const nativeRdpRecorded = nativeUnrecorded || nativeRdpLocked;
+  const rdpRecordedReady = routeConnectors.length === 0 || routeConnectors.some((c) => compareSemver(c.version, NATIVE_RDP_RECORDED_MIN_CONNECTOR) !== -1);
   // On a group, native sessions go through members new enough; only all-old is a problem.
   const nativeRdpOldConnector = nativeRdpOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_RDP_MIN_CONNECTOR) === -1);
+  const nativeRdpNeedsUpdate = nativeRdpOn && nativeRdpRecorded && !rdpRecordedReady && !nativeRdpOldConnector;
   // Native SSH, through the jump host. On a recorded resource Captivo signs in
   // and records the session (connector 2.49.0); an older connector leaves it
   // unrecorded, or, when the Policy requires recording, unavailable.
@@ -417,7 +420,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : "Recording on", tone: "bad" });
   if (isDb && dbTls === "disable") chips.push({ text: "No TLS to the server", tone: "warn" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
-  if (nativeRdpOn) chips.push({ text: nativeUnrecorded ? "Native RDP: not recorded" : "Native RDP client", tone: "warn" });
+  if (nativeRdpOn) {
+    chips.push(!nativeRdpRecorded ? { text: "Native RDP client", tone: "warn" }
+      : rdpRecordedReady ? { text: "Native RDP: recorded", tone: "p" }
+      : { text: nativeRdpLocked ? "Native RDP: connector update needed" : "Native RDP: not recorded", tone: "warn" });
+  }
   if (nativeSshOn) {
     chips.push(!nativeSshRecorded ? { text: "Native SSH client", tone: "warn" }
       : sshRecordedReady ? { text: "Native SSH: recorded", tone: "p" }
@@ -604,13 +611,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             </Row>
           )}
           {nativeRdpShown && (
-            <Row title="Native RDP client" custom={nativeRdpOn} desc={nativeRdpLocked
-              ? "Not available: the Policy page requires every session to be recorded, and a session in the user's own Remote Desktop app can't be."
-              : `Users can also download an .rdp file and connect with their own Remote Desktop app. Those sessions aren't recorded or watchable${nativeUnrecorded ? " (sessions opened in the browser still are)" : ""}, and users sign in to the server with their own account.`}>
-              <button type="button" role="switch" aria-checked={nativeRdpOn} aria-label="Native RDP client" disabled={nativeRdpLocked} className={nativeRdpOn ? "toggle on" : "toggle"} onClick={() => setNativeRdp(!nativeRdp)}><span /></button>
+            <Row title="Native RDP client" custom={nativeRdpOn} desc={nativeRdpRecorded
+              ? "Users can also download an .rdp file and connect with their own Remote Desktop app (Windows, the Windows App on a Mac, FreeRDP). Captivo signs them in with the saved account, so they type no password, and records the screen and the typed text like a session in the browser. The clipboard and drives follow the rules below."
+              : "Users can also download an .rdp file and connect with their own Remote Desktop app. Those sessions aren't recorded or watchable, and users sign in to the server with their own account."}>
+              <button type="button" role="switch" aria-checked={nativeRdpOn} aria-label="Native RDP client" className={nativeRdpOn ? "toggle on" : "toggle"} onClick={() => setNativeRdp(!nativeRdp)}><span /></button>
             </Row>
           )}
           {nativeRdpOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native RDP needs {NATIVE_RDP_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+          {nativeRdpNeedsUpdate && <p className="rf-msg bad">Recording sessions in the user&apos;s own Remote Desktop app needs connector {NATIVE_RDP_RECORDED_MIN_CONNECTOR} or later; {connector?.name} runs {connector?.version}. {nativeRdpLocked ? "Until it is updated, users can't connect with their own Remote Desktop app." : "Until it is updated, those sessions aren't recorded."}</p>}
           {nativeSshShown && (
             <Row title="Native SSH client" custom={nativeSshOn} desc={nativeSshRecorded
               ? "Users can also get an ssh command and connect with their own SSH app (OpenSSH, Termius, PuTTY) through Captivo's jump host. Captivo signs them in with the saved account and records the session like one in the browser. Port and agent forwarding are off, and file transfer (sftp, scp) follows the file transfer setting. VS Code Remote-SSH needs port forwarding, so it doesn't work here."

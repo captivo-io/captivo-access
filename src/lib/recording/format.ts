@@ -17,7 +17,7 @@ export function protocolLabel(r: { format: string; protocol: string | null }): s
 }
 
 /** Only video leaves the console as a file anyone can play; the other formats are replay streams. */
-export const downloadable = (r: RecordingLike) => r.format === "VIDEO" || (r.format === "GUAC" && !!r.videoReady);
+export const downloadable = (r: RecordingLike) => r.format === "VIDEO" || ((r.format === "GUAC" || r.format === "RDP") && !!r.videoReady);
 
 /** "4:10", or "1:02:07" past an hour. */
 export function clockOf(ms: number): string {

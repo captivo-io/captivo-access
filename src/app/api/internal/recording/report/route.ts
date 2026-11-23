@@ -50,7 +50,7 @@ async function handler(req: NextRequest) {
       where: { id: rec.id },
       data: {
         reportedAt: new Date(),
-        ...(rec.format === "GUAC" ? { videoReady: it.video } : {}),
+        ...(rec.format === "GUAC" || rec.format === "RDP" ? { videoReady: it.video } : {}),
         ...(it.durationMs > 0 ? { durationMs: it.durationMs } : {}),
         ...(it.storedBytes > 0 ? { bytes: it.storedBytes } : {}),
       },
