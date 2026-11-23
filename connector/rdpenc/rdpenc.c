@@ -11,6 +11,15 @@
  * "frames N, M ms" (the time the recording spans) at the end. The connector's
  * recording worker runs it (recmaint.go, EncodeRdp); the data plane writes the
  * dump (dataplane/rdprecord.go).
+ *
+ *   rdpenc --live <fps> [freerdp options]
+ * Live watching (connector/rdplive.go): the server's PDUs arrive on stdin as
+ * the session runs and are decoded as they come, watched or not, so the screen
+ * is always current. Commands on file descriptor 3, one a line: "join" (a
+ * viewer came: send the whole screen next) and "idle" (nobody watches: send
+ * nothing). While watched, stdout carries Guacamole protocol a browser viewer
+ * draws: the screen's size, then what changed, as JPEG, at most <fps> times a
+ * second, each followed by a sync.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +36,11 @@
 #include <freerdp/transport_io.h>
 #include <winpr/stream.h>
 #include <winpr/synch.h>
+#include <poll.h>
+#include <pthread.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <turbojpeg.h>
 
 typedef struct {
 	rdpClientContext common;
@@ -75,11 +89,152 @@ static BOOL enc_begin_paint(rdpContext* context)
 	return TRUE;
 }
 
+/* ---- live watching ---- */
+
+static BOOL live;
+static rdpGdi* liveGdi;
+static pthread_mutex_t liveMu = PTHREAD_MUTEX_INITIALIZER;
+static BOOL watched, wantKey;
+static BOOL dirty;
+static INT32 dx1, dy1, dx2, dy2; /* the changed area since the last send */
+static UINT64 lastSend;
+static UINT32 streamNo;
+static tjhandle tj;
+
+static UINT64 now_ms(void)
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (UINT64)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+/* One Guacamole instruction: each element as LENGTH.VALUE (length in characters). */
+static void guac(int n, const char** el)
+{
+	for (int i = 0; i < n; i++) {
+		size_t len = strlen(el[i]);
+		/* Every element is ASCII here, so its length in characters is its byte length. */
+		printf("%zu.%s%c", len, el[i], i == n - 1 ? ';' : ',');
+	}
+}
+
+static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/* Send one area of the screen as a JPEG image stream. Callers hold liveMu. */
+static void send_area(INT32 x, INT32 y, INT32 w, INT32 h)
+{
+	rdpGdi* gdi = liveGdi;
+	if (w <= 0 || h <= 0 || !gdi || !gdi->primary_buffer)
+		return;
+	unsigned char* jpeg = NULL;
+	unsigned long size = 0;
+	const BYTE* src = gdi->primary_buffer + (size_t)y * gdi->stride + (size_t)x * 4;
+	if (tjCompress2(tj, src, w, (int)gdi->stride, h, TJPF_BGRX, &jpeg, &size, TJSAMP_420, 80, TJFLAG_FASTDCT) != 0)
+		return;
+	char sn[16], xs[16], ys[16];
+	streamNo = streamNo % 1000 + 1;
+	snprintf(sn, sizeof sn, "%u", streamNo);
+	snprintf(xs, sizeof xs, "%d", x);
+	snprintf(ys, sizeof ys, "%d", y);
+	const char* img[] = { "img", sn, "14", "0", "image/jpeg", xs, ys };
+	guac(7, img);
+	/* The data in blobs of at most 6 KiB of base64. */
+	char chunk[6144 + 4];
+	for (unsigned long off = 0; off < size; off += 4608) {
+		unsigned long end = off + 4608 < size ? off + 4608 : size;
+		size_t o = 0;
+		for (unsigned long i = off; i < end; i += 3) {
+			unsigned v = (unsigned)jpeg[i] << 16;
+			if (i + 1 < end) v |= (unsigned)jpeg[i + 1] << 8;
+			if (i + 2 < end) v |= jpeg[i + 2];
+			chunk[o++] = b64[(v >> 18) & 63];
+			chunk[o++] = b64[(v >> 12) & 63];
+			chunk[o++] = i + 1 < end ? b64[(v >> 6) & 63] : '=';
+			chunk[o++] = i + 2 < end ? b64[v & 63] : '=';
+		}
+		chunk[o] = 0;
+		const char* blob[] = { "blob", sn, chunk };
+		guac(3, blob);
+	}
+	const char* end[] = { "end", sn };
+	guac(2, end);
+	tjFree(jpeg);
+}
+
+/* Send what changed (or the whole screen for a new viewer). Callers hold liveMu. */
+static void live_flush(BOOL force)
+{
+	if (!watched || !liveGdi)
+		return;
+	UINT64 t = now_ms();
+	if (!force && t - lastSend < 1000 / fps)
+		return;
+	rdpGdi* gdi = liveGdi;
+	BOOL any = FALSE;
+	if (wantKey) {
+		char ws[16], hs[16];
+		snprintf(ws, sizeof ws, "%u", gdi->width);
+		snprintf(hs, sizeof hs, "%u", gdi->height);
+		const char* size[] = { "size", "0", ws, hs };
+		guac(4, size);
+		send_area(0, 0, gdi->width, gdi->height);
+		wantKey = dirty = FALSE;
+		any = TRUE;
+	} else if (dirty) {
+		INT32 x1 = MAX(0, dx1), y1 = MAX(0, dy1);
+		INT32 x2 = MIN((INT32)gdi->width, dx2), y2 = MIN((INT32)gdi->height, dy2);
+		send_area(x1, y1, x2 - x1, y2 - y1);
+		dirty = FALSE;
+		any = TRUE;
+	}
+	if (any) {
+		char ts[24];
+		snprintf(ts, sizeof ts, "%llu", (unsigned long long)t);
+		const char* sync[] = { "sync", ts };
+		guac(2, sync);
+		fflush(stdout);
+		lastSend = t;
+	}
+}
+
+/* A command from the connector on fd 3. */
+static void live_command(void)
+{
+	char buf[64];
+	ssize_t n = read(3, buf, sizeof buf - 1);
+	if (n <= 0) {
+		ended = TRUE;
+		return;
+	}
+	buf[n] = 0;
+	pthread_mutex_lock(&liveMu);
+	if (strstr(buf, "join"))
+		watched = wantKey = TRUE;
+	if (strstr(buf, "idle"))
+		watched = FALSE;
+	pthread_mutex_unlock(&liveMu);
+}
+
 static BOOL enc_end_paint(rdpContext* context)
 {
 	rdpGdi* gdi = context->gdi;
 	if (gdi->primary->hdc->hwnd->invalid->null)
 		return TRUE;
+	if (live) {
+		HGDI_RGN r = gdi->primary->hdc->hwnd->invalid;
+		pthread_mutex_lock(&liveMu);
+		liveGdi = gdi;
+		if (!dirty) {
+			dx1 = r->x, dy1 = r->y, dx2 = r->x + r->w, dy2 = r->y + r->h;
+			dirty = TRUE;
+		} else {
+			dx1 = MIN(dx1, r->x), dy1 = MIN(dy1, r->y);
+			dx2 = MAX(dx2, r->x + r->w), dy2 = MAX(dy2, r->y + r->h);
+		}
+		live_flush(FALSE);
+		pthread_mutex_unlock(&liveMu);
+		return TRUE;
+	}
 	emit_until(curTs);  /* the previous picture lasts until now */
 	grab(gdi);
 	return TRUE;
@@ -88,8 +243,34 @@ static BOOL enc_end_paint(rdpContext* context)
 static BOOL enc_desktop_resize(rdpContext* context)
 {
 	rdpSettings* settings = context->settings;
-	return gdi_resize(context->gdi, freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth),
-	                  freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight));
+	pthread_mutex_lock(&liveMu);
+	BOOL ok = gdi_resize(context->gdi, freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth),
+	                     freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight));
+	wantKey = TRUE; /* a viewer needs the new size and all of the screen */
+	pthread_mutex_unlock(&liveMu);
+	return ok;
+}
+
+/* Live: wait for stdin, sending what changed meanwhile and taking commands. */
+static BOOL live_wait(void)
+{
+	for (;;) {
+		struct pollfd fds[2] = { { .fd = fileno(dumpFile), .events = POLLIN }, { .fd = 3, .events = POLLIN } };
+		int n = poll(fds, 2, 1000 / (int)fps);
+		if (n < 0)
+			return FALSE;
+		if (fds[1].revents & (POLLIN | POLLHUP))
+			live_command();
+		if (ended)
+			return FALSE;
+		pthread_mutex_lock(&liveMu);
+		live_flush(wantKey);
+		if (dirty)
+			live_flush(TRUE);
+		pthread_mutex_unlock(&liveMu);
+		if (fds[0].revents & (POLLIN | POLLHUP))
+			return TRUE;
+	}
 }
 
 /* The replay transport: the server's PDUs from the dump, no delays. */
@@ -99,6 +280,10 @@ static int enc_read_pdu(rdpTransport* transport, wStream* s)
 		UINT64 ts = 0, size = 0;
 		BYTE received = 0;
 		UINT32 crc = 0;
+		if (live && !live_wait()) {
+			ended = TRUE;
+			return -1;
+		}
 		if (fread(&ts, 8, 1, dumpFile) != 1 || fread(&received, 1, 1, dumpFile) != 1 ||
 		    fread(&crc, 4, 1, dumpFile) != 1 || fread(&size, 8, 1, dumpFile) != 1) {
 			ended = TRUE;
@@ -162,6 +347,9 @@ static BOOL enc_post_connect(freerdp* instance)
 {
 	if (!gdi_init(instance, PIXEL_FORMAT_BGRX32))
 		return FALSE;
+	pthread_mutex_lock(&liveMu);
+	liveGdi = instance->context->gdi;
+	pthread_mutex_unlock(&liveMu);
 	instance->context->update->BeginPaint = enc_begin_paint;
 	instance->context->update->EndPaint = enc_end_paint;
 	instance->context->update->DesktopResize = enc_desktop_resize;
@@ -194,10 +382,17 @@ static int entry(RDP_CLIENT_ENTRY_POINTS* ep)
 int main(int argc, char* argv[])
 {
 	if (argc < 3) {
-		fprintf(stderr, "usage: rdpenc <dump> <fps> [freerdp options]\n");
+		fprintf(stderr, "usage: rdpenc <dump|-> <fps> [freerdp options]\n       rdpenc --live <fps> [freerdp options]\n");
 		return 2;
 	}
-	dumpFile = strcmp(argv[1], "-") == 0 ? stdin : fopen(argv[1], "rb");
+	live = strcmp(argv[1], "--live") == 0;
+	if (live) {
+		tj = tjInitCompress();
+		/* Unbuffered reads: poll() must see what fread has not taken yet. */
+		setvbuf(stdin, NULL, _IONBF, 0);
+		setvbuf(stdout, NULL, _IOFBF, 1 << 16);
+	}
+	dumpFile = live || strcmp(argv[1], "-") == 0 ? stdin : fopen(argv[1], "rb");
 	if (!dumpFile) {
 		perror("dump");
 		return 2;

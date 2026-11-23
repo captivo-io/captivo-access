@@ -209,9 +209,11 @@ func (t *rdpgwTunnel) openRecorded() (net.Conn, error) {
 			sealed = c.SealedSecret
 		}
 	}
+	t.watchID = newSessionID()
 	up, resp, err := t.d.dialRec(t.target.ConnectorID, tunnel.RdpRecRequest{
 		Host: t.target.Host, Port: t.target.Port, Username: t.target.Username,
 		Sealed: sealed, Secret: t.target.Secret, BlockChannels: t.target.BlockChannels,
+		WatchID: t.watchID,
 	})
 	if err != nil {
 		return nil, err
@@ -219,6 +221,9 @@ func (t *rdpgwTunnel) openRecorded() (net.Conn, error) {
 	if resp.Error != "" {
 		up.Close()
 		return nil, errors.New(resp.Error)
+	}
+	if !resp.Live {
+		t.watchID = "" // an older connector, or one at its limit: recorded, not watchable
 	}
 	tk, cid := t.ticket, t.target.ConnectorID
 	key := newRecordingKey(tk.SiteID, tk.UserID)

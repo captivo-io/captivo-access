@@ -397,7 +397,7 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
               <span className="rv-mark mono" aria-hidden="true">{[workspace, r.userEmail ?? r.userLabel, r.siteName, clock].filter(Boolean).join(" · ")}</span>
               {banner && <span className="sv-banner"><b>ADMIN</b>{banner}</span>}
             </div>
-            <p className="sv-note"><i aria-hidden="true" />{r.native ? "A line in the user's terminal tells them an admin is watching. You can't type into it. The terminal and commands keep being recorded." : "The user is told that this session is being watched. The screen and commands keep being recorded."}</p>
+            <p className="sv-note"><i aria-hidden="true" />{r.native && r.kind === "gateway" && r.protocol === "rdp" ? "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched. You can't control it. The screen and typed text keep being recorded." : r.native ? "A line in the user's terminal tells them an admin is watching. You can't type into it. The terminal and commands keep being recorded." : "The user is told that this session is being watched. The screen and commands keep being recorded."}</p>
           </div>
           <aside className="sv-side">
             <dl className="sv-facts">{facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === "Started" || k === "Duration" || k === "IP address" ? "mono" : undefined}>{v}</dd></div>)}</dl>
@@ -419,7 +419,9 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
               )}
               {id && r.kind === "gateway" && !r.keystrokes ? <p className="cell-sub sv-feednote">Typed input is not shown: keystroke logging is off for this resource.</p> : null}
             </div>
-            {canAct && id && (
+            {canAct && id && r.native && r.kind === "gateway" && r.protocol === "rdp" ? (
+              <p className="cell-sub sv-feednote">Messages can&apos;t reach a user&apos;s own Remote Desktop app.</p>
+            ) : canAct && id && (
               <form className="sv-msg" onSubmit={send}>
                 <input className="input" placeholder="Send the user a message…" value={text} maxLength={280} onChange={(e) => setText(e.target.value)} aria-label="Message to the user" />
                 <button type="submit" className="btn" disabled={sending || !text.trim()}>{sending ? "Sending…" : "Send"}</button>
