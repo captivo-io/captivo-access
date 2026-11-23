@@ -25,7 +25,7 @@ import (
 )
 
 // Database access (Kind "db"): the connector signs in to the resource's
-// PostgreSQL or MySQL server (mysql.go) with the saved password and hands the data plane a
+// PostgreSQL, MySQL (mysql.go) or SQL Server (mssql.go) server with the saved password and hands the data plane a
 // connection that is already past authentication. The user's client never
 // sees the password, and neither does the control plane: it opens here only,
 // for the target it was sealed for.
@@ -59,7 +59,7 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		return
 	}
 	addr := net.JoinHostPort(req.Host, req.Port)
-	if req.Engine != "postgres" && req.Engine != "mysql" {
+	if req.Engine != "postgres" && req.Engine != "mysql" && req.Engine != "mssql" {
 		writeDbErr(st, "this connector does not support the "+req.Engine+" engine", "")
 		return
 	}
@@ -78,15 +78,21 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 	var br *bufio.Reader
 	var resp tunnel.DbDialResponse
 	var perr error
-	if req.Engine == "mysql" {
+	switch req.Engine {
+	case "mysql":
 		conn, br, resp, perr = mySignIn(req, password)
-	} else {
+	case "mssql":
+		conn, br, resp, perr = mssqlSignIn(req, password)
+	default:
 		conn, br, resp.TLS, perr = pgSignIn(req, password)
 	}
 	if perr != nil {
 		var pe *pgError
 		var me *myError
+		var te *tunnel.TDSServerError
 		switch {
+		case errors.As(perr, &te):
+			writeDbErr(st, te.Msg, strconv.FormatUint(uint64(te.Number), 10))
 		case errors.As(perr, &pe):
 			writeDbErr(st, pe.Message, pe.Code)
 		case errors.As(perr, &me):

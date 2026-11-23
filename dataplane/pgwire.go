@@ -245,10 +245,11 @@ func pgErrorFields(body []byte) (code, msg string) {
 	return code, msg
 }
 
-var passwordLiteral = regexp.MustCompile(`(?i)(password\s*=?\s*|password\s+for\s+\S+\s*=\s*|password\s*\(\s*|identified\s+(?:with\s+\S+\s+)?by\s+)('(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|\$[A-Za-z0-9_]*\$.*?\$[A-Za-z0-9_]*\$)`)
+var passwordLiteral = regexp.MustCompile(`(?i)(password\s*=?\s*|password\s+for\s+\S+\s*=\s*|password\s*\(\s*|identified\s+(?:with\s+\S+\s+)?by\s+)(N?'(?:[^'\\]|\\.|'')*'|"(?:[^"\\]|\\.|"")*"|\$[A-Za-z0-9_]*\$.*?\$[A-Za-z0-9_]*\$)`)
 
 // maskQuery hides password literals (CREATE ROLE ... PASSWORD '...', psql's
-// \password; MySQL's IDENTIFIED BY '...', SET PASSWORD = '...') and cuts
+// \password; MySQL's IDENTIFIED BY '...', SET PASSWORD = '...'; SQL Server's
+// PASSWORD = N'...' and OLD_PASSWORD = N'...') and cuts
 // very long statements.
 func maskQuery(s string) string {
 	s = passwordLiteral.ReplaceAllString(s, "$1'***'")

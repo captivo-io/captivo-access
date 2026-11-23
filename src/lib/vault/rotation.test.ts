@@ -35,6 +35,7 @@ describe("rotationMethod", () => {
     expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
     expect(rotationMethod({ protocol: "POSTGRES", secretKind: "PASSWORD" }, null)).toEqual({ method: "postgres" });
     expect(rotationMethod({ protocol: "MYSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mysql" });
+    expect(rotationMethod({ protocol: "MSSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mssql" });
   });
 });
 
@@ -66,6 +67,8 @@ describe("scheduling", () => {
     expect(canRotate({ status: "ONLINE", version: "2.53.0" }, "postgres")).toBe(false);
     expect(canRotate({ status: "ONLINE", version: "2.54.0" }, "mysql")).toBe(true);
     expect(canRotate({ status: "ONLINE", version: "2.53.0" }, "linux")).toBe(true);
+    expect(canRotate({ status: "ONLINE", version: "2.55.0" }, "mssql")).toBe(false);
+    expect(canRotate({ status: "ONLINE", version: "2.56.0" }, "mssql")).toBe(true);
   });
 });
 

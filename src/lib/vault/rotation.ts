@@ -1,4 +1,4 @@
-import { parseDbParams } from "@/lib/database/params";
+import { dbEngineOf, MSSQL_MIN_CONNECTOR, parseDbParams } from "@/lib/database/params";
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
@@ -29,7 +29,7 @@ import { consoleBaseUrl } from "@/lib/tenant/console-url";
 
 /** The first connector release that rotates passwords. */
 export const ROTATION_MIN_CONNECTOR = "2.45.0";
-/** Database accounts (PostgreSQL, MySQL) rotate from this release on. */
+/** Database accounts (PostgreSQL, MySQL) rotate from this release on; SQL Server logins from MSSQL_MIN_CONNECTOR, the release that has it. */
 export const DB_ROTATION_MIN_CONNECTOR = "2.54.0";
 
 /** After the last session ends, before the password changes (a quick reconnect keeps it). */
@@ -43,13 +43,13 @@ export function retryDelayMs(failures: number): number {
   return failures <= 0 ? 0 : steps[failures - 1] ?? 6 * 60 * 60_000;
 }
 
-export type RotationMethod = "linux" | "ad" | "postgres" | "mysql";
+export type RotationMethod = "linux" | "ad" | "postgres" | "mysql" | "mssql";
 
-export const isDbMethod = (m: RotationMethod | null | undefined) => m === "postgres" || m === "mysql";
+export const isDbMethod = (m: RotationMethod | null | undefined) => m === "postgres" || m === "mysql" || m === "mssql";
 
 /** The connector release a method needs. */
 export function rotationMinConnector(m?: RotationMethod | null): string {
-  return isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
+  return m === "mssql" ? MSSQL_MIN_CONNECTOR : isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
 }
 
 export type DirectoryForRotation = {
@@ -68,6 +68,7 @@ export function rotationMethod(c: { protocol: string; secretKind: string }, dir:
   }
   if (c.protocol === "POSTGRES") return { method: "postgres" };
   if (c.protocol === "MYSQL") return { method: "mysql" };
+  if (c.protocol === "MSSQL") return { method: "mssql" };
   return { unsupported: "VNC passwords are not rotated." };
 }
 
@@ -198,7 +199,7 @@ export function planJob(r: CredRow, dir: DirectoryForRotation | null, now: Date,
   }
   const key = pick.vaultPublicKey!;
   const guac = (r.guacParams ?? {}) as Record<string, unknown>;
-  const dbp = isDbMethod(m.method) ? parseDbParams(r.dbParams, m.method === "mysql" ? "MYSQL" : "POSTGRES") : null;
+  const dbp = isDbMethod(m.method) ? parseDbParams(r.dbParams, dbEngineOf(r.protocol)) : null;
   return {
     credentialId: r.id,
     siteId: r.site.id,

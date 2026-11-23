@@ -96,7 +96,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     const prev = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true, targetHost: true, targetPort: true } });
     // A credential of another kind (a remote desktop's) is not kept for a database;
     // one for the other engine is, as its password is sealed to the address, not the engine.
-    const hadDb = prev?.protocol === "POSTGRES" || prev?.protocol === "MYSQL";
+    const hadDb = prev?.protocol === "POSTGRES" || prev?.protocol === "MYSQL" || prev?.protocol === "MSSQL";
     if (!hadDb && !v.secret) return NextResponse.json({ error: "remote_desktop_fields_required" }, { status: 400 });
     const target = { host: v.targetHost, port: v.targetPort, username: v.username };
     if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });

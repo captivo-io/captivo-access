@@ -72,6 +72,7 @@ type pgProxy struct {
 	d        pgProxyDeps
 	tls      *tls.Config
 	myTLS    *tls.Config // MySQL clients: the same certificate, no ALPN
+	msTLS    *tls.Config // SQL Server clients: the same
 	mu       sync.Mutex
 	sessions map[string]*dbSession // ticket + client address
 	cancels  map[uint64]dbCancel   // the key the client was given -> the server's
@@ -130,23 +131,26 @@ func (c *certReloader) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return c.cert, nil
 }
 
-// startDbProxy listens for PostgreSQL clients on pgAddr and MySQL clients on
-// myAddr (mysqlproxy.go); "" or "off" leaves one out. The certificate is
+// startDbProxy listens for PostgreSQL clients on pgAddr, MySQL clients on
+// myAddr (mysqlproxy.go) and SQL Server clients on msAddr (mssqlproxy.go);
+// "" or "off" leaves one out. The certificate is
 // newEdgeCert's: a self-signed one is taken by clients that connect with
 // sslmode=require (ssl-mode=REQUIRED), which encrypts without checking it; set
 // DB_TLS_CERT/DB_TLS_KEY (the console's own) for clients that verify it.
-func startDbProxy(pgAddr, myAddr string, cr *certReloader, d pgProxyDeps) (pgOn, myOn bool, err error) {
+func startDbProxy(pgAddr, myAddr, msAddr string, cr *certReloader, d pgProxyDeps) (pgOn, myOn, msOn bool, err error) {
 	off := func(a string) bool { return a == "" || a == "off" }
-	if off(pgAddr) && off(myAddr) {
-		return false, false, nil
+	if off(pgAddr) && off(myAddr) && off(msAddr) {
+		return false, false, false, nil
 	}
 	if cr == nil {
-		return false, false, errors.New("no certificate")
+		return false, false, false, errors.New("no certificate")
 	}
 	p := &pgProxy{
 		d: d, sessions: map[string]*dbSession{}, cancels: map[uint64]dbCancel{}, myConns: map[uint32]myConnRef{},
 		tls:   &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}},
 		myTLS: &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12},
+		// TDS 7.x carries TLS 1.2 in PRELOGIN; clients and SQL Server keep 1.3 for TDS 8.
+		msTLS: &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, SessionTicketsDisabled: true},
 	}
 	var errs []error
 	if !off(pgAddr) {
@@ -167,10 +171,19 @@ func startDbProxy(pgAddr, myAddr string, cr *certReloader, d pgProxyDeps) (pgOn,
 			log.Printf("db proxy: mysql listening on %s", myAddr)
 		}
 	}
-	if pgOn || myOn {
+	if !off(msAddr) {
+		if ln, err := net.Listen("tcp", msAddr); err != nil {
+			errs = append(errs, fmt.Errorf("mssql: %w", err))
+		} else {
+			go p.serve(ln, p.handleMSSQL)
+			msOn = true
+			log.Printf("db proxy: mssql listening on %s", msAddr)
+		}
+	}
+	if pgOn || myOn || msOn {
 		go p.recheck()
 	}
-	return pgOn, myOn, errors.Join(errs...)
+	return pgOn, myOn, msOn, errors.Join(errs...)
 }
 
 func (p *pgProxy) serve(ln net.Listener, handle func(net.Conn, func())) {
@@ -359,7 +372,7 @@ func (p *pgProxy) open(conn net.Conn, r *bufio.Reader, params map[string]string,
 		return
 	}
 	if t.Engine != "" && t.Engine != "postgres" {
-		_, _ = conn.Write(pgFatal("28000", "Captivo Access: this resource is a MySQL database; connect with a MySQL client (the Connect details in your portal)"))
+		_, _ = conn.Write(pgFatal("28000", "Captivo Access: "+wrongEngine(t)))
 		return
 	}
 	db := params["database"]
@@ -647,8 +660,11 @@ func dialDb(s *Session, req tunnel.DbDialRequest) (net.Conn, tunnel.DbDialRespon
 	if err != nil {
 		st.Close()
 		need := "2.46.0"
-		if req.Engine == "mysql" {
+		switch req.Engine {
+		case "mysql":
 			need = myMinConnector
+		case "mssql":
+			need = msMinConnector
 		}
 		return nil, resp, errors.New("the connector did not answer; it may need an update to " + need)
 	}

@@ -8,7 +8,7 @@ import { sha256 } from "@/lib/auth/tokens";
 import { managerBaseUrlFromHeaders } from "@/lib/url";
 import { fetchWithTimeout } from "@/lib/net/fetch-timeout";
 import { databaseTarget, grantEnd } from "@/lib/database/target";
-import { DB_TICKET_TTL_MS, dbPublicHost, dbPublicPort } from "@/lib/database/params";
+import { DB_TICKET_TTL_MS, dbEngineOf, dbPublicHost, dbPublicPort } from "@/lib/database/params";
 import { dbTicketHash, newDbTicket } from "@/lib/database/ticket";
 import { withTenantRoute } from "@/lib/tenant/request";
 
@@ -16,13 +16,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Whether the data plane runs the proxy for this engine (it needs a certificate). */
-async function proxyOn(engine: "postgres" | "mysql"): Promise<boolean> {
+async function proxyOn(engine: "postgres" | "mysql" | "mssql"): Promise<boolean> {
   const secret = process.env.DATAPLANE_SECRET;
   if (!secret) return false;
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const res = await fetchWithTimeout(`${base}/db-info`, { timeoutMs: 4_000, method: "POST", headers: { "x-dataplane-secret": secret } }).catch(() => null);
-  const j = res?.ok ? ((await res.json().catch(() => ({}))) as { enabled?: boolean; mysql?: boolean }) : null;
-  return engine === "mysql" ? !!j?.mysql : !!j?.enabled;
+  const j = res?.ok ? ((await res.json().catch(() => ({}))) as { enabled?: boolean; mysql?: boolean; mssql?: boolean }) : null;
+  return engine === "mysql" ? !!j?.mysql : engine === "mssql" ? !!j?.mssql : !!j?.enabled;
 }
 
 // Connection details for the signed-in user's own database client: the
@@ -56,7 +56,7 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
     ticket,
     expiresAt: expiresAt.toISOString(),
     host: dbPublicHost(consoleHost),
-    port: dbPublicPort(t.engine === "mysql" ? "MYSQL" : "POSTGRES"),
+    port: dbPublicPort(dbEngineOf(t.engine)),
     database: t.params.database,
     databases: t.params.databases,
     engine: t.engine,

@@ -4,11 +4,11 @@ import { classifyGrant } from "@/lib/access/classify";
 import { getVaultCredential } from "@/lib/vault/store";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
-import { databaseBlock, dbEngineOf, dbMinConnector, parseDbParams, type DbBlock, type DbParams } from "@/lib/database/params";
+import { databaseBlock, dbEngineOf, dbEngineWire, dbMinConnector, parseDbParams, type DbBlock, type DbParams } from "@/lib/database/params";
 
 export type DatabaseTarget =
   | {
-      ok: true; siteName: string; engine: "postgres" | "mysql"; targetHost: string; targetPort: number; username: string;
+      ok: true; siteName: string; engine: "postgres" | "mysql" | "mssql"; targetHost: string; targetPort: number; username: string;
       params: DbParams; connectors: RouteCandidate[]; record: boolean;
     }
   | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | DbBlock; reason?: string };
@@ -38,7 +38,7 @@ export async function databaseTarget(userId: string, siteId: string, now: Date):
   return {
     ok: true,
     siteName: site.name,
-    engine: engine === "MYSQL" ? "mysql" : "postgres",
+    engine: dbEngineWire(engine),
     targetHost: cred.targetHost,
     targetPort: cred.targetPort,
     username: cred.username,

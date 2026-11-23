@@ -12,6 +12,11 @@ const RULES: [RegExp, string][] = [
   [/^\s*(create|alter)\s+(role|user)\b/i, "Creates or changes a role"],
   [/^\s*copy\s+[^;]*\bto\s+program\b/i, "Runs a program on the server"],
   [/\binto\s+(outfile|dumpfile)\b/i, "Writes a file on the server"],
+  // SQL Server
+  [/^\s*(create|alter|drop)\s+login\b/i, "Creates or changes a login"],
+  [/\bxp_cmdshell\b/i, "Runs a program on the server"],
+  [/\b(openrowset|opendatasource)\s*\(|^\s*bulk\s+insert\b/i, "Reads files or other servers"],
+  [/\bsp_configure\b|^\s*reconfigure\b/i, "Changes the server's configuration"],
 ];
 
 /** Why a statement is risky, or null. Comments at the start are skipped. */

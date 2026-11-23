@@ -9,7 +9,7 @@ package tunnel
 // queries. The password never leaves the connector.
 type DbDialRequest struct {
 	Kind     string `json:"kind"`   // "db"
-	Engine   string `json:"engine"` // "postgres" | "mysql"
+	Engine   string `json:"engine"` // "postgres" | "mysql" | "mssql"
 	Host     string `json:"host"`
 	Port     string `json:"port"`
 	Username string `json:"username"`
@@ -29,6 +29,10 @@ type DbDialRequest struct {
 	// also has, so what the server sends next reads the way the client expects.
 	Capabilities uint32 `json:"capabilities,omitempty"`
 	Collation    uint8  `json:"collation,omitempty"`
+	// SQL Server: the user's client's LOGIN7 (its TDS version, packet size,
+	// options, host and application names; never a password). The connector
+	// signs in with these and the saved account.
+	MSSQL *Login7 `json:"mssql,omitempty"`
 }
 
 // DbDialResponse reports the sign-in. An empty Error means the server accepted
@@ -46,6 +50,10 @@ type DbDialResponse struct {
 	ConnID        uint32 `json:"connId,omitempty"`
 	ServerVersion string `json:"serverVersion,omitempty"`
 	Capabilities  uint32 `json:"capabilities,omitempty"`
+	// SQL Server: the server's answer to the sign-in (its tokens: LOGINACK,
+	// the database, collation and packet size it settled on), which the data
+	// plane hands the user's client as the answer to its own LOGIN7.
+	LoginReply []byte `json:"loginReply,omitempty"`
 }
 
 // DbCancelRequest (Kind "db-cancel") asks the connector to send PostgreSQL's

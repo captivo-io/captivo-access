@@ -37,8 +37,8 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
   const [everyDays, setEveryDays] = useState<number | null>(initial.everyDays);
   const [verifyDaily, setVerifyDaily] = useState(initial.verifyDaily);
   const [recOpen, setRecOpen] = useState(false);
-  const dbAccount = initial.method === "postgres" || initial.method === "mysql";
-  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : "root"));
+  const dbAccount = initial.method === "postgres" || initial.method === "mysql" || initial.method === "mssql";
+  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : initial.method === "mssql" ? "sa" : "root"));
   const [recKind, setRecKind] = useState<"PASSWORD" | "KEY">(initial.reconcile?.kind ?? "PASSWORD");
   const [recSecret, setRecSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -145,7 +145,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
       {s.unsupported ? <p className="rf-msg warn">{s.unsupported}</p> : (
         <>
           <dl className="rot-facts">
-            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : " · SSH"}</dd></div>
+            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : s.method === "mssql" ? " · SQL Server" : " · SSH"}</dd></div>
             <div><dt>Last rotated</dt><dd>{s.rotatedAt ? <LocalTime iso={s.rotatedAt} /> : "Never"}</dd></div>
             <div><dt>Next</dt><dd>{s.dueAt ? <LocalTime iso={s.dueAt} /> : s.afterSession ? "After the next session" : "—"}</dd></div>
             {s.verifyDaily && <div><dt>Last checked</dt><dd>{s.verifiedAt ? <LocalTime iso={s.verifiedAt} /> : "Not yet"}</dd></div>}
@@ -175,7 +175,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
           {on && !s.on && <p className="rf-msg warn">{dbAccount
             ? "Use an account only Captivo signs in with: an application or a script that uses this account's password stops connecting after the first rotation."
             : "Anything else that signs in with this account's password (a service, a scheduled task, a script) stops working after the first rotation."}</p>}
-          {s.cleartext && <p className="rf-msg warn">This resource&apos;s TLS to the server is off, so a new password crosses your network in the clear when MySQL is told it. Turn TLS on for the resource before rotating.</p>}
+          {s.cleartext && <p className="rf-msg warn">This resource&apos;s TLS to the server is off, so a new password crosses your network in the clear when the server is told it. Turn TLS on for the resource before rotating.</p>}
           {blocked && <p className="rf-msg bad">{blocked}</p>}
 
           <div className="rot-rec">
@@ -191,7 +191,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
                 <p className="cell-sub">{s.reconcile
                   ? <>Signs in as <b className="mono">{s.reconcile.username}</b> ({s.reconcile.kind === "KEY" ? "SSH key" : "password"}) to reset the password when the account cannot change its own or when it no longer matches.{s.reconcile.missingFor.length ? ` ${s.reconcile.missingFor.join(", ")} has no copy yet; it is copied within a few minutes.` : ""}</>
                   : dbAccount
-                    ? `Optional: a database account on this server that may change other accounts' passwords (${s.method === "postgres" ? "CREATEROLE, or a superuser" : "CREATE USER, such as root"}). Used only when the account cannot change its own password or when it no longer matches; never for a session.`
+                    ? `Optional: a database account on this server that may change other accounts' passwords (${s.method === "postgres" ? "CREATEROLE, or a superuser" : s.method === "mssql" ? "ALTER ANY LOGIN, such as sa" : "CREATE USER, such as root"}). Used only when the account cannot change its own password or when it no longer matches; never for a session.`
                     : "Optional: root, or a sudo account, on this server. Used only when the account cannot change its own password or when it no longer matches; never for a session."}</p>
                 {!recOpen ? (
                   <div className="rot-actions">

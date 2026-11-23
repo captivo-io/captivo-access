@@ -271,7 +271,7 @@ func (p *pgProxy) openMySQL(c *myClientConn, seq byte, hello myHello, connID uin
 		return
 	}
 	if t.engine() != "mysql" {
-		_, _ = conn.Write(myErr(seq, 1045, "28000", "Captivo Access: this resource is a PostgreSQL database; connect with a PostgreSQL client (the Connect details in your portal)"))
+		_, _ = conn.Write(myErr(seq, 1045, "28000", "Captivo Access: "+wrongEngine(t)))
 		return
 	}
 	db := hello.db

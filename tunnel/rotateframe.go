@@ -16,7 +16,7 @@ package tunnel
 type RotateRequest struct {
 	Kind     string   `json:"kind"` // "rotate"
 	Op       string   `json:"op"`
-	Method   string   `json:"method"` // "linux" (SSH) | "ad" (directory account) | "postgres" | "mysql"
+	Method   string   `json:"method"` // "linux" (SSH) | "ad" (directory account) | "postgres" | "mysql" | "mssql"
 	Host     string   `json:"host"`
 	Port     string   `json:"port"`
 	Username string   `json:"username"`

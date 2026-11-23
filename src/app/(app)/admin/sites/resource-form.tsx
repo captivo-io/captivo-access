@@ -79,7 +79,7 @@ const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: strin
   { kind: "isolated", title: "Isolated browser", tag: "HTTPS", desc: "The app opens in an isolated browser on the server; no data lands on the device.", icon: "shield", color: "blue" },
   { kind: "remote", title: "Remote desktop", tag: "RDP", desc: "A Windows desktop in the browser; no client install.", icon: "desktop", color: "violet" },
   { kind: "ssh", title: "SSH terminal", tag: "SSH", desc: "A terminal in the browser; credentials are never shown to the user.", icon: "terminal", color: "violet" },
-  { kind: "database", title: "Database", tag: "SQL", desc: "Users connect with their own client (psql, mysql, DBeaver); every query is logged.", icon: "database", color: "green" },
+  { kind: "database", title: "Database", tag: "SQL", desc: "Users connect with their own client (psql, mysql, SSMS, DBeaver); every query is logged.", icon: "database", color: "green" },
 ];
 const DB_TLS: [string, string][] = [["require", "Encrypted"], ["verify-full", "Encrypted + verified"], ["disable", "Off"]];
 const CLIP: [string, string][] = [["allow", "Copy & paste"], ["no_copy", "Paste only"], ["no_paste", "Copy only"], ["none", "Block"]];
@@ -111,7 +111,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
   }
 }
 
-const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : 3389);
+const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : p === "MSSQL" ? 1433 : 3389);
 const WEB_RE = /^https?:\/\/[^\s/:]+(:\d{1,5})?(\/\S*)?$/i;
 const HOSTPORT_RE = /^(\[[0-9a-f:]+\]|[^\s/:[\]]+)(:\d{1,5})?$/i;
 
@@ -219,7 +219,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const cred = remote || isDb;
   const portProto = isDb ? engine : protocol;
   const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : isDb ? dbEngineLabel(engine) : protoLabel(rkind, address.trim());
-  const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine === "MYSQL" && dbName.trim() === "");
+  const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine !== "POSTGRES" && dbName.trim() === "");
   const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
   // The connectors that would carry this resource, and the keys its password is sealed to.
@@ -266,7 +266,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
   const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
-  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES" && vault.protocol !== "MYSQL"));
+  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES" && vault.protocol !== "MYSQL" && vault.protocol !== "MSSQL"));
 
   function pickKind(k: Kind) {
     if (k === kind) return;
@@ -472,7 +472,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               <div className="rf-inline">
                 <span className="cell-sub">Engine</span>
                 <div className="seg" role="radiogroup" aria-label="Engine">
-                  {(["POSTGRES", "MYSQL"] as const).map((e) => <button key={e} type="button" role="radio" aria-checked={engine === e} className={engine === e ? "seg-opt on" : "seg-opt"} onClick={() => changeEngine(e)}>{e === "MYSQL" ? "MySQL / MariaDB" : "PostgreSQL"}</button>)}
+                  {(["POSTGRES", "MYSQL", "MSSQL"] as const).map((e) => <button key={e} type="button" role="radio" aria-checked={engine === e} className={engine === e ? "seg-opt on" : "seg-opt"} onClick={() => changeEngine(e)}>{e === "MYSQL" ? "MySQL / MariaDB" : e === "MSSQL" ? "SQL Server" : "PostgreSQL"}</button>)}
                 </div>
               </div>
             )}
@@ -574,9 +574,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
           {isDb && (
             <div className="rf-creds">
-              <label className="rq-sec"><span className="rq-label"><span>Default database{engine === "MYSQL" && <span className="t-muted rf-opt"> (optional)</span>}</span></span>
+              <label className="rq-sec"><span className="rq-label"><span>Default database{engine !== "POSTGRES" && <span className="t-muted rf-opt"> (optional)</span>}</span></span>
                 <input className={dbName && !dbNameOk ? "input mono bad" : "input mono"} value={dbName} onChange={(e) => setDbName(e.target.value)} autoComplete="off" placeholder="crm" /></label>
-              {engine === "MYSQL" ? (
+              {engine === "MSSQL" ? (
+                <p className="rf-hint rf-wide">A client that names no database lands in the default one, or in the login&apos;s own. A statement can name any database the login can open (crm.dbo.orders), so to limit which ones users reach, map the login only to those. Use a SQL Server login: Windows and Entra ID sign-in are not supported.</p>
+              ) : engine === "MYSQL" ? (
                 <p className="rf-hint rf-wide">A client that names no database lands in the default one, or in none. A statement can name any database the account can open (crm.orders), so to limit which ones users reach, grant the account only those.</p>
               ) : (
                 <>
@@ -591,7 +593,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 {dbTls === "verify-full" && (
                   <textarea className="textarea mono" rows={3} value={dbCa} onChange={(e) => setDbCa(e.target.value)} placeholder={"-----BEGIN CERTIFICATE-----\n(the server's CA; empty = the system's)"} />
                 )}
-                <p className="rf-hint">{dbTls === "disable" ? "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires." : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
+                <p className="rf-hint">{dbTls === "disable" ? (engine === "MSSQL" ? "Only the sign-in is encrypted (SQL Server's minimum); queries and results cross your network in the clear, unless the server forces encryption." : "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires.") : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
               </div>
               {dbOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; {dbEngineLabel(engine)} access needs {dbMinConnector(engine)} or later. Update it before users connect.</p>}
             </div>
