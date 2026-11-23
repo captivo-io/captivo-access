@@ -249,4 +249,13 @@ describe.skipIf(!OWNER_URL)("password rotation", () => {
     expect(res.status).toBe(400);
     await owner.$executeRawUnsafe(`UPDATE "Site" SET "nativeSsh" = false WHERE id = $1`, site);
   });
+
+  it("allows rotation with native SSH on a recorded resource, as Captivo signs in", async () => {
+    await owner.$executeRawUnsafe(`UPDATE "Site" SET "nativeSsh" = true, "recordSessions" = true WHERE id = $1`, site);
+    const on = await rotationRoute.PUT(req("PUT", { afterSession: true, everyDays: null, verifyDaily: false }), ctx);
+    expect(on.status).toBe(200);
+    const off = await rotationRoute.PUT(req("PUT", { afterSession: false, everyDays: null, verifyDaily: false }), ctx);
+    expect(off.status).toBe(200);
+    await owner.$executeRawUnsafe(`UPDATE "Site" SET "nativeSsh" = false, "recordSessions" = false WHERE id = $1`, site);
+  });
 });

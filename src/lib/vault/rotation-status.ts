@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { sealsOf } from "@/lib/vault/store";
-import { canRotate, directoryForRotation, rotationMethod, rotationOn, ROTATION_MIN_CONNECTOR, type RotationMethod } from "@/lib/vault/rotation";
+import { effectiveSiteRecording } from "@/lib/recording/effective";
+import { canRotate, directoryForRotation, nativeBlocksRotation, rotationMethod, rotationOn, ROTATION_MIN_CONNECTOR, type RotationMethod } from "@/lib/vault/rotation";
 
 // What the resource page shows about rotation, and what the settings API
 // checks against. Server-only; nothing here can open a password.
@@ -8,6 +9,7 @@ import { canRotate, directoryForRotation, rotationMethod, rotationOn, ROTATION_M
 export type RotationStatus = {
   method: RotationMethod | null;
   unsupported: string | null;
+  /** A native client on it needs a password the user knows (nativeBlocksRotation). */
   native: boolean;
   afterSession: boolean;
   everyDays: number | null;
@@ -40,7 +42,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
       rotationState: true, rotationDetail: true, pendingSeals: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true,
       site: {
         select: {
-          nativeRdp: true, nativeSsh: true,
+          nativeRdp: true, nativeSsh: true, recordSessions: true,
           connector: { select: { id: true, name: true, status: true, version: true, vaultPublicKey: true } },
           connectorGroup: { select: { members: { orderBy: { createdAt: "asc" }, select: { connector: { select: { id: true, name: true, status: true, version: true, vaultPublicKey: true } } } } } },
         },
@@ -69,7 +71,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
   return {
     method: "method" in m ? m.method : null,
     unsupported: "unsupported" in m ? m.unsupported : null,
-    native: c.site.nativeRdp || c.site.nativeSsh,
+    native: nativeBlocksRotation({ ...c.site, recorded: await effectiveSiteRecording(c.site.recordSessions) }),
     afterSession: c.rotateAfterSession,
     everyDays: c.rotateEveryDays,
     verifyDaily: c.rotateVerifyDaily,

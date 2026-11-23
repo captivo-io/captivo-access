@@ -68,6 +68,15 @@ export function rotationOn(c: { rotateAfterSession: boolean; rotateEveryDays: nu
   return c.rotateAfterSession || c.rotateEveryDays != null;
 }
 
+/**
+ * A native client the user signs in to themselves needs a password they know,
+ * which rotation takes away. A recorded native SSH session is signed in by
+ * Captivo with the saved password, so rotation can stay on there.
+ */
+export function nativeBlocksRotation(s: { nativeRdp: boolean; nativeSsh: boolean; recorded: boolean }): boolean {
+  return s.nativeRdp || (s.nativeSsh && !s.recorded);
+}
+
 /** When the schedule next rotates it (null: no schedule). */
 export function nextScheduled(c: { rotateEveryDays: number | null; rotatedAt: Date | null }, now: Date): Date | null {
   if (c.rotateEveryDays == null) return null;

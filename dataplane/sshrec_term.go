@@ -221,18 +221,50 @@ var ansiEscape = regexp.MustCompile(`\x1b(\[[0-9;?]*[ -/]*[@-~]|\][^\x07\x1b]*(\
 // it will not echo.
 var passwordPromptTail = regexp.MustCompile(`(?i)(password|passphrase|passcode|pin|token|secret)[^\n]{0,60}[:>]\s*$`)
 
+// altScreen follows whether a full-screen program (vim, top, less) holds the
+// terminal's alternate screen, from what the terminal shows.
+type altScreen struct {
+	on    bool
+	carry string // a sequence cut across two reads
+}
+
+func (a *altScreen) shown(text string) {
+	s := a.carry + text
+	a.carry = ""
+	if i := strings.LastIndexByte(s, 0x1b); i >= 0 && len(s)-i < 8 {
+		for _, q := range tailSeqs {
+			if rest := s[i:]; len(rest) < len(q.seq) && strings.HasPrefix(q.seq, rest) {
+				a.carry, s = rest, s[:i]
+				break
+			}
+		}
+	}
+	last := -1
+	for _, q := range tailSeqs {
+		if q.op == tailClear {
+			continue
+		}
+		if i := strings.LastIndex(s, q.seq); i > last {
+			last, a.on = i, q.op == tailEnterAlt
+		}
+	}
+}
+
 // lineObserver rebuilds typed lines from what a terminal client sends, for the
 // keystroke log. A line typed at a password prompt is masked, as is the line
-// after a command that asks for one (sudo, su, passwd).
+// after a command that asks for one (sudo, su, passwd). Keys typed into a
+// full-screen program are not lines for the shell, so they are left out.
 type lineObserver struct {
 	start    time.Time
 	line     []rune
 	esc      int // inside an escape sequence: 1 after ESC, 2 inside CSI
 	maskNext bool
 	tail     []byte // the end of what the terminal last showed
+	alt      altScreen
 }
 
 func (o *lineObserver) shown(b []byte) {
+	o.alt.shown(string(b))
 	o.tail = append(o.tail, b...)
 	if len(o.tail) > 512 {
 		o.tail = append([]byte(nil), o.tail[len(o.tail)-512:]...)
@@ -240,6 +272,10 @@ func (o *lineObserver) shown(b []byte) {
 }
 
 func (o *lineObserver) typed(b []byte, now time.Time) []keyEvent {
+	if o.alt.on {
+		o.line, o.esc = o.line[:0], 0
+		return nil
+	}
 	var out []keyEvent
 	for _, c := range string(b) {
 		switch {
