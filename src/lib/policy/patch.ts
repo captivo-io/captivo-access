@@ -47,6 +47,8 @@ const PLATFORM_RULES: Record<keyof PlatformSettings, Rule> = {
   notifyAccessRequests: { kind: "bool" },
   notifyAccessDecisions: { kind: "bool" },
   requireRequestJustification: { kind: "bool" },
+  sessionInvitesEnabled: { kind: "bool" },
+  guestRequireSecondFactor: { kind: "bool" },
 };
 
 const SESSION_RULES: Record<SessionKey, Rule> = {

@@ -105,6 +105,9 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     recordingMode: ["off", "per_resource", "required"].includes(body.recordingMode)
       ? (body.recordingMode as string)
       : "per_resource",
+    // Not on this form: kept as stored unless sent.
+    sessionInvitesEnabled: typeof body.sessionInvitesEnabled === "boolean" ? body.sessionInvitesEnabled : (await getPlatformSettings()).sessionInvitesEnabled,
+    guestRequireSecondFactor: typeof body.guestRequireSecondFactor === "boolean" ? body.guestRequireSecondFactor : (await getPlatformSettings()).guestRequireSecondFactor,
   });
   await saveGuacParamDefaults(parseGuacParams(body.guacParamDefaults));
   await recordAdminAction({

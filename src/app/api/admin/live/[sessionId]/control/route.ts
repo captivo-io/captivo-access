@@ -18,7 +18,8 @@ export const POST = withTenantRoute(async (req: Request, { params }: { params: P
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = body.action === "release" ? "release" : "take";
 
-  const result = await setSessionControl(sessionId, admin.id, action);
+  // An admin's take also brings back control an invited guest holds.
+  const result = await setSessionControl(sessionId, admin.id, action, { force: true });
   if (!result.ok) return NextResponse.json({ ok: false, reason: result.reason ?? "failed" }, { status: 409 });
 
   try {

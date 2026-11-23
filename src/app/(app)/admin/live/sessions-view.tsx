@@ -11,6 +11,7 @@ import { Thumb } from "../recordings/rec-ui";
 import { ResourceIcon } from "@/components/resource-icon";
 import type { SiteTile } from "@/lib/access/grant-rows";
 import { fmt, hm, useZone } from "../audit/audit-zone";
+import { GuestInvites } from "./guest-invites";
 
 export interface RecentRecording {
   id: string;
@@ -438,6 +439,7 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
                 <button type="submit" className="btn" disabled={sending || !text.trim()}>{sending ? "Sending…" : "Send"}</button>
               </form>
             )}
+            {canAct && id && r.kind === "gateway" && (!r.native || r.watchable) && <GuestInvites sessionId={id} onToast={onToast} />}
             {canAct && <Actions r={r} canTerminate={canAct} onEnded={onEnded} block />}
           </aside>
         </div>

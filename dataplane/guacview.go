@@ -20,34 +20,31 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 		http.Error(w, "missing session", http.StatusBadRequest)
 		return
 	}
-	ck, err := r.Cookie("ca_session")
-	if err != nil || ck.Value == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	viewerUserID, _, err := ctrl.ResolveSession(ck.Value)
-	if err != nil || viewerUserID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	ls := hub.Get(sessionID)
 	if ls == nil {
+		if _, e1 := r.Cookie("ca_session"); e1 != nil {
+			if _, e2 := r.Cookie(guestCookie); e2 != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	allow, err := ctrl.ViewAuthz(viewerUserID, ls.siteID)
-	if err != nil || !allow {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	v, status := viewerOf(ctrl, r, ls)
+	if status != 0 {
+		http.Error(w, http.StatusText(status), status)
 		return
 	}
+	viewerUserID := v.id
 	// A recorded native SSH session: its terminal is streamed from here.
 	if live, notify := ls.termHooks(); live != nil {
-		serveTermView(ls, live, notify, viewerUserID, w, r)
+		serveTermView(ls, live, notify, v, w, r)
 		return
 	}
 	// A recorded native RDP session: its connector decodes the picture.
 	if connectorID, watchID := ls.rdpWatchHook(); watchID != "" {
-		serveRdpView(ls, reg.Get(connectorID), watchID, viewerUserID, w, r)
+		serveRdpView(ls, reg.Get(connectorID), watchID, v, w, r)
 		return
 	}
 	connID, connectorID, guacdAddr := ls.shareInfo()
@@ -97,8 +94,8 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 	}
 	log.Printf("guac-view session=%s viewer=%s: joined connID=%s", sessionID, viewerUserID, connID)
 
-	ls.addViewer()
-	defer ls.removeViewer()
+	vctx, done := ls.watch(context.Background(), v)
+	defer done()
 
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
@@ -153,7 +150,14 @@ func serveGuacView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 	// Log why the view ended. Without this a dropped viewer was indistinguishable
 	// from a finished session in the log, and the browser shows the same sentence
 	// for both.
-	if err := <-errc; err != nil {
-		log.Printf("guac-view session=%s viewer=%s: view ended err=%v", sessionID, viewerUserID, err)
+	select {
+	case err := <-errc:
+		if err != nil {
+			log.Printf("guac-view session=%s viewer=%s: view ended err=%v", sessionID, viewerUserID, err)
+		}
+	case <-vctx.Done():
+		// A guest an admin removed, or whose invite ran out.
+		log.Printf("guac-view session=%s viewer=%s: view closed: the invite ended", sessionID, viewerUserID)
+		_ = c.Close(websocket.StatusPolicyViolation, "the invite ended")
 	}
 }

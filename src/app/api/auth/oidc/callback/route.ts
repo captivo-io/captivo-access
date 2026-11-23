@@ -10,6 +10,7 @@ import { getSessionPolicy } from "@/lib/policy/session-policy";
 import { captivoAccountUrl } from "@/lib/auth/captivo-id-client";
 import { applyCenterTimeZone, grantTimeZone } from "@/lib/tenant/center-time-zone";
 import { readOidcState, clearOidcState } from "@/lib/auth/oidc-state";
+import { finishGuestSignIn } from "@/lib/live/guest-signin";
 import { startSession } from "@/lib/auth/session";
 import { syncUserAtLogin } from "@/lib/directory/sync";
 import { safeReturnTo } from "@/lib/auth/return-to";
@@ -42,6 +43,10 @@ async function handler(req: NextRequest) {
   const cfg = await getOidcConfig();
   const saved = await readOidcState();
   await clearOidcState(); // single-use, always cleared
+
+  // A guest joining one live session: their own path, which never signs
+  // anyone in to the console (lib/live/guest-signin.ts).
+  if (saved?.guest) return finishGuestSignIn(req, { ...saved, guest: saved.guest });
 
   if (!cfg || !cfg.enabled) return fail(req, "sso", "sso_not_enabled");
   if (!saved) return fail(req, "sso", "no_saved_state (ca_oidc cookie missing/expired)");

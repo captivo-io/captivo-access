@@ -109,6 +109,8 @@ describe.skipIf(!OWNER_URL)("recordingMode is enforced at by-host and round-trip
       isolatedEgressDefault: null,
       isolatedFileTransferDefault: null,
       webAppFileTransferDefault: null,
+      sessionInvitesEnabled: null,
+      guestRequireSecondFactor: null,
       recordingMode,
     };
   }

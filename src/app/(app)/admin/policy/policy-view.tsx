@@ -13,6 +13,8 @@ export interface PolicyValues {
   maxSessionHours: string;
   maxConcurrentPerUser: string;
   requireSecondFactor: boolean;
+  sessionInvitesEnabled: boolean;
+  guestRequireSecondFactor: boolean;
   maxGrantDays: string;
   inviteTtlHours: string;
   requireRequestJustification: boolean;
@@ -44,6 +46,7 @@ export type PolicyEnv = Partial<Record<"maxSessionHours" | "inviteTtlHours" | "a
 type SectionId = "session" | "access" | "connectors" | "network" | "recording" | "audit" | "notifications";
 const SECTION_OF: Record<FlatKey | "guac" | "anchorTsaAuth", SectionId> = {
   idleTimeoutMinutes: "session", maxSessionHours: "session", maxConcurrentPerUser: "session", requireSecondFactor: "session",
+  sessionInvitesEnabled: "session", guestRequireSecondFactor: "session",
   maxGrantDays: "access", inviteTtlHours: "access", requireRequestJustification: "access",
   defaultConnectorLogLevel: "connectors", guac: "connectors",
   vendorIpAllowlist: "network", isolatedEgressDefault: "network",
@@ -230,6 +233,12 @@ export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequire
           chip={!v.requireSecondFactor ? { text: "RECOMMENDED", tone: "warn" } : undefined}>
           <Switch on={v.requireSecondFactor} onChange={(x) => set("requireSecondFactor", x)} label="Require two-step verification"
             disabled={!canRequireTwoStep && !saved.requireSecondFactor} />
+        </Row>
+        <Row {...rowProps("sessionInvitesEnabled")} label="Session invitations" desc="Admins can invite someone from outside the console into one live session, to watch it or to take control. The person signs in with Captivo ID (a self-hosted console: your own sign-in provider) and sees only that session.">
+          <Switch on={v.sessionInvitesEnabled} onChange={(x) => set("sessionInvitesEnabled", x)} label="Session invitations" />
+        </Row>
+        <Row {...rowProps("guestRequireSecondFactor")} label="Two-step verification for invited guests" desc="An invited guest's Captivo ID sign-in must include a second factor.">
+          <Switch on={v.guestRequireSecondFactor} onChange={(x) => set("guestRequireSecondFactor", x)} label="Two-step verification for invited guests" disabled={!v.sessionInvitesEnabled} />
         </Row>
       </Section>
 

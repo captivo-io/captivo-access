@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,8 +61,11 @@ type liveSession struct {
 	native                             bool   // RD Gateway session: rechecked without a sign-in token
 
 	mu           sync.Mutex
-	controlOwner string    // userID holding control, or "" for the vendor
-	viewers      int       // attached live viewers (for the console list)
+	controlOwner string // userID holding control, or "" for the vendor
+	controlBy    string // how the user is told who holds it (watcher.who)
+	viewers      int    // attached live viewers (for the console list)
+	views        map[int]liveView
+	nextView     int
 	closer       func()    // closes the underlying tunnel; set by guactunnel after Register
 	term         *termLive // recorded native SSH: its terminals, for viewers (sshlive.go)
 	notify       func(text string, watch bool) string
@@ -69,11 +75,93 @@ type liveSession struct {
 	// admin's viewer sends goes to adminInput, and onControl hears when
 	// control changes hands (to tell the user, release keys...).
 	adminInput func(msg []byte)
-	onControl  func(taken bool)
+	onControl  func(taken bool, who string)
+}
+
+// adminWho is how the user is told about an admin: by role, not by name.
+const adminWho = "An admin"
+
+// guestPrefix marks a viewer id that is a guest's: "guest:<invite id>".
+const guestPrefix = "guest:"
+
+// watcher is someone watching a live session: an admin, by their console user
+// id, or a guest invited into this one session, by "guest:<invite id>".
+type watcher struct {
+	id    string
+	name  string // a guest's name, as the user and the feed are told it
+	guest bool
+	until time.Time // a guest's invite ends here; zero for an admin
+}
+
+// who names the watcher to the user: admins stay anonymous, a guest does not.
+func (w watcher) who() string {
+	if w.guest {
+		return guestWho(w.name)
+	}
+	return adminWho
+}
+
+func guestWho(name string) string { return name + " (guest)" }
+
+type liveView struct {
+	w      watcher
+	cancel context.CancelFunc
+}
+
+// watch counts a viewer in until the returned done is called. Its context
+// ends when done is called, when an admin removes the guest (KickViewer), or
+// when the guest's invite runs out.
+func (ls *liveSession) watch(parent context.Context, w watcher) (context.Context, func()) {
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if w.until.IsZero() {
+		ctx, cancel = context.WithCancel(parent)
+	} else {
+		ctx, cancel = context.WithDeadline(parent, w.until)
+	}
+	ls.mu.Lock()
+	if ls.views == nil {
+		ls.views = map[int]liveView{}
+	}
+	ls.nextView++
+	n := ls.nextView
+	ls.views[n] = liveView{w: w, cancel: cancel}
+	ls.viewers++
+	ls.act.addEvent("watch", w.who()+" started watching", time.Now())
+	ls.mu.Unlock()
+	var once sync.Once
+	return ctx, func() {
+		once.Do(func() {
+			cancel()
+			ls.mu.Lock()
+			delete(ls.views, n)
+			if ls.viewers > 0 {
+				ls.viewers--
+			}
+			ls.act.addEvent("watch", w.who()+" stopped watching", time.Now())
+			ls.mu.Unlock()
+		})
+	}
+}
+
+// guests are the names of the guests watching now, each once.
+func (ls *liveSession) guests() []string {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range ls.views {
+		if v.w.guest && !seen[v.w.id] {
+			seen[v.w.id] = true
+			out = append(out, v.w.name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // setTakeover makes a recorded native session controllable.
-func (ls *liveSession) setTakeover(input func(msg []byte), onControl func(taken bool)) {
+func (ls *liveSession) setTakeover(input func(msg []byte), onControl func(taken bool, who string)) {
 	ls.mu.Lock()
 	ls.adminInput, ls.onControl = input, onControl
 	ls.mu.Unlock()
@@ -138,20 +226,9 @@ func (ls *liveSession) kasmAttach() (string, string, int, string) {
 	return ls.connectorID, ls.kasmAddr, ls.kasmPort, ls.vncAuth
 }
 
+// addViewer counts an admin's view that needs no context (tests).
 func (ls *liveSession) addViewer() {
-	ls.mu.Lock()
-	ls.viewers++
-	ls.act.addEvent("watch", "An admin started watching", time.Now())
-	ls.mu.Unlock()
-}
-
-func (ls *liveSession) removeViewer() {
-	ls.mu.Lock()
-	if ls.viewers > 0 {
-		ls.viewers--
-	}
-	ls.act.addEvent("watch", "An admin stopped watching", time.Now())
-	ls.mu.Unlock()
+	_, _ = ls.watch(context.Background(), watcher{})
 }
 
 func (ls *liveSession) vendorInputAllowed() bool {
@@ -167,24 +244,31 @@ func (ls *liveSession) viewerInputAllowed(userID string) bool {
 }
 
 func (ls *liveSession) setControl(owner string) error {
+	return ls.setControlAs(owner, adminWho, false)
+}
+
+// setControlAs gives control to owner, named who to the user. Control another
+// viewer holds is refused, except that an admin (force) takes it from a guest.
+func (ls *liveSession) setControlAs(owner, who string, force bool) error {
 	ls.mu.Lock()
 	if ls.native && ls.adminInput == nil {
 		ls.mu.Unlock()
 		return errNotControllable
 	}
-	if ls.controlOwner != "" && ls.controlOwner != owner {
+	adminOverGuest := force && !strings.HasPrefix(owner, guestPrefix) && strings.HasPrefix(ls.controlOwner, guestPrefix)
+	if ls.controlOwner != "" && ls.controlOwner != owner && !adminOverGuest {
 		ls.mu.Unlock()
 		return errControlHeld
 	}
-	taken := ls.controlOwner == ""
+	taken := ls.controlOwner != owner
 	if taken {
-		ls.act.addEvent("control", "An admin took control", time.Now())
+		ls.act.addEvent("control", who+" took control", time.Now())
 	}
-	ls.controlOwner = owner
+	ls.controlOwner, ls.controlBy = owner, who
 	hook := ls.onControl
 	ls.mu.Unlock()
 	if taken && hook != nil {
-		hook(true)
+		hook(true, who)
 	}
 	return nil
 }
@@ -193,13 +277,13 @@ func (ls *liveSession) releaseControl(owner string) {
 	ls.mu.Lock()
 	released := ls.controlOwner == owner && owner != ""
 	if released {
-		ls.controlOwner = ""
+		ls.controlOwner, ls.controlBy = "", ""
 		ls.act.addEvent("control", "Control returned to the user", time.Now())
 	}
 	hook := ls.onControl
 	ls.mu.Unlock()
 	if released && hook != nil {
-		hook(false)
+		hook(false, "")
 	}
 }
 
@@ -347,11 +431,37 @@ func (h *SessionHub) Terminate(id string) bool {
 }
 
 func (h *SessionHub) SetControl(id, ownerUserID string) error {
+	return h.SetControlAs(id, ownerUserID, adminWho, false)
+}
+
+func (h *SessionHub) SetControlAs(id, ownerUserID, who string, force bool) error {
 	ls := h.Get(id)
 	if ls == nil {
 		return errNoSession
 	}
-	return ls.setControl(ownerUserID)
+	return ls.setControlAs(ownerUserID, who, force)
+}
+
+// KickViewer closes every view a viewer has open on a session and gives back
+// control it holds: an admin removed the guest, or their invite was withdrawn.
+func (h *SessionHub) KickViewer(id, viewerID string) bool {
+	ls := h.Get(id)
+	if ls == nil || viewerID == "" {
+		return false
+	}
+	ls.mu.Lock()
+	var cancels []context.CancelFunc
+	for _, v := range ls.views {
+		if v.w.id == viewerID {
+			cancels = append(cancels, v.cancel)
+		}
+	}
+	ls.mu.Unlock()
+	for _, c := range cancels {
+		c()
+	}
+	ls.releaseControl(viewerID)
+	return true
 }
 
 func (h *SessionHub) ReleaseControl(id, ownerUserID string) {
@@ -360,17 +470,23 @@ func (h *SessionHub) ReleaseControl(id, ownerUserID string) {
 	}
 }
 
-func (h *SessionHub) WatchStatus(userID, siteID string) (bool, bool) {
+// WatchStatus is what the user's session page shows: whether anyone watches,
+// the guests among them, and who holds control ("" when nobody does).
+func (h *SessionHub) WatchStatus(userID, siteID string) (watching bool, guests []string, controlBy string) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	var found *liveSession
 	for _, ls := range h.m {
 		if ls.userID == userID && ls.siteID == siteID {
-			ls.mu.Lock()
-			watching := ls.viewers > 0
-			controlHeld := ls.controlOwner != ""
-			ls.mu.Unlock()
-			return watching, controlHeld
+			found = ls
+			break
 		}
 	}
-	return false, false
+	h.mu.RUnlock()
+	if found == nil {
+		return false, nil, ""
+	}
+	guests = found.guests()
+	found.mu.Lock()
+	defer found.mu.Unlock()
+	return found.viewers > 0, guests, found.controlBy
 }

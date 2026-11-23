@@ -46,6 +46,8 @@ function settingsWith(recordingMode: string | null) {
     isolatedEgressDefault: null,
     isolatedFileTransferDefault: null,
     webAppFileTransferDefault: null,
+    sessionInvitesEnabled: null,
+    guestRequireSecondFactor: null,
     recordingMode,
   };
 }

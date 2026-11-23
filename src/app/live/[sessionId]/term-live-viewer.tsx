@@ -17,7 +17,7 @@ const RETRIES = 5;
  * terminal on screen; the user's typing is paused meanwhile, and leaving the
  * view gives control back.
  */
-export function TermLiveViewer({ sessionId, canControl }: { sessionId: string; canControl: boolean }) {
+export function TermLiveViewer({ sessionId, canControl, controlUrl, serverControlling }: { sessionId: string; canControl: boolean; controlUrl?: string; serverControlling?: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const terms = useRef(new Map<number, { term: Terminal; host: HTMLDivElement; cols: number; rows: number }>());
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -153,15 +153,20 @@ export function TermLiveViewer({ sessionId, canControl }: { sessionId: string; c
     if (controllingRef.current) setTimeout(() => terms.current.get(ch)?.term.focus(), 0);
   };
 
+  // Control taken back elsewhere (an admin, from a guest).
+  useEffect(() => {
+    if (serverControlling === false) setControlling(false);
+  }, [serverControlling]);
+
   async function toggleControl() {
     setBusy(true);
     setControlError(null);
     const action = controlling ? "release" : "take";
     try {
-      const res = await fetch(`/api/admin/live/${sessionId}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+      const res = await fetch(controlUrl ?? `/api/admin/live/${sessionId}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
       const j = (await res.json().catch(() => ({}))) as { reason?: string };
       if (res.ok) setControlling(action === "take");
-      else setControlError(j.reason === "control already held" ? "Another admin has control of this session." : "Control could not be changed. Try again.");
+      else setControlError(j.reason === "control already held" ? (controlUrl ? "Someone else has control of this session." : "Another admin or an invited guest has control of this session.") : "Control could not be changed. Try again.");
     } finally {
       setBusy(false);
     }

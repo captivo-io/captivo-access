@@ -22,6 +22,8 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const [error, setError] = useState<SessionFailure | null>(null);
   const [ready, setReady] = useState(false);
   const [watching, setWatching] = useState(false);
+  const [guests, setGuests] = useState<string[]>([]);
+  const [controlBy, setControlBy] = useState("");
   const [adminMessage, setAdminMessage] = useState<AdminMessage | null>(null);
   const [controlHeld, setControlHeld] = useState(false);
   const guacRef = useRef<any>(null);
@@ -411,10 +413,12 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
           return;
         }
         if (res.ok) {
-          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string; message?: AdminMessage | null };
+          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; guests?: string[] | null; controlBy?: string; ended?: string; message?: AdminMessage | null };
           if (!stop) {
             setWatching(s.watching);
             setControlHeld(s.controlHeld);
+            setGuests(s.guests ?? []);
+            setControlBy(s.controlBy ?? "");
             setAdminMessage(s.message ?? null);
             if (s.ended) setEndReason(s.ended);
           }
@@ -475,7 +479,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       )}
       {zoomed && <button type="button" className="gw-zoom-reset" onClick={resetZoom}>Reset zoom</button>}
       <RecordingNotice active={recorded && ready} />
-      <MonitorNotice watching={watching} controlHeld={controlHeld} />
+      <MonitorNotice watching={watching} controlHeld={controlHeld} guests={guests} controlBy={controlBy} />
       <AdminMessageBanner message={adminMessage} />
       <DropOverlay state={dropState} siteName={siteName} />
       <SessionToast toast={toastState} />

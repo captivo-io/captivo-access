@@ -191,6 +191,7 @@ type sshRecSession struct {
 	live *termLive
 
 	mu         sync.Mutex
+	controlWho string // who holds control (watcher.who); "" when the user does
 	down       int64
 	refusedFw  bool
 	closers    []func()
@@ -276,8 +277,11 @@ func (r *sshRecSession) adminInput(msg []byte) {
 		evs = target.admin.typed([]byte(in.D), r.j.d.now())
 	}
 	target.mu.Unlock()
+	r.mu.Lock()
+	by := byOf(r.controlWho)
+	r.mu.Unlock()
 	for i := range evs {
-		evs[i].By = "admin"
+		evs[i].By = by
 	}
 	if len(evs) > 0 {
 		if r.keys != nil {
@@ -287,11 +291,14 @@ func (r *sshRecSession) adminInput(msg []byte) {
 	}
 }
 
-// controlChanged tells the user, in their terminals, that an admin took
-// control (their typing is paused) or gave it back.
-func (r *sshRecSession) controlChanged(taken bool) {
+// controlChanged tells the user, in their terminals, that an admin (or an
+// invited guest) took control -- their typing is paused -- or gave it back.
+func (r *sshRecSession) controlChanged(taken bool, who string) {
+	r.mu.Lock()
+	r.controlWho = who
+	r.mu.Unlock()
 	if taken {
-		r.notify("An admin has taken control of this session. Your typing is paused until it is given back.", false)
+		r.notify(who+" has taken control of this session. Your typing is paused until it is given back.", false)
 	} else {
 		r.notify("Control of this session is back with you.", false)
 	}

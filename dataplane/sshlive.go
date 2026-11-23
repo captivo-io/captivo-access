@@ -352,7 +352,8 @@ const (
 )
 
 // serveTermView streams a recorded native SSH session to a viewer.
-func serveTermView(ls *liveSession, live *termLive, notify func(string, bool) string, viewerUserID string, w http.ResponseWriter, r *http.Request) {
+func serveTermView(ls *liveSession, live *termLive, notify func(string, bool) string, vw watcher, w http.ResponseWriter, r *http.Request) {
+	viewerUserID := vw.id
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		log.Printf("term-view session=%s: ws accept failed err=%v", ls.id, err)
@@ -363,14 +364,12 @@ func serveTermView(ls *liveSession, live *termLive, notify func(string, bool) st
 	v, frames := live.join()
 	defer live.leave(v)
 	log.Printf("term-view session=%s viewer=%s: joined (%d terminals)", ls.id, viewerUserID, len(frames))
-	ls.addViewer()
-	defer ls.removeViewer()
-	if notify != nil {
-		notify("An admin is now watching this session.", true)
-	}
-
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := ls.watch(r.Context(), vw)
 	defer cancel()
+	if notify != nil {
+		// A guest is named every time; admins at most once a minute.
+		notify(vw.who()+" is now watching this session.", !vw.guest)
+	}
 	// Control the viewer holds goes back to the user when the viewer leaves.
 	defer ls.releaseControl(viewerUserID)
 	go func() {

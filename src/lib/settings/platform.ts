@@ -33,6 +33,8 @@ export interface PlatformSettings {
   isolatedEgressDefault: string | null;
   isolatedFileTransferDefault: string | null;
   webAppFileTransferDefault: string | null;
+  sessionInvitesEnabled: boolean | null;
+  guestRequireSecondFactor: boolean | null;
 }
 
 const EMPTY: PlatformSettings = {
@@ -59,6 +61,8 @@ const EMPTY: PlatformSettings = {
   isolatedEgressDefault: null,
   isolatedFileTransferDefault: null,
   webAppFileTransferDefault: null,
+  sessionInvitesEnabled: null,
+  guestRequireSecondFactor: null,
 };
 
 // Keyed by tenant id: a single un-keyed slot would let one tenant's settings
@@ -101,6 +105,8 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
     isolatedEgressDefault: c?.isolatedEgressDefault ?? null,
     isolatedFileTransferDefault: c?.isolatedFileTransferDefault ?? null,
     webAppFileTransferDefault: c?.webAppFileTransferDefault ?? null,
+    sessionInvitesEnabled: c?.sessionInvitesEnabled ?? null,
+    guestRequireSecondFactor: c?.guestRequireSecondFactor ?? null,
   };
   cache.set(tid, { s, at: Date.now() });
   return s;
@@ -283,6 +289,18 @@ export async function resolvedExternalAnchorEnabled(): Promise<boolean> {
 export async function resolvedRequireRequestJustification(): Promise<boolean> {
   const s = await getPlatformSettings();
   return s.requireRequestJustification !== false;
+}
+
+// Default ON: admins may invite someone into a live session unless turned off.
+export async function resolvedSessionInvitesEnabled(): Promise<boolean> {
+  const s = await getPlatformSettings();
+  return s.sessionInvitesEnabled !== false;
+}
+
+// Default OFF: an invited guest needs a second factor only when asked for.
+export async function resolvedGuestRequireSecondFactor(): Promise<boolean> {
+  const s = await getPlatformSettings();
+  return s.guestRequireSecondFactor === true;
 }
 
 export type KeystrokeMode = "off" | "per_resource" | "required";

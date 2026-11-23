@@ -2,7 +2,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useRef, useState } from "react";
 
-export function LiveViewer({ sessionId, canControl }: { sessionId: string; canControl: boolean }) {
+/**
+ * A live session's screen. An admin's page by default; an invited guest's page
+ * passes its own control endpoint, and what the server says about control
+ * (serverControlling) so a take-back by an admin stops the guest's input here.
+ */
+export function LiveViewer({ sessionId, canControl, controlUrl, serverControlling }: { sessionId: string; canControl: boolean; controlUrl?: string; serverControlling?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const clientRef = useRef<any>(null);
   const guacRef = useRef<any>(null); // the guacamole-common-js module
@@ -36,7 +41,10 @@ export function LiveViewer({ sessionId, canControl }: { sessionId: string; canCo
       const fit = () => {
         const dw = display.getWidth();
         const dh = display.getHeight();
-        if (dw > 0 && dh > 0) display.scale(Math.min(window.innerWidth / dw, window.innerHeight / dh));
+        // The stage's own size: on a guest's page a bar takes the bottom of the window.
+        const sw = ref.current?.clientWidth || window.innerWidth;
+        const sh = ref.current?.clientHeight || window.innerHeight;
+        if (dw > 0 && dh > 0) display.scale(Math.min(sw / dw, sh / dh));
       };
       display.onresize = fit;
       window.addEventListener("resize", fit);
@@ -94,11 +102,20 @@ export function LiveViewer({ sessionId, canControl }: { sessionId: string; canCo
     for (const k of [0xffff, 0xffe9, 0xffe3]) client.sendKeyEvent(0, k);
   }
 
+  // Control taken back elsewhere (an admin, from a guest): stop sending input.
+  useEffect(() => {
+    if (serverControlling === false && controlling) {
+      detachInput();
+      setControlling(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverControlling]);
+
   async function toggleControl() {
     setBusy(true);
     const action = controlling ? "release" : "take";
     try {
-      const res = await fetch(`/api/admin/live/${sessionId}/control`, {
+      const res = await fetch(controlUrl ?? `/api/admin/live/${sessionId}/control`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action }),
@@ -118,7 +135,7 @@ export function LiveViewer({ sessionId, canControl }: { sessionId: string; canCo
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000", overflow: "hidden" }}>
+    <div className="lv-root">
       <div ref={ref} style={{ position: "absolute", inset: 0 }} />
       <div className="live-badge">● LIVE{controlling ? " · CONTROLLING" : ""}</div>
       {canControl && (
