@@ -358,7 +358,7 @@ func serveTermView(ls *liveSession, live *termLive, notify func(string, bool) st
 		log.Printf("term-view session=%s: ws accept failed err=%v", ls.id, err)
 		return
 	}
-	c.SetReadLimit(4 << 10) // a viewer sends nothing but its close
+	c.SetReadLimit(64 << 10) // an admin's typing (and pastes) while holding control
 	defer c.CloseNow()
 	v, frames := live.join()
 	defer live.leave(v)
@@ -371,13 +371,17 @@ func serveTermView(ls *liveSession, live *termLive, notify func(string, bool) st
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	// Control the viewer holds goes back to the user when the viewer leaves.
+	defer ls.releaseControl(viewerUserID)
 	go func() {
-		// Reads only notice the viewer leaving.
+		// What the viewer sends is typing, used only while it holds control.
 		for {
-			if _, _, err := c.Read(ctx); err != nil {
+			_, msg, err := c.Read(ctx)
+			if err != nil {
 				cancel()
 				return
 			}
+			ls.fromController(viewerUserID, msg)
 		}
 	}()
 	write := func(b []byte) bool {

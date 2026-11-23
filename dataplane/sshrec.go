@@ -207,6 +207,7 @@ func (r *sshRecSession) begin(s *Session) {
 		r.ls = j.d.hub.RegisterNative(r.id, "ssh", j.tk.SiteID, j.tk.UserID, t.Host, r.start, t.ConnectorID, j.clientIP)
 		r.ls.SetCapture(true, t.Keystrokes)
 		r.ls.setTerm(r.live, r.notify)
+		r.ls.setTakeover(r.adminInput, r.controlChanged)
 		j.d.hub.clearEnded(j.tk.UserID, j.tk.SiteID)
 		j.d.hub.SetCloser(r.id, func() { r.client.Close() })
 	}
@@ -239,6 +240,61 @@ func (r *sshRecSession) end() {
 	r.mu.Unlock()
 	j.auditClose(dur, r.target.Host, down)
 	log.Printf("ssh jump: site=%s user=%s recorded session %s closed after %s", j.tk.SiteID, j.tk.UserID, r.id, dur)
+}
+
+// adminInput writes what an admin who took control typed into one of the
+// user's terminals ({"t":"i","ch":N,"d":"..."} from the live viewer). It is
+// logged as the admin's, apart from the user's lines.
+func (r *sshRecSession) adminInput(msg []byte) {
+	var in struct {
+		T  string `json:"t"`
+		Ch int    `json:"ch"`
+		D  string `json:"d"`
+	}
+	if json.Unmarshal(msg, &in) != nil || in.T != "i" || in.D == "" {
+		return
+	}
+	r.mu.Lock()
+	var target *sshRecChannel
+	for c := range r.chans {
+		c.mu.Lock()
+		if c.num == in.Ch && c.kind == chanTerminal && c.pty {
+			target = c
+		}
+		c.mu.Unlock()
+	}
+	r.mu.Unlock()
+	if target == nil {
+		return
+	}
+	if _, err := target.server.Write([]byte(in.D)); err != nil {
+		return
+	}
+	target.mu.Lock()
+	var evs []keyEvent
+	if target.admin != nil {
+		evs = target.admin.typed([]byte(in.D), r.j.d.now())
+	}
+	target.mu.Unlock()
+	for i := range evs {
+		evs[i].By = "admin"
+	}
+	if len(evs) > 0 {
+		if r.keys != nil {
+			r.keys.post(evs)
+		}
+		r.ls.keyEvents(evs)
+	}
+}
+
+// controlChanged tells the user, in their terminals, that an admin took
+// control (their typing is paused) or gave it back.
+func (r *sshRecSession) controlChanged(taken bool) {
+	if taken {
+		r.notify("An admin has taken control of this session. Your typing is paused until it is given back.", false)
+	} else {
+		r.notify("Control of this session is back with you.", false)
+	}
 }
 
 // notify writes a line from Captivo into each of the user's terminals: that an
@@ -366,6 +422,7 @@ type sshRecChannel struct {
 	out     utf8Stream
 	errOut  utf8Stream
 	lines   *lineObserver
+	admin   *lineObserver // what an admin who took control typed (takeover)
 	gate    *sftpGate
 	moved   int64 // scp / rsync bytes
 	started chan struct{}
@@ -481,6 +538,7 @@ func (c *sshRecChannel) userRequests(creqs <-chan *ssh.Request) {
 			c.num = r.term.opened()
 			if r.keys != nil || r.ls != nil {
 				c.lines = &lineObserver{start: r.start}
+				c.admin = &lineObserver{start: r.start}
 			}
 			num, cols, rows := c.num, c.cols, c.rows
 			c.mu.Unlock()
@@ -623,6 +681,9 @@ func (c *sshRecChannel) pumpUp() {
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := c.user.Read(buf)
+		if n > 0 && kind == chanTerminal && c.r.ls != nil && !c.r.ls.vendorInputAllowed() && c.isTerminal() {
+			n = 0 // an admin has control: the user's typing is dropped, not kept for later
+		}
 		if n > 0 {
 			c.typed(buf[:n])
 			if kind == chanTransfer && c.upload {
@@ -736,6 +797,9 @@ func (c *sshRecChannel) shown(b []byte, kind int, stderr bool) {
 		text, ok := stream.text(b)
 		if c.lines != nil {
 			c.lines.shown(b)
+		}
+		if c.admin != nil {
+			c.admin.shown(b)
 		}
 		num := c.num
 		c.mu.Unlock()

@@ -240,3 +240,103 @@ func TestRecordedSSHCanBeWatchedAndTellsTheUser(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordedSSHCanBeTakenOver(t *testing.T) {
+	r := recordedJumpRig(t, sshTarget{Record: true, Keystrokes: true, FileTransfer: "none", Username: "ops", Secret: "pw", SecretKind: "PASSWORD"})
+	c, _, err := r.innerClient(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	s, _ := c.NewSession()
+	if err := s.RequestPty("xterm", 40, 120, ssh.TerminalModes{}); err != nil {
+		t.Fatal(err)
+	}
+	in, _ := s.StdinPipe()
+	var out strings.Builder
+	var outMu sync.Mutex
+	s.Stdout = writerFunc(func(p []byte) (int, error) { outMu.Lock(); defer outMu.Unlock(); return out.Write(p) })
+	shown := func() string { outMu.Lock(); defer outMu.Unlock(); return out.String() }
+	if err := s.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return strings.Contains(shown(), "ops@box:~$ ") })
+	list := r.hub.List()
+	if len(list) != 1 || !list[0].Controllable {
+		t.Fatalf("live %+v", list)
+	}
+	ls := r.hub.Get(list[0].SessionID)
+	live, notify := ls.termHooks()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		serveTermView(ls, live, notify, "admin1", w, req)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan int, 1)
+	go func() {
+		for {
+			_, b, err := ws.Read(ctx)
+			if err != nil {
+				return
+			}
+			var f termFrame
+			_ = json.Unmarshal(b, &f)
+			if f.T == "open" {
+				select {
+				case ch <- f.Ch:
+				default:
+				}
+			}
+		}
+	}()
+	term := <-ch
+	send := func(d string) {
+		b, _ := json.Marshal(map[string]any{"t": "i", "ch": term, "d": d})
+		_ = ws.Write(ctx, websocket.MessageText, b)
+	}
+
+	// Typing before taking control goes nowhere.
+	send("ls\r")
+	time.Sleep(150 * time.Millisecond)
+	if strings.Contains(shown(), "out of ls") {
+		t.Fatal("a viewer without control typed into the session")
+	}
+	if err := r.hub.SetControl(ls.id, "admin1"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return strings.Contains(shown(), "An admin has taken control of this session.") })
+
+	// The user's typing is dropped; the admin's runs.
+	_, _ = io.WriteString(in, "ls\r")
+	time.Sleep(150 * time.Millisecond)
+	if strings.Contains(shown(), "out of ls") {
+		t.Fatal("the user typed while an admin held control")
+	}
+	send("ls\r")
+	waitFor(t, func() bool { return strings.Contains(shown(), "out of ls") })
+	if err := r.hub.SetControl(ls.id, "admin2"); err == nil {
+		t.Fatal("a second admin took control")
+	}
+
+	// The viewer leaving gives control back.
+	_ = ws.Close(websocket.StatusNormalClosure, "")
+	waitFor(t, func() bool { return strings.Contains(shown(), "Control of this session is back with you.") })
+	before := strings.Count(shown(), "out of ls")
+	_, _ = io.WriteString(in, "ls\r")
+	waitFor(t, func() bool { return strings.Count(shown(), "out of ls") > before })
+
+	_, _ = io.WriteString(in, "exit\r")
+	_ = s.Wait()
+	c.Close()
+	waitFor(t, func() bool { return strings.Contains(r.conn.stream(t), "Session ended") })
+	waitFor(t, func() bool { return strings.Contains(r.conn.keys(), `"by":"admin"`) })
+	keys := r.conn.keys()
+	if strings.Count(keys, `"text":"ls"`) != 2 || strings.Count(keys, `"by":"admin"`) != 1 {
+		t.Errorf("the admin's command and the user's are not told apart: %s", keys)
+	}
+}

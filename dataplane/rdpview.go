@@ -15,10 +15,11 @@ import (
 // serveRdpView shows a viewer a recorded native RDP session as it runs. Its
 // connector decodes the picture (connector/rdplive.go) and sends Guacamole
 // protocol, the same the browser's live view gets from guacd for a session
-// in the browser, so the viewer page is the same. Watching only: what the
-// viewer sends is read and dropped. The user is not told in their app (an RDP
-// app has no place Captivo could write to); the portal and the .rdp file say
-// sessions may be watched.
+// in the browser, so the viewer page is the same. What the viewer sends (keys,
+// the mouse) reaches the session only while it holds control (rdpcontrol.go).
+// The user is not told in their app (an RDP app has no place Captivo could
+// write to); the portal and the .rdp file say sessions may be watched or
+// taken over.
 func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.mux == nil {
 		http.Error(w, "the session's connector is offline", http.StatusBadGateway)
@@ -75,12 +76,17 @@ func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w h
 			}
 		}
 	}()
+	// Control the viewer holds goes back to the user when it leaves.
+	defer ls.releaseControl(viewerUserID)
 	go func() {
+		// Key and mouse instructions count only while this viewer holds control.
 		for {
-			if _, _, err := c.Read(ctx); err != nil {
+			_, msg, err := c.Read(ctx)
+			if err != nil {
 				errc <- err
 				return
 			}
+			ls.fromController(viewerUserID, msg)
 		}
 	}()
 	<-errc

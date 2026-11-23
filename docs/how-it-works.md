@@ -464,7 +464,20 @@ flowchart LR
   and a decoder that falls behind ends watching, never the session. The user
   isn't told inside their Remote Desktop app (Captivo has nowhere there to write),
   and messages can't reach it: the portal and the .rdp file say sessions may be
-  watched live.
+  watched live or taken over.
+- **Taking control.** An admin watching live can **Take control** (configure
+  rights, one admin at a time). The user's input stops reaching the server and
+  the admin's goes instead, written by the data plane between the app's own
+  PDUs: text as Unicode, so it types the same whatever the server's keyboard
+  layout; shortcuts and keys that aren't text (Ctrl+C, arrows, F-keys, the
+  Ctrl+Alt+Del button) as keys at their US positions; the mouse and its wheel.
+  (Windows takes Unicode input as it is; an xrdp server types only what its
+  own keyboard map knows, so letters outside ASCII may not arrive there.)
+  Keys and buttons held when control changes hands are released, and the user's
+  lock keys are put back. Leaving the view gives control back. The admin's
+  typing is in the keystroke log marked as theirs, and their pointer in the
+  video; the clipboard and drives are not part of it. No connector update is
+  needed.
 - **What stays the same:** the grant, its schedule and expiry, the user's status
   and the vendor IP allowlist are checked when the tunnel opens and every minute
   after; the session is listed on the Sessions page (as `RDP · NATIVE`), an admin
@@ -557,9 +570,13 @@ flowchart LR
   the terminal as the user sees it, send a message or end the session. The jump
   host streams the same output it records; an admin who joins late sees the
   screen as it is now (rebuilt from the output since it was last cleared, with a
-  full-screen program such as vim drawn on top). Watching is view only. The user
+  full-screen program such as vim drawn on top). An admin with configure rights
+  can **Take control** and type into the terminal on screen; the user's typing is
+  dropped meanwhile (not kept for later), and leaving the view gives control
+  back. The admin's commands are in the keystroke log marked as theirs. The user
   gets a line in their terminal saying an admin is watching (once a minute at
-  most), and an admin's message arrives the same way; while a full-screen program
+  most), when control is taken and when it comes back, and an admin's message
+  arrives the same way; while a full-screen program
   runs, both wait until it ends so they don't break its screen. Each line is
   marked in the recording. Several terminals over one connection show as tabs.
   This needs no connector update. With a connector older than 2.49.0 a recorded

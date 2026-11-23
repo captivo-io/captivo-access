@@ -13,6 +13,7 @@ type keyEvent struct {
 	Kind   string `json:"kind"` // "command" (ssh) | "text" (rdp)
 	Text   string `json:"text"`
 	Masked bool   `json:"masked"`
+	By     string `json:"by,omitempty"` // "admin": typed by an admin who took control
 }
 
 const (

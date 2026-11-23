@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	errControlHeld = errors.New("control already held")
-	errNoSession   = errors.New("session not found")
+	errControlHeld     = errors.New("control already held")
+	errNotControllable = errors.New("this session can only be watched")
+	errNoSession       = errors.New("session not found")
 )
 
 // SessionInfo is the JSON snapshot of one active session for the internal list API.
@@ -35,6 +36,8 @@ type SessionInfo struct {
 	// A native session an admin can still watch: recorded native SSH, whose
 	// terminal passes through the jump host (sshlive.go).
 	Watchable bool `json:"watchable,omitempty"`
+	// A native session an admin can take over (recorded native SSH and RDP).
+	Controllable bool `json:"controllable,omitempty"`
 	// Input over the last two minutes, in 5-second buckets, oldest first.
 	Activity []int `json:"activity"`
 }
@@ -62,6 +65,37 @@ type liveSession struct {
 	notify       func(text string, watch bool) string
 	rdpWatch     string       // recorded native RDP: the live picture's id on its connector (rdpview.go)
 	act          liveActivity // the console's feed and activity bars (liveactivity.go)
+	// A recorded native session that an admin can take over: what the
+	// admin's viewer sends goes to adminInput, and onControl hears when
+	// control changes hands (to tell the user, release keys...).
+	adminInput func(msg []byte)
+	onControl  func(taken bool)
+}
+
+// setTakeover makes a recorded native session controllable.
+func (ls *liveSession) setTakeover(input func(msg []byte), onControl func(taken bool)) {
+	ls.mu.Lock()
+	ls.adminInput, ls.onControl = input, onControl
+	ls.mu.Unlock()
+}
+
+// controllable reports whether an admin can take this session over: every
+// browser session, and native ones that set a takeover.
+func (ls *liveSession) controllable() bool {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return !ls.native || ls.adminInput != nil
+}
+
+// fromController hands what the admin holding control sent to the session.
+func (ls *liveSession) fromController(viewerUserID string, msg []byte) {
+	ls.mu.Lock()
+	input := ls.adminInput
+	ok := viewerUserID != "" && ls.controlOwner == viewerUserID
+	ls.mu.Unlock()
+	if ok && input != nil {
+		input(msg)
+	}
 }
 
 func (ls *liveSession) shareInfo() (string, string, string) {
@@ -134,23 +168,38 @@ func (ls *liveSession) viewerInputAllowed(userID string) bool {
 
 func (ls *liveSession) setControl(owner string) error {
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
+	if ls.native && ls.adminInput == nil {
+		ls.mu.Unlock()
+		return errNotControllable
+	}
 	if ls.controlOwner != "" && ls.controlOwner != owner {
+		ls.mu.Unlock()
 		return errControlHeld
 	}
-	if ls.controlOwner == "" {
+	taken := ls.controlOwner == ""
+	if taken {
 		ls.act.addEvent("control", "An admin took control", time.Now())
 	}
 	ls.controlOwner = owner
+	hook := ls.onControl
+	ls.mu.Unlock()
+	if taken && hook != nil {
+		hook(true)
+	}
 	return nil
 }
 
 func (ls *liveSession) releaseControl(owner string) {
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
-	if ls.controlOwner == owner && owner != "" {
+	released := ls.controlOwner == owner && owner != ""
+	if released {
 		ls.controlOwner = ""
 		ls.act.addEvent("control", "Control returned to the user", time.Now())
+	}
+	hook := ls.onControl
+	ls.mu.Unlock()
+	if released && hook != nil {
+		hook(false)
 	}
 }
 
@@ -266,6 +315,7 @@ func (h *SessionHub) List() []SessionInfo {
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
 			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
 			Native: ls.native, ConnectorID: ls.connectorID, Watchable: ls.term != nil || ls.rdpWatch != "",
+			Controllable: ls.native && ls.adminInput != nil,
 		})
 		ls.mu.Unlock()
 	}
