@@ -25,7 +25,7 @@ import (
 )
 
 // Database access (Kind "db"): the connector signs in to the resource's
-// PostgreSQL server with the saved password and hands the data plane a
+// PostgreSQL or MySQL server (mysql.go) with the saved password and hands the data plane a
 // connection that is already past authentication. The user's client never
 // sees the password, and neither does the control plane: it opens here only,
 // for the target it was sealed for.
@@ -59,7 +59,7 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		return
 	}
 	addr := net.JoinHostPort(req.Host, req.Port)
-	if req.Engine != "postgres" {
+	if req.Engine != "postgres" && req.Engine != "mysql" {
 		writeDbErr(st, "this connector does not support the "+req.Engine+" engine", "")
 		return
 	}
@@ -74,19 +74,31 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		writeDbErr(st, "the saved password does not open on this connector; enter it again", "")
 		return
 	}
-	conn, br, encrypted, perr := pgSignIn(req, password)
+	var conn net.Conn
+	var br *bufio.Reader
+	var resp tunnel.DbDialResponse
+	var perr error
+	if req.Engine == "mysql" {
+		conn, br, resp, perr = mySignIn(req, password)
+	} else {
+		conn, br, resp.TLS, perr = pgSignIn(req, password)
+	}
 	if perr != nil {
 		var pe *pgError
-		if errors.As(perr, &pe) {
+		var me *myError
+		switch {
+		case errors.As(perr, &pe):
 			writeDbErr(st, pe.Message, pe.Code)
-		} else {
+		case errors.As(perr, &me):
+			writeDbErr(st, me.Message, me.Code())
+		default:
 			logUpstreamErr("db", addr, perr.Error())
 			writeDbErr(st, perr.Error(), "")
 		}
 		return
 	}
 	defer conn.Close()
-	b, _ := json.Marshal(tunnel.DbDialResponse{TLS: encrypted})
+	b, _ := json.Marshal(resp)
 	if tunnel.WriteFrame(st, b) != nil {
 		return
 	}
@@ -362,7 +374,7 @@ func hasMechanism(list []byte, want string) bool {
 
 func pgMD5(user, password string, salt []byte) string {
 	inner := md5.Sum([]byte(password + user)) // #nosec G401 -- the protocol's own construction
-	h := md5.New()                             // #nosec G401
+	h := md5.New()                            // #nosec G401
 	h.Write([]byte(hex.EncodeToString(inner[:])))
 	h.Write(salt)
 	return "md5" + hex.EncodeToString(h.Sum(nil))

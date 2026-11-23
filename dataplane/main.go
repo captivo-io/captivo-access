@@ -81,9 +81,10 @@ func main() {
 	if err != nil {
 		log.Printf("WARNING: ssh jump host not started: %v", err)
 	}
-	// PostgreSQL clients for database resources (pgproxy.go). DB_ADDR=off turns it off.
-	// Without DB_TLS_CERT/DB_TLS_KEY it keeps a self-signed certificate in DB_TLS_DIR.
-	dbOn, err := startPgProxy(env("DB_ADDR", ":15432"), os.Getenv("DB_TLS_CERT"), os.Getenv("DB_TLS_KEY"), env("DB_TLS_DIR", "/data"), pgProxyDeps{
+	// PostgreSQL and MySQL clients for database resources (pgproxy.go, mysqlproxy.go).
+	// DB_ADDR=off / MYSQL_ADDR=off turns one off. Without DB_TLS_CERT/DB_TLS_KEY
+	// it keeps a self-signed certificate in DB_TLS_DIR.
+	dbOn, myOn, err := startDbProxy(env("DB_ADDR", ":15432"), env("MYSQL_ADDR", ":13306"), os.Getenv("DB_TLS_CERT"), os.Getenv("DB_TLS_KEY"), env("DB_TLS_DIR", "/data"), pgProxyDeps{
 		ctrl: ctrl, hub: hub, audit: audit, now: time.Now, recIndex: ctrl.SendRecording,
 		session: reg.Get,
 		pick:    func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
@@ -97,7 +98,7 @@ func main() {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": dbOn})
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": dbOn, "mysql": myOn})
 	})
 	in.HandleFunc("/ssh-ticket", serveSSHTicket(sshInfo, sshTickets, secret))
 	in.HandleFunc("/ssh-info", serveSSHInfo(sshInfo, secret))

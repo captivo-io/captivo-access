@@ -15,14 +15,14 @@ import { withTenantRoute } from "@/lib/tenant/request";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Whether the data plane runs the proxy (it needs a certificate). */
-async function proxyOn(): Promise<boolean> {
+/** Whether the data plane runs the proxy for this engine (it needs a certificate). */
+async function proxyOn(engine: "postgres" | "mysql"): Promise<boolean> {
   const secret = process.env.DATAPLANE_SECRET;
   if (!secret) return false;
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const res = await fetchWithTimeout(`${base}/db-info`, { timeoutMs: 4_000, method: "POST", headers: { "x-dataplane-secret": secret } }).catch(() => null);
-  const j = res?.ok ? ((await res.json().catch(() => ({}))) as { enabled?: boolean }) : null;
-  return !!j?.enabled;
+  const j = res?.ok ? ((await res.json().catch(() => ({}))) as { enabled?: boolean; mysql?: boolean }) : null;
+  return engine === "mysql" ? !!j?.mysql : !!j?.enabled;
 }
 
 // Connection details for the signed-in user's own database client: the
@@ -42,7 +42,7 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
   const now = new Date();
   const t = await databaseTarget(user.id, siteId, now);
   if (!t.ok) return NextResponse.json({ error: t.error }, { status: t.status === 409 ? 409 : t.status === 403 ? 403 : 404 });
-  if (!(await proxyOn())) return NextResponse.json({ error: "proxy_off" }, { status: 503 });
+  if (!(await proxyOn(t.engine))) return NextResponse.json({ error: "proxy_off" }, { status: 503 });
 
   const end = await grantEnd(user.id, siteId, now);
   const limits = [now.getTime() + DB_TICKET_TTL_MS, session.expiresAt.getTime(), ...(end ? [end.getTime()] : [])];
@@ -56,7 +56,7 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
     ticket,
     expiresAt: expiresAt.toISOString(),
     host: dbPublicHost(consoleHost),
-    port: dbPublicPort(),
+    port: dbPublicPort(t.engine === "mysql" ? "MYSQL" : "POSTGRES"),
     database: t.params.database,
     databases: t.params.databases,
     engine: t.engine,

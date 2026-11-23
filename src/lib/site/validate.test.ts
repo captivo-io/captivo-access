@@ -6,6 +6,13 @@ const selfHost = { ...base, hostSuffix: ".access.example.com" };
 const cloud = { ...base, hostSuffix: ".acme.cloud.captivo.io" };
 
 describe("validateSiteInput", () => {
+  it("database: takes MySQL with no default database, and no allowed-database list", () => {
+    const body = { accessMode: "DATABASE", connectorId: "c", name: "n", engine: "mysql", targetHost: "10.0.0.7", targetPort: 3306, username: "app", secret: "pw", database: "", databases: "crm, hr" };
+    const r = validateSiteInput(body, base);
+    expect(r).toMatchObject({ ok: true, engine: "MYSQL", dbParams: { database: "", databases: [] } });
+    expect(validateSiteInput({ ...body, engine: "POSTGRES" }, base)).toMatchObject({ ok: false, error: "invalid_database" });
+    expect(validateSiteInput({ ...body, engine: "ORACLE" }, base)).toMatchObject({ ok: false, error: "invalid_engine" });
+  });
   it("self-host: appends .<accessDomain> to a bare label", () => {
     const r = validateSiteInput({ accessMode: "TRANSPARENT", connectorId: "c", name: "n", hostname: "WIKI", upstreamUrl: "http://10.0.0.5:80" }, selfHost);
     expect(r).toMatchObject({ ok: true, hostname: "wiki.access.example.com" });

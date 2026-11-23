@@ -11,6 +11,8 @@ describe("riskyReason", () => {
     expect(riskyReason("update accounts set balance = 0")).toBe("Changes every row");
     expect(riskyReason("GRANT ALL ON ALL TABLES IN SCHEMA public TO bob")).toBe("Changes permissions");
     expect(riskyReason("/* tool */ -- note\nDROP SCHEMA x CASCADE")).toBe("Drops an object");
+    expect(riskyReason("SELECT * FROM users INTO OUTFILE '/tmp/u.csv'")).toBe("Writes a file on the server");
+    expect(riskyReason("ALTER USER 'app'@'%' IDENTIFIED BY '***'")).toBe("Changes the schema or a role");
   });
   it("leaves ordinary statements alone", () => {
     expect(riskyReason("SELECT * FROM users")).toBeNull();

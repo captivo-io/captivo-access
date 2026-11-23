@@ -13,7 +13,7 @@ import { compareSemver } from "@/lib/updates/semver";
 import { NATIVE_RDP_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
 import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
 import { SshHostKeyLine } from "./ssh-host-key";
-import { DATABASE_MIN_CONNECTOR, parseDbParams } from "@/lib/database/params";
+import { dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { IconPicker, lookBody, type Look } from "./icon-picker";
@@ -79,7 +79,7 @@ const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: strin
   { kind: "isolated", title: "Isolated browser", tag: "HTTPS", desc: "The app opens in an isolated browser on the server; no data lands on the device.", icon: "shield", color: "blue" },
   { kind: "remote", title: "Remote desktop", tag: "RDP", desc: "A Windows desktop in the browser; no client install.", icon: "desktop", color: "violet" },
   { kind: "ssh", title: "SSH terminal", tag: "SSH", desc: "A terminal in the browser; credentials are never shown to the user.", icon: "terminal", color: "violet" },
-  { kind: "database", title: "Database", tag: "PostgreSQL", desc: "Users connect with their own client (psql, DBeaver); every query is logged.", icon: "database", color: "green" },
+  { kind: "database", title: "Database", tag: "SQL", desc: "Users connect with their own client (psql, mysql, DBeaver); every query is logged.", icon: "database", color: "green" },
 ];
 const DB_TLS: [string, string][] = [["require", "Encrypted"], ["verify-full", "Encrypted + verified"], ["disable", "Off"]];
 const CLIP: [string, string][] = [["allow", "Copy & paste"], ["no_copy", "Paste only"], ["no_paste", "Copy only"], ["none", "Block"]];
@@ -111,7 +111,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
   }
 }
 
-const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : 3389);
+const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : 3389);
 const WEB_RE = /^https?:\/\/[^\s/:]+(:\d{1,5})?(\/\S*)?$/i;
 const HOSTPORT_RE = /^(\[[0-9a-f:]+\]|[^\s/:[\]]+)(:\d{1,5})?$/i;
 
@@ -201,7 +201,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   // The colour follows the type until one is picked (null = not picked).
   const [colorPick, setColorPick] = useState<IconColor | null>((site?.iconColor as IconColor) ?? null);
   // Database resources.
-  const initDb = parseDbParams(vault?.dbParams);
+  const [engine, setEngine] = useState<DbEngine>(dbEngineOf(vault?.protocol));
+  const initDb = parseDbParams(vault?.dbParams, engine);
   const [dbName, setDbName] = useState(vault?.dbParams ? initDb.database : "");
   const [dbList, setDbList] = useState(initDb.databases.join(", "));
   const [dbTls, setDbTls] = useState<string>(initDb.tls);
@@ -216,9 +217,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const isDb = kind === "database";
   // A saved account the connector signs in with: remote desktops and databases.
   const cred = remote || isDb;
-  const portProto = isDb ? "POSTGRES" : protocol;
-  const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : protoLabel(rkind, address.trim());
-  const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim());
+  const portProto = isDb ? engine : protocol;
+  const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : isDb ? dbEngineLabel(engine) : protoLabel(rkind, address.trim());
+  const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine === "MYSQL" && dbName.trim() === "");
   const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
   // The connectors that would carry this resource, and the keys its password is sealed to.
@@ -265,7 +266,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
   const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
-  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES"));
+  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES" && vault.protocol !== "MYSQL"));
 
   function pickKind(k: Kind) {
     if (k === kind) return;
@@ -288,6 +289,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     setProbe({ state: "idle" });
   };
   const changeProtocol = (v: "RDP" | "VNC") => { setProtocol(v); setProbe({ state: "idle" }); };
+  const changeEngine = (v: DbEngine) => { setEngine(v); setProbe({ state: "idle" }); };
 
   async function probeVia(id: string): Promise<{ ok: boolean; ms?: number; error?: string }> {
     try {
@@ -355,7 +357,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const sshRecordedReady = routeConnectors.length === 0 || routeConnectors.some((c) => compareSemver(c.version, NATIVE_SSH_RECORDED_MIN_CONNECTOR) !== -1);
   const nativeSshOldConnector = nativeSshOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_SSH_MIN_CONNECTOR) === -1);
   const nativeSshNeedsUpdate = nativeSshOn && nativeSshRecorded && !sshRecordedReady && !nativeSshOldConnector;
-  const dbOldConnector = isDb && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, DATABASE_MIN_CONNECTOR) === -1);
+  const dbOldConnector = isDb && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, dbMinConnector(engine)) === -1);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -392,7 +394,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         fileTransferMode: remote ? undefined : ftWeb,
         ...(kind === "isolated" ? { egressMode, egressHosts } : {}),
         ...(remote && hostPort ? { protocol, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, guacParams: guacFieldsToParams(guac) } : {}),
-        ...(isDb && hostPort ? { engine: "POSTGRES", targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "" } : {}),
+        ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
       };
       const res = await fetch(site ? `/api/admin/sites/${site.id}` : "/api/admin/sites", {
@@ -446,7 +448,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                   <button key={k.kind} type="button" role="radio" aria-checked={kind === k.kind} disabled={off} title={off ? "Not enabled on this installation" : undefined}
                     className={kind === k.kind ? "rf-kind on" : "rf-kind"} onClick={() => pickKind(k.kind)}>
                     <ResourceIcon name={k.icon} color={k.color} size={34} />
-                    <span className="rf-kind-t"><b>{k.title} <span className="mono">{k.kind === "remote" && kind === "remote" ? protocol : k.tag}</span></b><span className="cell-sub">{k.desc}</span></span>
+                    <span className="rf-kind-t"><b>{k.title} <span className="mono">{k.kind === "remote" && kind === "remote" ? protocol : k.kind === "database" && kind === "database" ? dbEngineLabel(engine) : k.tag}</span></b><span className="cell-sub">{k.desc}</span></span>
                   </button>
                 );
               })}
@@ -456,6 +458,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 <span className="cell-sub">Protocol</span>
                 <div className="seg" role="radiogroup" aria-label="Protocol">
                   {(["RDP", "VNC"] as const).map((p) => <button key={p} type="button" role="radio" aria-checked={protocol === p} className={protocol === p ? "seg-opt on" : "seg-opt"} onClick={() => changeProtocol(p)}>{p}</button>)}
+                </div>
+              </div>
+            )}
+            {kind === "database" && (
+              <div className="rf-inline">
+                <span className="cell-sub">Engine</span>
+                <div className="seg" role="radiogroup" aria-label="Engine">
+                  {(["POSTGRES", "MYSQL"] as const).map((e) => <button key={e} type="button" role="radio" aria-checked={engine === e} className={engine === e ? "seg-opt on" : "seg-opt"} onClick={() => changeEngine(e)}>{e === "MYSQL" ? "MySQL / MariaDB" : "PostgreSQL"}</button>)}
                 </div>
               </div>
             )}
@@ -524,7 +534,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <div className="rf-addr">
               <input className={addrTouched && addr && !addrOk ? "input mono bad" : probe.state === "ok" ? "input mono good" : "input mono"} value={address}
                 onChange={(e) => changeAddress(e.target.value)} onBlur={() => setAddrTouched(true)}
-                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? ":5432" : ""}`} aria-label="Internal address" />
+                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? `:${defaultPort(engine)}` : ""}`} aria-label="Internal address" />
               <button type="button" className="btn rf-probe" disabled={!addrOk || !connectorId || probe.state === "busy"} onClick={() => void runProbe()}>
                 {probe.state === "busy" ? <span className="rf-spin" aria-hidden="true" /> : <PulseIcon />}Test connection
               </button>
@@ -557,11 +567,17 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
           {isDb && (
             <div className="rf-creds">
-              <label className="rq-sec"><span className="rq-label"><span>Default database</span></span>
+              <label className="rq-sec"><span className="rq-label"><span>Default database{engine === "MYSQL" && <span className="t-muted rf-opt"> (optional)</span>}</span></span>
                 <input className={dbName && !dbNameOk ? "input mono bad" : "input mono"} value={dbName} onChange={(e) => setDbName(e.target.value)} autoComplete="off" placeholder="crm" /></label>
-              <label className="rq-sec"><span className="rq-label"><span>Allowed databases <span className="t-muted rf-opt">(optional)</span></span></span>
-                <input className="input mono" value={dbList} onChange={(e) => setDbList(e.target.value)} autoComplete="off" placeholder="any the account can open" /></label>
-              <p className="rf-hint rf-wide">A client that names no database lands in the default one. With a list, only those open; without one, any database the account can open.</p>
+              {engine === "MYSQL" ? (
+                <p className="rf-hint rf-wide">A client that names no database lands in the default one, or in none. A statement can name any database the account can open (crm.orders), so to limit which ones users reach, grant the account only those.</p>
+              ) : (
+                <>
+                  <label className="rq-sec"><span className="rq-label"><span>Allowed databases <span className="t-muted rf-opt">(optional)</span></span></span>
+                    <input className="input mono" value={dbList} onChange={(e) => setDbList(e.target.value)} autoComplete="off" placeholder="any the account can open" /></label>
+                  <p className="rf-hint rf-wide">A client that names no database lands in the default one. With a list, only those open; without one, any database the account can open.</p>
+                </>
+              )}
               <div className="rq-sec rf-wide">
                 <span className="rq-label"><span>TLS from the connector to the server</span></span>
                 <Pills value={dbTls} onChange={setDbTls} options={DB_TLS} label="TLS to the server" />
@@ -570,7 +586,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 )}
                 <p className="rf-hint">{dbTls === "disable" ? "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires." : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
               </div>
-              {dbOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; database access needs {DATABASE_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+              {dbOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; {dbEngineLabel(engine)} access needs {dbMinConnector(engine)} or later. Update it before users connect.</p>}
             </div>
           )}
 

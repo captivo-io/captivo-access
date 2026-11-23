@@ -2,10 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
-import { psqlCommand } from "@/lib/database/params";
+import { mysqlCommand, psqlCommand } from "@/lib/database/params";
 
-type Ticket = { ticket: string; expiresAt: string; host: string; port: number; database: string; databases: string[]; recorded: boolean };
-type Tab = "psql" | "fields" | "url";
+type Ticket = { ticket: string; expiresAt: string; host: string; port: number; database: string; databases: string[]; recorded: boolean; engine?: "postgres" | "mysql" };
+type Tab = "cli" | "fields" | "url";
 
 const ERRORS: Record<string, string> = {
   forbidden: "Your access to this database isn't active right now.",
@@ -23,7 +23,7 @@ export function DbConnectButton({ href, siteName }: { href: string; siteName: st
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="btn ink sm" onClick={() => setOpen(true)} title="Connect with your own database client (psql, DBeaver, DataGrip, pgAdmin).">Connect</button>
+      <button type="button" className="btn ink sm" onClick={() => setOpen(true)} title="Connect with your own database client (psql, mysql, DBeaver, DataGrip).">Connect</button>
       {open && <DbConnectModal href={href} siteName={siteName} onClose={() => setOpen(false)} />}
     </>
   );
@@ -38,7 +38,7 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
   const [t, setT] = useState<Ticket | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<Tab>("psql");
+  const [tab, setTab] = useState<Tab>("cli");
   const [now, setNow] = useState(() => Date.now());
 
   const fetchTicket = useCallback(async () => {
@@ -67,12 +67,16 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
 
   const expired = !!t && Date.parse(t.expiresAt) <= now;
   const until = t ? new Date(t.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-  const cmd = t ? psqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database }) : "";
-  const uri = t ? `postgresql://${t.ticket}@${t.host}:${t.port}/${encodeURIComponent(t.database)}?sslmode=require` : "";
-  const jdbc = t ? `jdbc:postgresql://${t.host}:${t.port}/${encodeURIComponent(t.database)}?sslmode=require&user=${t.ticket}` : "";
+  const my = t?.engine === "mysql";
+  const db = t ? encodeURIComponent(t.database) : "";
+  const cmd = !t ? "" : my ? mysqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database }) : psqlCommand({ host: t.host, port: t.port, ticket: t.ticket, database: t.database });
+  const uri = !t ? "" : my ? `mysql://${t.ticket}@${t.host}:${t.port}/${db}?ssl-mode=REQUIRED` : `postgresql://${t.ticket}@${t.host}:${t.port}/${db}?sslmode=require`;
+  const jdbc = !t ? "" : my ? `jdbc:mysql://${t.host}:${t.port}/${db}?sslMode=REQUIRED&user=${t.ticket}` : `jdbc:postgresql://${t.host}:${t.port}/${db}?sslmode=require&user=${t.ticket}`;
+  const tabs: [Tab, string][] = my ? [["cli", "mysql"], ["fields", "DBeaver, DataGrip, Workbench"], ["url", "URL"]] : [["cli", "psql"], ["fields", "DBeaver, DataGrip, pgAdmin"], ["url", "URL"]];
+  const fields: [string, string][] = !t ? [] : [["Host", t.host], ["Port", String(t.port)], ...(t.database ? [["Database", t.database] as [string, string]] : []), ["User name", t.ticket], ["Password", ""], ["SSL", my ? "required" : "require"]];
 
   return (
-    <Modal open onClose={onClose} title={`Connect to ${siteName}`} subtitle="With your own client: psql, DBeaver, DataGrip, pgAdmin." size="md">
+    <Modal open onClose={onClose} title={`Connect to ${siteName}`} subtitle={!t ? "With your own database client." : my ? "With your own client: mysql, DBeaver, DataGrip, MySQL Workbench." : "With your own client: psql, DBeaver, DataGrip, pgAdmin."} size="md">
       <div className="ssh-cmd">
         {error ? (
           <p className="ssh-err" role="alert">{error}</p>
@@ -81,16 +85,16 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
         ) : (
           <>
             <div className="seg" role="tablist" aria-label="Format">
-              {([["psql", "psql"], ["fields", "DBeaver, DataGrip, pgAdmin"], ["url", "URL"]] as const).map(([k, l]) => (
+              {tabs.map(([k, l]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "seg-opt on" : "seg-opt"} onClick={() => setTab(k)}>{l}</button>
               ))}
             </div>
-            {tab === "psql" && (
+            {tab === "cli" && (
               <div className={expired ? "ssh-box expired" : "ssh-box"}><code>{cmd}</code>{!expired && <CopyButton value={cmd} />}</div>
             )}
             {tab === "fields" && (
               <dl className="db-fields">
-                {([["Host", t.host], ["Port", String(t.port)], ["Database", t.database], ["User name", t.ticket], ["Password", ""], ["SSL", "require"]] as const).map(([k, v]) => (
+                {fields.map(([k, v]) => (
                   <div key={k}><dt>{k}</dt><dd>{v ? <><code>{v}</code>{k !== "Port" && k !== "SSL" && <CopyButton value={v} />}</> : <span className="cell-sub">leave it empty</span>}</dd></div>
                 ))}
               </dl>
@@ -112,6 +116,7 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
         <ul className="ssh-notes">
           <li>Captivo signs in to the database for you: you don&apos;t need its password. If your client asks for one, leave it empty.</li>
           {t && t.databases.length > 0 && <li>Databases you can open: <span className="mono">{t.databases.join(", ")}</span>.</li>}
+          {my && <li>The MariaDB client takes <span className="mono">--ssl</span> instead of <span className="mono">--ssl-mode=REQUIRED</span>.</li>}
           <li>{t?.recorded ? "Every query you run is logged with its time and row count. Results are not stored." : "Your connections are logged; the queries are not."} The connection ends when your access ends.</li>
           <li>The user name is yours alone: don&apos;t share it, and get new details instead of saving them for long.</li>
         </ul>
