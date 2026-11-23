@@ -598,6 +598,12 @@ static BOOL apply_client_channels(rdpSettings* settings)
 	UINT32 n = recChannelCount;
 	memcpy(defs, recChannels, sizeof(CHANNEL_DEF) * n);
 	const UINT32 loaded = freerdp_settings_get_uint32(settings, FreeRDP_ChannelCount);
+	fprintf(stderr, "plugins");
+	for (UINT32 j = 0; j < loaded; j++) {
+		const CHANNEL_DEF* d = freerdp_settings_get_pointer_array(settings, FreeRDP_ChannelDefArray, j);
+		fprintf(stderr, "%s%s", j ? "," : " ", d ? d->name : "?");
+	}
+	fprintf(stderr, "\n");
 	for (UINT32 j = 0; j < loaded; j++) {
 		const CHANNEL_DEF* d = freerdp_settings_get_pointer_array(settings, FreeRDP_ChannelDefArray, j);
 		if (!d)
@@ -674,11 +680,34 @@ static int enc_tcp_connect(rdpContext* context, rdpSettings* settings, const cha
 /* The plugins load here, before the Connect Initial is made. */
 static pConnectCallback defaultLoadChannels;
 
+/* The replay loads only what draws the screen: the graphics pipeline and the
+ * dynamic channel manager under it. The server's traffic on the other channels
+ * (sound, clipboard, drives) answers what the real client said, which a plugin
+ * here did not say: replayed into one, it ends in a protocol error (a sound
+ * channel opened twice, a drive message out of turn) that stops the replay.
+ * Without a plugin that traffic is dropped. FreeRDP loads the drive channel
+ * (and a sound one with it) whenever auto-detect, heartbeat or multitransport
+ * are on, so those are off while plugins load and back on for the replay.
+ * A recording without the client's channel list (older ones) keeps them all:
+ * its channel numbers are those of FreeRDP's own list. */
 static BOOL enc_load_channels(freerdp* instance)
 {
-	if (defaultLoadChannels && !defaultLoadChannels(instance))
-		return FALSE;
-	return apply_client_channels(instance->context->settings);
+	rdpSettings* settings = instance->context->settings;
+	static const FreeRDP_Settings_Keys_Bool off[] = {
+		FreeRDP_RedirectClipboard, FreeRDP_AudioPlayback, FreeRDP_AudioCapture, FreeRDP_DeviceRedirection,
+		FreeRDP_NetworkAutoDetect, FreeRDP_SupportHeartbeatPdu, FreeRDP_SupportMultitransport,
+	};
+	BOOL was[ARRAYSIZE(off)];
+	for (size_t i = 0; i < ARRAYSIZE(off); i++) {
+		was[i] = freerdp_settings_get_bool(settings, off[i]);
+		if (haveRecChannels)
+			(void)freerdp_settings_set_bool(settings, off[i], FALSE);
+	}
+	const BOOL ok = !defaultLoadChannels || defaultLoadChannels(instance);
+	/* The first four had plugins: they stay off. The rest are no plugins. */
+	for (size_t i = haveRecChannels ? 4 : 0; i < ARRAYSIZE(off); i++)
+		(void)freerdp_settings_set_bool(settings, off[i], was[i]);
+	return ok && apply_client_channels(settings);
 }
 
 static BOOL enc_tls(rdpTransport* transport)
