@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { sealsOf } from "@/lib/vault/store";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
+import { activeCheckout } from "@/lib/vault/checkout";
 import { canRotate, directoryForRotation, nativeBlocksRotation, rotationMethod, rotationMinConnector, rotationOn, windowsAccountOf, type RotationMethod, type WindowsAccount } from "@/lib/vault/rotation";
 import { parseDbParams } from "@/lib/database/params";
 
@@ -24,6 +25,8 @@ export type RotationStatus = {
   verifiedAt: string | null;
   dueAt: string | null;
   pending: boolean;
+  /** Someone has the password checked out now (lib/vault/checkout.ts). */
+  checkout: { id: string; who: string; until: string; reason: string } | null;
   /** "hashicorp" or "cyberark" when the credential lives in the customer's own vault (connector/vaultprovider.go). */
   vaultSource: string | null;
   /** RDP: a local account of the server or a domain account, and whether an admin said so. */
@@ -81,6 +84,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
     unsupported: "unsupported" in m ? m.unsupported : null,
     windowsAccount: c.protocol === "RDP" && !c.secretSource ? windowsAccountOf(c) : null,
     vaultSource: c.secretSource,
+    checkout: await activeCheckout(siteId).then((a) => (a ? { id: a.id, who: a.userName, until: a.endsAt.toISOString(), reason: a.reason } : null)),
     cleartext: (c.protocol === "MYSQL" || c.protocol === "MSSQL") && parseDbParams(c.dbParams, c.protocol).tls === "disable",
     native: nativeBlocksRotation({ ...c.site, recorded: await effectiveSiteRecording(c.site.recordSessions) }),
     afterSession: c.rotateAfterSession,

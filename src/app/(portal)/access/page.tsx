@@ -15,6 +15,7 @@ import { moderationRequired } from "@/lib/moderation/rules";
 import { nativeSshMode } from "@/lib/gateway/native-ssh";
 import { tunnelBlock } from "@/lib/gateway/tcp-tunnel";
 import { databaseBlock, dbEngineOf } from "@/lib/database/params";
+import { checkoutBlock } from "@/lib/vault/checkout";
 import { kubeBlock } from "@/lib/kubernetes/params";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
 import { PortalHome, type CardVM, type RecentVM } from "./portal-home";
@@ -88,6 +89,7 @@ async function AccessPageImpl() {
       tunnelHref: g.site.accessMode === "TUNNEL" && tunnelBlock({ accessMode: g.site.accessMode, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/ssh/${g.site.id}` : null,
       kubeHref: kubeBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/kube/${g.site.id}` : null,
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,
+      checkoutHref: status === "active" && checkoutBlock(g.site, g.site.vaultCredential) === null ? `/api/portal/checkout/${g.site.id}` : null,
       recorded,
       moderated,
       time: remaining(startISO, endISO, g.schedule ?? null, now),

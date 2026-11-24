@@ -11,6 +11,7 @@ import { notifyPlatformAlerts } from "@/lib/platform/alert-push";
 import { probeConnectors, recordConnectorEvent, writeConnectorSamples } from "@/lib/connector/history";
 import { pumpTenant } from "@/lib/logforward/pump";
 import { runRotationPass } from "@/lib/vault/rotation-pass";
+import { processCheckouts } from "@/lib/vault/checkout";
 import { planReconcileCopies, runReconcileCopies, saveReconcileCopies } from "@/lib/vault/reconcile-reshare";
 import { planGroupReshare, runGroupReshare, saveGroupReshare } from "@/lib/vault/reshare";
 
@@ -222,6 +223,14 @@ export async function POST(req: NextRequest) {
     // (new records start their own pump). Not awaited: a slow SIEM must not hold
     // the health pass.
     void pumpTenant(tenantId).catch((e) => console.error("log forwarding: catch-up failed", e));
+
+    // 7b. PASSWORD CHECK-OUTS -- those that ran out or lost their grant end now,
+    // and their passwords are changed (lib/vault/checkout.ts).
+    try {
+      await inTenant(tenantId, () => processCheckouts());
+    } catch (e) {
+      console.error("vault: ending check-outs failed", e);
+    }
 
     // 8. PASSWORD ROTATION -- due rotations, retries and daily checks
     // (lib/vault/rotation.ts). Not awaited: a change takes seconds per resource.

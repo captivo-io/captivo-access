@@ -78,6 +78,7 @@ model Tenant {
   ticketNotes        TicketNote[]
   sessionInvites     SessionInvite[]
   moderationRequests ModerationRequest[]
+  checkouts          CredentialCheckout[]
   accessReviewItems  AccessReviewItem[]
 }
 
@@ -104,6 +105,7 @@ model User {
   phone          String?
   company        String?
   timezone       String? // per-user display timezone override (IANA); null = inherit
+  checkouts      CredentialCheckout[]
   role           Role
   status         UserStatus     @default(ACTIVE)
   createdAt      DateTime       @default(now())
@@ -385,6 +387,10 @@ model ConnectorPairing {
 }
 
 model Site {
+  /// An active grant may check the saved password out for a while (src/lib/vault/checkout.ts); it is changed when the check-out ends.
+  passwordCheckout   Boolean          @default(false)
+  checkoutMaxMinutes Int              @default(240)
+  checkouts          CredentialCheckout[]
   id                 String           @id @default(cuid())
   tenantId           String           @default("default")
   tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1215,4 +1221,29 @@ model SessionInvite {
   @@index([tenantId])
   @@index([sessionId])
   @@index([siteId, sessionUserId, joinedAt])
+}
+
+/// A person took the saved password of a resource to use it themselves, for a
+/// while and for a reason (src/lib/vault/checkout.ts). One at a time per
+/// resource; when it ends the password is changed (rotation) or the admins are
+/// told it could not be.
+model CredentialCheckout {
+  id         String    @id @default(cuid())
+  tenantId   String    @default("default")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  siteId     String
+  site       Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason     String
+  startedAt  DateTime  @default(now())
+  endsAt     DateTime
+  returnedAt DateTime?
+  /// returned | expired | revoked | admin; null while it runs
+  endedBy    String?
+  clientIp   String?
+
+  @@index([tenantId])
+  @@index([siteId, endedBy])
+  @@index([endedBy, endsAt])
 }

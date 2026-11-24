@@ -226,6 +226,35 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 
 ---
 
+## Password check-out (take a password for a while)
+
+Some work cannot go through Captivo: a hardware console, a tool that signs in
+itself. For those, a resource can let a person **check out** its saved password.
+
+- **Turning it on.** *Password check-out* on a remote desktop, SSH or database
+  resource, with the longest check-out (1, 4, 8 or 24 hours). It needs the
+  password to be kept in Captivo (not in your own vault) and cannot be combined
+  with *Requires a moderator*.
+- **Who and how.** Someone with an active grant gets **Check out** on the
+  resource in My access, gives a reason (10 characters or more) and receives the
+  password once. The connector seals it to a key made in their browser for that
+  one look, so it never passes through the console readable. One person at a
+  time; a second is told who has it and until when.
+- **How long.** The resource's limit, or the end of the person's grant, whichever
+  comes first. They can give it back sooner.
+- **When it ends** (returned, out of time, the grant revoked or expired, or an
+  admin pressing *End now* on the resource's rotation panel) the password is
+  changed by rotation within minutes, so what the person holds stops working. A
+  password Captivo cannot rotate (VNC, a target without rotation) is left as it
+  is and the admins get a notification saying so. While it is out, rotation
+  (after a session, scheduled, *Rotate now*) leaves it alone.
+- **Audit.** `credential.checkout` and `credential.checkin` in the admin audit
+  log, with who, why, until when and whether it is being changed, and a bell
+  notification when it is taken. The health cron (every 5 minutes) ends what ran
+  out or lost its grant.
+- **Requirements:** a connector on 2.45.0 or later (the same one that reveals a
+  password to an admin).
+
 ## Credentials kept in your own vault (HashiCorp Vault, CyberArk)
 
 A resource's password does not have to live in Captivo. For a remote desktop,

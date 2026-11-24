@@ -64,6 +64,9 @@ export interface ResourceInitial {
   keystrokeLogging: boolean;
   nativeRdp: boolean;
   nativeSsh: boolean;
+  /** A person with an active grant may check the saved password out (lib/vault/checkout.ts). */
+  passwordCheckout?: boolean;
+  checkoutMaxMinutes?: number;
   /** A session starts only once a moderator admits it (lib/moderation). */
   requireModerator?: boolean;
   clipboardMode: string | null;
@@ -223,6 +226,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [keystrokeChoice, setKeystrokeChoice] = useState<boolean | null>(site ? site.keystrokeLogging : null);
   const [nativeRdp, setNativeRdp] = useState(site?.nativeRdp ?? false);
   const [nativeSsh, setNativeSsh] = useState(site?.nativeSsh ?? false);
+  const [checkout, setCheckout] = useState(site?.passwordCheckout ?? false);
+  const [checkoutMinutes, setCheckoutMinutes] = useState(String(site?.checkoutMaxMinutes ?? 240));
   const [moderated, setModerated] = useState(site?.requireModerator ?? false);
   const [clipboard, setClipboard] = useState(site?.clipboardMode ?? "inherit");
   const [ftWeb, setFtWeb] = useState(site && site.accessMode !== "GATEWAY" ? site.fileTransferMode ?? "inherit" : "inherit");
@@ -418,6 +423,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   // and records the session (connector 2.49.0); an older connector leaves it
   // unrecorded, or, when the Policy requires recording, unavailable.
   const nativeSshShown = kind === "ssh";
+  // A password can be checked out of a remote desktop, SSH or database resource that keeps it itself.
+  const checkoutShown = (kind === "remote" || kind === "ssh" || isDb);
   // Four eyes: remote desktop and SSH resources (what a moderator can watch).
   const moderatedShown = kind === "remote" || kind === "ssh";
   const moderatedOn = moderatedShown && moderated;
@@ -462,6 +469,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         recordSessions: record, keystrokeLogging: keystrokes,
         nativeRdp: nativeRdpOn,
         nativeSsh: nativeSshOn,
+        ...(checkoutShown ? { passwordCheckout: checkout && !moderatedOn && source === "local", checkoutMaxMinutes: Number(checkoutMinutes) } : {}),
         requireModerator: moderatedOn,
         clipboardMode: clipboard,
         watermark: watermark === "inherit" ? null : watermark === "on",
@@ -776,6 +784,18 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {nativeSshNeedsUpdate && <p className="rf-msg bad">Recording sessions in the user&apos;s own SSH app needs connector {NATIVE_SSH_RECORDED_MIN_CONNECTOR} or later; {connector?.name} runs {connector?.version}. {nativeRdpLocked ? "Until it is updated, users can't connect with their own SSH app." : "Until it is updated, those sessions aren't recorded."}</p>}
           {nativeSshShown && site && vault?.sshHostKey && <SshHostKeyLine siteId={site.id} fingerprint={vault.sshHostKey} />}
           {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+          {checkoutShown && (
+            <Row title="Password check-out" custom={checkout} desc="Someone with an active grant can take this resource's password for a while, for a reason, to use it themselves (a console, a tool that can't go through Captivo). One person at a time; the connector seals it to their browser, so it never passes through the console readable. When the time is up, they give it back or the grant ends, the password is changed. Needs the password to be kept in Captivo, and a resource that needs a moderator can't offer it.">
+              <button type="button" role="switch" aria-checked={checkout} aria-label="Password check-out" className={checkout ? "toggle on" : "toggle"} onClick={() => setCheckout(!checkout)}><span /></button>
+            </Row>
+          )}
+          {checkoutShown && checkout && (
+            <div className="rf-row">
+              <span className="rf-row-t"><b>Longest check-out</b><span className="cell-sub">Sooner if the person's grant ends, or when they give it back.</span></span>
+              <div className="rf-row-c"><Pills value={checkoutMinutes} onChange={setCheckoutMinutes} options={[["60", "1 hour"], ["240", "4 hours"], ["480", "8 hours"], ["1440", "24 hours"]]} label="Longest check-out" /></div>
+            </div>
+          )}
+          {checkoutShown && checkout && (moderatedOn || source !== "local") && <p className="rf-msg warn">{moderatedOn ? "A resource that needs a moderator can't offer password check-out." : "A credential kept in your own vault can't be checked out here; read it there."} It is left off when you save.</p>}
           {moderatedShown && (
             <Row title="Requires a moderator" custom={moderatedOn} desc="Four eyes: a session starts only when a moderator joins it from Live sessions, and the user can work only while the moderator watches. If the moderator leaves, the user's keyboard and mouse pause, and the session ends 2 minutes later unless a moderator joins. Who can moderate is set on the Policy page.">
               <button type="button" role="switch" aria-checked={moderatedOn} aria-label="Requires a moderator" className={moderatedOn ? "toggle on" : "toggle"} onClick={() => setModerated(!moderated)}><span /></button>

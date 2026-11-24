@@ -1,6 +1,7 @@
 import { isEgressMode, parseEgressHosts, type EgressMode } from "@/lib/isolation/egress";
 import { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
+import { CHECKOUT_DEFAULT_MINUTES, validCheckoutMinutes } from "@/lib/vault/checkout-limits";
 import { DB_ENGINES, dbParamsFrom, type DbEngine, type DbParams } from "@/lib/database/params";
 import { kubeParamsFrom, parseApiServer, type KubeParams } from "@/lib/kubernetes/params";
 
@@ -28,6 +29,8 @@ export type SiteValidation =
   | {
       ok: true;
       mode: "GATEWAY";
+      passwordCheckout: boolean;
+      checkoutMaxMinutes: number;
       connectorId: string;
       name: string;
       description: string | null;
@@ -64,6 +67,8 @@ export type SiteValidation =
   | {
       ok: true;
       mode: "DATABASE";
+      passwordCheckout: boolean;
+      checkoutMaxMinutes: number;
       connectorId: string;
       name: string;
       description: string | null;
@@ -163,7 +168,7 @@ export function validateSiteInput(
     const dbParams = dbParamsFrom(body, engine);
     if ("error" in dbParams) return { ok: false, error: dbParams.error };
     return {
-      ok: true, mode: "DATABASE", connectorId, name, description, engine, targetHost, targetPort, username, secret,
+      ok: true, mode: "DATABASE", ...checkoutFrom(body), connectorId, name, description, engine, targetHost, targetPort, username, secret,
       recordSessions: opts.recordingEnabled && body.recordSessions === true, dbParams,
     };
   }
@@ -208,6 +213,7 @@ export function validateSiteInput(
     return {
       ok: true,
       mode: "GATEWAY",
+      ...checkoutFrom(body),
       connectorId,
       name,
       description,
@@ -302,4 +308,9 @@ export function appearanceFrom(body: Record<string, unknown>, iconNames: string[
     else return { error: "invalid_icon" };
   }
   return out;
+}
+
+/** The password check-out settings of a request: off unless turned on, with a length within the limits. */
+function checkoutFrom(body: Record<string, unknown>): { passwordCheckout: boolean; checkoutMaxMinutes: number } {
+  return { passwordCheckout: body.passwordCheckout === true, checkoutMaxMinutes: validCheckoutMinutes(body.checkoutMaxMinutes) ?? CHECKOUT_DEFAULT_MINUTES };
 }

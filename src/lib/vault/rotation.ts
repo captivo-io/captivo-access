@@ -263,7 +263,13 @@ export async function planRotations(now: Date, opts: { siteId?: string; force?: 
   const dir = rows.some((r) => r.protocol === "RDP") ? await directoryForRotation() : null;
   const jobs: RotationJob[] = [];
   const skipped: RotationSkip[] = [];
+  // A password somebody has checked out stands until they are done with it.
+  const out = new Map((await db.credentialCheckout.findMany({ where: { siteId: { in: rows.map((r) => r.site.id) }, endedBy: null, endsAt: { gt: now } }, select: { siteId: true, endsAt: true } })).map((c) => [c.siteId, c.endsAt]));
   for (const r of rows) {
+    if (out.has(r.site.id)) {
+      skipped.push({ siteId: r.site.id, siteName: r.site.name, reason: `The password is checked out until ${out.get(r.site.id)!.toISOString().slice(11, 16)} UTC; it is changed when that ends.` });
+      continue;
+    }
     const j = planJob(r, dir, now, { force: opts.force });
     if (!j) continue;
     if ("reason" in j) skipped.push(j);

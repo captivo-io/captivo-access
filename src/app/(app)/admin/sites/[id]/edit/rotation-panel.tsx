@@ -92,6 +92,18 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
     }
   }
 
+  async function endCheckoutNow() {
+    setBusy("checkout");
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/sites/${siteId}/rotation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "end_checkout" }) });
+      if (!res.ok) setMsg({ tone: "bad", text: errorText(await res.json().catch(() => null)) });
+      else { setMsg({ tone: "ok", text: "Ended. The password is being changed." }); void refresh(); }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function checkVault() {
     setBusy("check");
     setMsg(null);
@@ -172,6 +184,12 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
         <span className={`rot-pill ${s.on ? (st?.[0] ?? "ok") : "off"}`}><i aria-hidden="true" />{s.on ? st?.[1] ?? "On" : "Off"}</span>
       </div>
 
+      {s.checkout && (
+        <div className="rf-msg warn" role="status">
+          <b>{s.checkout.who}</b> has this password checked out until <LocalTime iso={s.checkout.until} />: “{s.checkout.reason}”. It is not changed until then.{" "}
+          <button type="button" className="btn sm" disabled={!!busy} onClick={() => void endCheckoutNow()}>{busy === "checkout" ? "Ending…" : "End now"}</button>
+        </div>
+      )}
       {s.vaultSource ? (
         <div className="rot-vault">
           <p className="cell-sub">{s.unsupported}</p>
