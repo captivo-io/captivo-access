@@ -37,6 +37,7 @@ const MOD_TITLE: Record<string, string> = {
   expired: "No moderator joined within 10 minutes. You can ask again.",
   cancelled: "You stopped waiting.",
   error: "The request couldn't be sent. Try again.",
+  no_moderators: "Nobody can moderate this resource",
 };
 
 const userKey = (siteId: string) => `captivo.ssh-user.${siteId}`;
@@ -139,9 +140,11 @@ function SshCommandModal({ href, siteId, siteName, recorded, sshRecorded, onClos
         {moderation ? (
           <div className="ssh-mod" role="status" aria-live="polite">
             <b>{MOD_TITLE[mod.status] ?? MOD_TITLE.waiting}</b>
-            <span className="cell-sub">This resource needs a moderator. The command appears as soon as one admits the session; then it starts one connection, and the moderator watches it.</span>
+            <span className="cell-sub">{mod.status === "no_moderators"
+              ? "This resource needs a moderator, and nobody else in your organization may moderate sessions. Contact your Captivo admin."
+              : "This resource needs a moderator. The command appears as soon as one admits the session; then it starts one connection, and the moderator watches it."}</span>
             {mod.status === "waiting" && mod.expiresAt && <span className="cell-sub">The request ends in <b className="mono">{(() => { const s = Math.max(0, Math.round((Date.parse(mod.expiresAt) - now) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; })()}</b>.</span>}
-            {["declined", "expired", "cancelled", "error"].includes(mod.status)
+            {["declined", "expired", "cancelled", "error", "no_moderators"].includes(mod.status)
               ? <button type="button" className="btn sm primary" onClick={mod.retry}>Ask again</button>
               : <button type="button" className="btn sm ghost" onClick={mod.cancel}>Stop waiting</button>}
           </div>

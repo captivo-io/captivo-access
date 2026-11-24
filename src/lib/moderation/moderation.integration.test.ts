@@ -168,6 +168,18 @@ describe.skipIf(!OWNER_URL)("moderated sessions", () => {
     expect((await describeSession()).status).toBe(409);
   });
 
+  it("tells the user at once when nobody else may moderate", async () => {
+    await owner.$executeRawUnsafe(`UPDATE "User" SET status = 'DISABLED' WHERE id = ANY($1)`, [admin, operator]);
+    const a = await ask();
+    expect(a.status).toBe(409);
+    expect((a.body as { error?: string }).error).toBe("no_moderators");
+    // A vendor who may not moderate isn't counted; the one admin is, for anyone but themselves.
+    await owner.$executeRawUnsafe(`UPDATE "User" SET status = 'ACTIVE' WHERE id = $1`, admin);
+    expect(await withTenant(tA.id, () => requests.moderatorCount(vendor))).toBe(1);
+    expect(await withTenant(tA.id, () => requests.moderatorCount(admin))).toBe(0);
+    await owner.$executeRawUnsafe(`UPDATE "User" SET status = 'ACTIVE' WHERE id = $1`, operator);
+  });
+
   it("keeps the user's own Remote Desktop app out", async () => {
     const t = await withTenant(tA.id, () => rdp.nativeRdpTarget(vendor, site, new Date()));
     expect(t).toMatchObject({ ok: false, status: 409, error: "moderator_browser_only" });

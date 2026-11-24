@@ -41,6 +41,8 @@ export interface ResourceContext {
   hostSuffix: string | null;
   /** The address a custom domain's A record must point to. */
   customDomainIp: string | null;
+  /** How many people may moderate (Policy roles); nobody moderates their own session. */
+  moderators?: number;
 }
 
 export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; version: string | null }[] };
@@ -668,6 +670,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               <button type="button" role="switch" aria-checked={moderatedOn} aria-label="Requires a moderator" className={moderatedOn ? "toggle on" : "toggle"} onClick={() => setModerated(!moderated)}><span /></button>
             </Row>
           )}
+          {moderatedOn && ctx.moderators !== undefined && ctx.moderators < 2 && <p className="rf-msg bad">{ctx.moderators === 0
+            ? "Nobody in this organization may moderate yet, so users can't start a session here. Add an admin or operator on the Users page, or change who can moderate on the Policy page."
+            : "Only one person may moderate, and nobody moderates their own session: they can't use this resource themselves. Add another admin or operator on the Users page if they need to."}</p>}
           {moderatedOn && nativeRdpOn && <p className="rf-msg">A moderator can&apos;t watch the user&apos;s own Remote Desktop app yet, so users see only Open in the browser while a moderator is required.</p>}
           {moderatedOn && nativeSshOn && !nativeSshRecorded && <p className="rf-msg">A moderator can watch only a recorded session, so users can&apos;t use their own SSH app here until recording is on.</p>}
           {!isDb && !isTunnel && (

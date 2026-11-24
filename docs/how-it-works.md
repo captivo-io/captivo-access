@@ -766,7 +766,10 @@ while that moderator watches.
   an e-mail (behind the access-request mail switch), a push on the Captivo Admin
   app, the bell and a *Waiting for a moderator* list on `/admin/live` with the
   sidebar badge. A request waits 10 minutes; the user can stop waiting or ask
-  again after a decline.
+  again after a decline. When nobody but the user may moderate (no other active
+  admin or operator under the Policy roles), no request is made and the user is
+  told at once (`no_moderators`); the resource form warns about it while there
+  are fewer than two moderators.
 - **Admitting.** **Join as moderator** (or **Decline**) answers it. The
   admission starts one session within 2 minutes: the gateway descriptor (or the
   jump host's check) uses it once and tells the data plane who moderates. Until
