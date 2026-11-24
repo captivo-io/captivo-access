@@ -488,10 +488,13 @@ model VaultCredential {
   pendingAt          DateTime?
   sshHostKey         String? // the SSH host key first seen by a rotation ("SHA256:...")
   // The account that resets this one when it cannot change its own (Linux:
-  // root or sudo on this host). Sealed for "reconcile,<host>,<port>,<user>".
+  // root or sudo on this host; Windows: an administrator of the server). Sealed for "reconcile,<host>,<port>,<user>".
   reconcileUsername  String?
   reconcileKind      VaultSecretKind?
   reconcileSeals     Json? // { [vaultPublicKey]: sealed }
+  // RDP: whose account it is, "local" (the server's own, over SMB) or
+  // "domain" (Active Directory); null = read from the user name.
+  rotationAccount    String?
 
   @@index([tenantId])
   @@index([rotateDueAt])

@@ -8,7 +8,7 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { isSealedValue, isVaultPublicKey } from "@/lib/vault/seal";
-import { callConnector, canRotate, nextScheduled, isDbMethod } from "@/lib/vault/rotation";
+import { callConnector, canRotate, directoryForRotation, nextScheduled, isDbMethod, rotationMethod } from "@/lib/vault/rotation";
 import { kickRotation } from "@/lib/vault/rotation-pass";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { sealsOf } from "@/lib/vault/store";
@@ -19,6 +19,8 @@ export const dynamic = "force-dynamic";
 /** After a reveal the password rotates again this much later (time to use it). */
 const REVEAL_ROTATES_AFTER_MS = 2 * 60 * 60_000;
 const LINUX_USER = /^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}\$?$/;
+/** A Windows reconcile account: Administrator, .\Administrator or DOMAIN\name (NetBIOS or DNS domain). */
+const WINDOWS_USER = /^(?:(?:\.|[A-Za-z0-9][A-Za-z0-9.-]{0,63})\\)?[^\s"\\/[\]:;|=,+*?<>@]{1,20}$/;
 /** A database account's name: it only signs in, it is never put in a statement. */
 const DB_USER = /^[^\s'"\\]{1,63}$/;
 
@@ -39,7 +41,8 @@ export const GET = withTenantRoute(async (_req: NextRequest, { params }: { param
   return NextResponse.json(s);
 });
 
-// The rotation settings: triggers, and for a Linux account its reconcile account.
+// The rotation settings: triggers, the reconcile account (Linux, Windows, a
+// database), and for RDP whether the account is the server's own or the domain's.
 export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const a = await admin();
   if ("error" in a) return a.error;
@@ -52,19 +55,33 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   if (everyDays !== null && (!Number.isInteger(everyDays) || everyDays < 1 || everyDays > 365)) return NextResponse.json({ error: "invalid_interval" }, { status: 400 });
   const verifyDaily = b.verifyDaily === true;
   const on = afterSession || everyDays !== null;
-  if ((on || verifyDaily) && s.unsupported) return NextResponse.json({ error: "rotation_unsupported", detail: s.unsupported }, { status: 400 });
+  if ((on || verifyDaily) && s.unsupported && b.account === undefined) return NextResponse.json({ error: "rotation_unsupported", detail: s.unsupported }, { status: 400 });
   if (on && s.native) return NextResponse.json({ error: "rotation_with_native" }, { status: 400 });
+
+  // RDP: undefined keeps, null goes back to reading it from the user name.
+  let account: Record<string, unknown> = {};
+  if (b.account !== undefined) {
+    if (!s.windowsAccount) return NextResponse.json({ error: "account_rdp_only" }, { status: 400 });
+    if (b.account !== null && b.account !== "local" && b.account !== "domain") return NextResponse.json({ error: "invalid_account" }, { status: 400 });
+    account = { rotationAccount: b.account };
+    const c = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true, secretKind: true, username: true, guacParams: true } });
+    const m = c ? rotationMethod({ ...c, rotationAccount: b.account as string | null }, await directoryForRotation()) : null;
+    if (m && "unsupported" in m) {
+      if (on || verifyDaily) return NextResponse.json({ error: "rotation_unsupported", detail: m.unsupported }, { status: 400 });
+    } else if (m) s.method = m.method;
+  }
 
   // undefined: keep; null: remove; object: replace (sealed in the browser).
   let reconcile: Record<string, unknown> = {};
   if (b.reconcile === null) reconcile = { reconcileUsername: null, reconcileKind: null, reconcileSeals: Prisma.DbNull };
   else if (b.reconcile && typeof b.reconcile === "object") {
     const db = isDbMethod(s.method);
-    if (s.method !== "linux" && !db) return NextResponse.json({ error: "reconcile_linux_only" }, { status: 400 });
+    const win = s.method === "windows";
+    if (s.method !== "linux" && !win && !db) return NextResponse.json({ error: "reconcile_linux_only" }, { status: 400 });
     const r = b.reconcile as Record<string, unknown>;
     const username = typeof r.username === "string" ? r.username.trim() : "";
-    const kind = r.kind === "KEY" && !db ? "KEY" : "PASSWORD";
-    if (!(db ? DB_USER : LINUX_USER).test(username)) return NextResponse.json({ error: "invalid_reconcile_user" }, { status: 400 });
+    const kind = r.kind === "KEY" && s.method === "linux" ? "KEY" : "PASSWORD";
+    if (!(db ? DB_USER : win ? WINDOWS_USER : LINUX_USER).test(username)) return NextResponse.json({ error: "invalid_reconcile_user" }, { status: 400 });
     const keys = new Set(s.keys.map((k) => k.key));
     const seals: Record<string, string> = {};
     for (const [k, v] of Object.entries((r.seals ?? {}) as Record<string, unknown>)) {
@@ -82,7 +99,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   const dueAt = !on ? null : everyDays !== cur?.rotateEveryDays || !cur?.rotateDueAt ? nextScheduled({ rotateEveryDays: everyDays, rotatedAt: cur?.rotatedAt ?? null }, now) : cur.rotateDueAt;
   await db.vaultCredential.update({
     where: { siteId: id },
-    data: { rotateAfterSession: afterSession, rotateEveryDays: everyDays, rotateVerifyDaily: verifyDaily, rotateDueAt: dueAt, ...reconcile },
+    data: { rotateAfterSession: afterSession, rotateEveryDays: everyDays, rotateVerifyDaily: verifyDaily, rotateDueAt: dueAt, ...reconcile, ...account },
   });
   const parts = [afterSession && "after each session", everyDays && `every ${everyDays} day${everyDays === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
   const site = await db.site.findUnique({ where: { id }, select: { name: true } });
@@ -90,7 +107,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
     actor: { id: a.user.id, email: a.user.email },
     action: "resource.rotation_update", targetType: "resource", targetId: id,
     summary: `${on ? `Set "${site?.name}" to rotate its password ${parts}` : `Turned password rotation off for "${site?.name}"`}${verifyDaily ? ", checked daily" : ""}${b.reconcile === null ? "; removed the reconcile account" : b.reconcile ? `; reconcile account ${String((b.reconcile as Record<string, unknown>).username)}` : ""}`,
-    metadata: { afterSession, everyDays, verifyDaily },
+    metadata: { afterSession, everyDays, verifyDaily, ...(b.account !== undefined ? { account: b.account } : {}) },
     clientIp: clientIp(req.headers) ?? null,
   });
   return NextResponse.json({ ok: true });

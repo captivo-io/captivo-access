@@ -6,7 +6,7 @@ vi.mock("@/lib/connector/history", () => ({ recordConnectorEvent: vi.fn() }));
 vi.mock("@/lib/mobile/push", () => ({ pushToCapability: vi.fn() }));
 vi.mock("@/lib/tenant/console-url", () => ({ consoleBaseUrl: async () => "" }));
 
-import { acceptPrepared, canRotate, nativeBlocksRotation, nextScheduled, planJob, retryDelayMs, rotationMethod, runJob, type RotationJob } from "./rotation";
+import { acceptPrepared, canRotate, nativeBlocksRotation, nextScheduled, planJob, retryDelayMs, rotationMethod, runJob, windowsAccountOf, type RotationJob } from "./rotation";
 import { planCopy } from "./reconcile-reshare";
 
 const SEAL = (n: number) => "cv1:" + Buffer.alloc(60, n).toString("base64");
@@ -30,12 +30,28 @@ describe("rotationMethod", () => {
     expect(rotationMethod({ protocol: "SSH", secretKind: "KEY" }, null)).toHaveProperty("unsupported");
     expect(rotationMethod({ protocol: "VNC", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
     const dir = { enabled: true, host: "dc1", port: 636, security: "LDAPS", caCertPem: "", insecureSkipVerify: false, baseDN: "DC=x", resetUsername: "", resetSeals: null };
-    expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, dir)).toEqual({ method: "ad" });
-    expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, { ...dir, security: "PLAIN" })).toHaveProperty("unsupported");
-    expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
+    const ad = { protocol: "RDP", secretKind: "PASSWORD", username: "CORP\\bob" };
+    expect(rotationMethod(ad, dir)).toEqual({ method: "ad" });
+    expect(rotationMethod(ad, { ...dir, security: "PLAIN" })).toHaveProperty("unsupported");
+    expect(rotationMethod(ad, null)).toHaveProperty("unsupported");
+    // A local account of the server needs no directory.
+    expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD", username: "Administrator" }, null)).toEqual({ method: "windows" });
+    expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD", username: "WEB01\\svc", rotationAccount: "local" }, null)).toEqual({ method: "windows" });
+    expect(rotationMethod({ protocol: "RDP", secretKind: "PASSWORD", username: "bob", rotationAccount: "domain" }, null)).toHaveProperty("unsupported");
     expect(rotationMethod({ protocol: "POSTGRES", secretKind: "PASSWORD" }, null)).toEqual({ method: "postgres" });
     expect(rotationMethod({ protocol: "MYSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mysql" });
     expect(rotationMethod({ protocol: "MSSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mssql" });
+  });
+});
+
+describe("windowsAccountOf", () => {
+  it("reads whose account it is from the user name unless an admin said", () => {
+    expect(windowsAccountOf({ username: "Administrator" })).toEqual({ account: "local", chosen: false });
+    expect(windowsAccountOf({ username: ".\\alice" })).toEqual({ account: "local", chosen: false });
+    expect(windowsAccountOf({ username: "CORP\\alice" })).toEqual({ account: "domain", chosen: false });
+    expect(windowsAccountOf({ username: "alice@corp.example" })).toEqual({ account: "domain", chosen: false });
+    expect(windowsAccountOf({ username: "alice", guacParams: { domain: "CORP" } })).toEqual({ account: "domain", chosen: false });
+    expect(windowsAccountOf({ username: "CORP\\alice", rotationAccount: "local" })).toEqual({ account: "local", chosen: true });
   });
 });
 

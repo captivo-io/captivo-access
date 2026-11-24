@@ -170,6 +170,10 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 - **How.** A Linux account changes its own password with `passwd` over SSH. A
   domain account used for RDP changes its own in Active Directory over LDAPS or
   StartTLS, through the directory configured under Settings › Directory. A
+  local Windows account (an RDP user named `Administrator`, `.\name` or
+  `COMPUTER\name`; connector 2.63.0) changes its own over SMB (port 445, the
+  MS-SAMR password change that Ctrl+Alt+Del uses) and needs no directory; the
+  resource's "Whose account" setting overrides what the user name suggests. A
   database account (connector 2.54.0) changes its own: in PostgreSQL with
   `ALTER ROLE CURRENT_USER`, sent as a SCRAM-SHA-256 verifier the connector
   makes, so the password is never in a statement a server could log; in MySQL
@@ -179,8 +183,7 @@ by the connector, so that nobody, Captivo included, knows the password in use.
   (with TLS off the new password crosses the network in the clear, and the
   panel says so). The account should be one only Captivo uses: an application
   that shares it stops connecting at the first rotation. Open database
-  connections are not cut. VNC passwords and SSH keys are not rotated, and
-  neither are local Windows accounts yet.
+  connections are not cut. VNC passwords and SSH keys are not rotated.
 - **When.** Off by default. Per resource: a minute after the last session on it
   ends (a session still open holds it), on a schedule (7, 30 or 90 days), and
   with "Rotate now". "Check it daily" signs in once a day with the saved
@@ -194,8 +197,10 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 - **Reconcile account.** When the account cannot change its own password (Active
   Directory allows one change a day by default; history and policy rules) or
   its saved password no longer matches, a privileged account resets it: root or
-  a sudo account on the Linux host (password or SSH key), a directory account
-  with the *Reset password* right (Settings › Directory), or a database account
+  a sudo account on the Linux host (password or SSH key), the built-in
+  `Administrator` of a Windows server (or a domain account in its
+  Administrators group; remote UAC refuses any other local administrator), a
+  directory account with the *Reset password* right (Settings › Directory), or a database account
   on the same server (PostgreSQL: CREATEROLE or a superuser; SQL Server: ALTER
   ANY LOGIN, such as sa; MySQL: CREATE USER,
   which finds the account's host in `mysql.user` and stops if several accounts
