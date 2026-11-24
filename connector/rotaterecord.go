@@ -36,7 +36,7 @@ type rotatedEntry struct {
 
 var rotatedMu sync.Mutex
 
-func rotatedFile() string { return envOr(rotateRecordEnv, "/data/rotated.json") }
+func rotatedFile() string { return envOr(rotateRecordEnv, dataPath("rotated.json")) }
 
 func loadRotated(path string) (map[string]rotatedEntry, error) {
 	b, err := os.ReadFile(path)
@@ -85,7 +85,7 @@ func writeRotated(path string, req tunnel.RotateRequest, now time.Time) error {
 
 // showPassword is the show-password command.
 func showPassword(w io.Writer, args []string) int {
-	keyFile := envOr("VAULT_KEY_FILE", "/data/vault.key")
+	keyFile := envOr("VAULT_KEY_FILE", dataPath("vault.key"))
 	if _, err := os.Stat(keyFile); err != nil {
 		fmt.Fprintf(w, "vault key: %v\n", err)
 		return 1

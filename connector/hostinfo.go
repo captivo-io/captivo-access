@@ -15,6 +15,7 @@ import (
 // reports nothing rather than the container's own id or bridge address.
 type hostInfo struct{ hostname, os, localIP string }
 
+// host is set by runCLI once the config file is in the environment.
 var host = readHostInfo(os.Getenv("HOST_OS"), os.Getenv("HOST_IP"))
 
 // A Docker-assigned hostname: the first 12 hex digits of the container id.

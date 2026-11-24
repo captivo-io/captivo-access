@@ -56,18 +56,28 @@ func runClient(dataplaneURL, token string, allow *TargetMatcher, store *recStore
 	}
 }
 
+// connectHeader is what the connector says about itself when it dials in.
+func connectHeader(token string) http.Header {
+	h := http.Header{
+		"Authorization":       {"Bearer " + token},
+		"X-Connector-Version": {Version},
+		// The public half of the vault key; resource secrets are sealed to it.
+		"X-Vault-Public-Key": {vaultPublicKeyB64(vaultKey)},
+	}
+	// Absent for the Docker image, which has every engine beside it.
+	if p := platformName(); p != "" {
+		h.Set("X-Connector-Platform", p)
+	}
+	return h
+}
+
 // connectOnce dials the data-plane's /tunnel WSS endpoint, establishes a
 // yamux client session over it, and serves incoming streams until the
 // session dies. It returns once the session ends (error or clean close).
 func connectOnce(dataplaneURL, token string, allow *TargetMatcher, store *recStore) error {
 	ctx := context.Background()
 	c, _, err := websocket.Dial(ctx, dataplaneURL+"/tunnel", &websocket.DialOptions{
-		HTTPHeader: kasmTokenHeader(http.Header{
-			"Authorization":       {"Bearer " + token},
-			"X-Connector-Version": {Version},
-			// The public half of the vault key; resource secrets are sealed to it.
-			"X-Vault-Public-Key": {vaultPublicKeyB64(vaultKey)},
-		}),
+		HTTPHeader: kasmTokenHeader(connectHeader(token)),
 	})
 	if err != nil {
 		return err

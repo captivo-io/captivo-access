@@ -11,6 +11,7 @@ import { logRows, parseLogLine, type LevelFilter } from "@/lib/connector/log-lin
 import { parseTargets, type TargetKind } from "@/lib/connector/egress-targets";
 import { fmt, hm, useZone } from "@/app/(app)/admin/audit/audit-zone";
 import { ago, duration, latency } from "../connectors-view";
+import { programUninstallCommand, programUpdateCommand } from "@/lib/connector/standalone";
 import { HostActionBand, NoUpdaterBand, RemoveFromHostButton, UpdateConnectorButton, type UpdateCommands } from "../remote-control";
 import { liveHostAction, remoteControl, updateTarget, type StoredHostAction } from "@/lib/connector/host-action";
 import { isConnectorOutdated } from "@/lib/updates/semver";
@@ -23,6 +24,7 @@ type Conn = {
   id: string; name: string; status: string; version: string | null; outdated: boolean; mgr: string;
   lastSeenAt: string | null; remoteAddr: string | null; createdAt: string; egressPolicy: string; logLevel: string;
   hostAction: StoredHostAction | null;
+  platform: string | null;
 };
 type Sample = { at: number; active: number; total: number; uptime: number; denied: number; bin: number; bout: number };
 type Source = "connector" | "guacd" | "kasm";
@@ -113,7 +115,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
   // Live: an update from the console changes the version while the page is open.
   const version = t?.version ?? tele.version ?? c.version;
   const outdated = isConnectorOutdated(version, c.mgr);
-  const remote = remoteControl(online, t, c.createdAt, now);
+  const remote = remoteControl(online, t, c.createdAt, now, c.platform);
   const stored = tele.hostAction ?? c.hostAction;
   const report = liveHostAction(t?.hostAction ?? null, stored, new Date(now));
   const updating = !!report && report.action === "update" && !["done", "rolled_back", "failed"].includes(report.state);
@@ -146,7 +148,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
           <span className="cn-chip mono">{version ?? "?"} → {c.mgr}</span>
           <span className="cn-band-t"><b>A new version is ready.</b> Updating keeps the token and pairing; sessions on it end while it restarts.</span>
           <a className="cn-notes" href={`https://github.com/captivo-io/captivo-access/releases/tag/v${c.mgr}`} target="_blank" rel="noreferrer">Release notes</a>
-          <UpdateConnectorButton connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={updateTarget(version, c.mgr)}
+          <UpdateConnectorButton connectorId={c.id} commands={c.platform ? { remote: programUpdateCommand(c.platform), manual: programUpdateCommand(c.platform) } : updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={remote} target={updateTarget(version, c.mgr)}
             from={version} openTunnels={online ? (t?.activeConnections ?? 0) : 0} label={remote.ok ? "Update now" : "How to update"} className="btn sm ink" />
         </div>
       )}
@@ -557,7 +559,9 @@ function RemoveCard({ c, resources, remote }: { c: Conn; resources: number; remo
                 ? "Needs the connector online. While it is offline, revoke it and clean up the host by hand."
                 : remote.reason === "installing"
                   ? "The updater on this host is still being installed (it starts last, after the images download); this works once it reports, in a few minutes."
-                  : "This host has no updater. Revoke the connector and clean up the host by hand, or update it once with the command (it installs the updater)."}
+                  : remote.reason === "program"
+                    ? `This connector is installed as a program. On its host run ${programUninstallCommand(c.platform ?? "linux")} (add --keep-data to keep the keys and recordings), then revoke it here.`
+                    : "This host has no updater. Revoke the connector and clean up the host by hand, or update it once with the command (it installs the updater)."}
           </span>
           <div><RemoveFromHostButton id={c.id} name={c.name} resources={resources} remote={remote} /></div>
         </div>

@@ -388,6 +388,14 @@ internal app. It only dials outward — no inbound port.
    > the connector to hard-limit what it may ever reach. For more on recorded
    > remote-desktop sessions, see
    > [remote-desktop gateway](../deploy/README.md#recorded-rdpsshvnc-native-remote-desktop-gateway).
+   **No Docker on the host?** The same dialog has **Linux service** and **Windows
+   service** tabs: a command that downloads the connector for this release from the
+   project's GitHub release, checks it against the release's `SHA256SUMS` and
+   installs it as a systemd unit or a Windows service (details in
+   [Connectors without Docker](how-it-works.md#connectors-without-docker-windows-and-linux-services)).
+   Such a connector serves web apps, databases, Kubernetes clusters and TCP
+   tunnels; remote desktops, SSH in the browser and isolated browsers need the
+   Docker install above, which brings their engines.
 3. Back in the console, the connector flips to **Online** within a few seconds.
 
 ## Step 10 — Publish your first app as a Resource

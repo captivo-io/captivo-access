@@ -47,7 +47,7 @@ func (c *ControlClient) AuthConnector(token string) (string, error) {
 // ReportStatus tells the control plane a connector went ONLINE/OFFLINE.
 // Best-effort: errors are swallowed since this must never block tunnel
 // teardown/setup.
-func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, vaultPublicKey string) (egressPolicy, logLevel string, rec RecordingPolicy) {
+func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, vaultPublicKey, platform string) (egressPolicy, logLevel string, rec RecordingPolicy) {
 	var out struct {
 		EgressPolicy           string   `json:"egressPolicy"`
 		LogLevel               string   `json:"logLevel"`
@@ -56,7 +56,7 @@ func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, v
 		PurgeRecordingKeys     []string `json:"purgeRecordingKeys"`
 	}
 	_ = c.post("/api/internal/connector/status",
-		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version, "vaultPublicKey": vaultPublicKey}, &out)
+		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version, "vaultPublicKey": vaultPublicKey, "platform": platform}, &out)
 	return out.EgressPolicy, out.LogLevel, RecordingPolicy{TenantID: out.TenantID, RetentionDays: out.RecordingRetentionDays, PurgeKeys: out.PurgeRecordingKeys}
 }
 

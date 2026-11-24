@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { textMatch } from "@/lib/table/filter";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
+import { platformLabel } from "@/lib/connector/platform-label";
+import { programUpdateCommand } from "@/lib/connector/standalone";
 import { HostActionBand, NoUpdaterBand, RemoveFromHostModal, UpdateConnectorButton, type UpdateCommands } from "./remote-control";
 import { RepairConnectorButton } from "./repair-connector-button";
 import { DeleteConnectorButton, DeleteWithResourcesButton } from "./delete-connector-button";
@@ -42,6 +44,8 @@ export interface ConnectorCard {
   events: { at: string; level: EventLevel; text: string }[];
   /** Whether the console can update or remove it (an updater beside it, online). */
   remote: RemoteControl;
+  /** "windows" or "linux" for a connector installed as a program; null for Docker. */
+  platform: string | null;
   /** The update the console offers (the manager's version), when newer. */
   target: string | null;
   /** The latest host action as the connector reports it. */
@@ -218,6 +222,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
             <span title={c.id}>{c.id.slice(0, 10)}</span>
             {c.hostname && <span>{c.hostname}</span>}
             {c.version && <span>v{c.version}</span>}
+            {c.platform && <span title="Installed as a program, without Docker: it serves web apps, databases, Kubernetes clusters and TCP tunnels.">{platformLabel(c.platform)}</span>}
             <span>paired {date(c.createdAt)}</span>
             {c.groups.map((g) => <span key={g.name} className="cn-group">{g.name}{g.standby ? " · standby" : ""}</span>)}
           </div>
@@ -246,7 +251,7 @@ function Card({ c, mgr, updateCommand, managerUrlIsLocal, onRevoked }: { c: Conn
               <span className="cn-chip mono">{c.version ?? "?"} → {mgr}</span>
               <span className="cn-band-t">A new version is ready. Updating keeps the token and pairing; sessions on it end while it restarts.</span>
               <a className="cn-notes" href={`https://github.com/captivo-io/captivo-access/releases/tag/v${mgr}`} target="_blank" rel="noreferrer">Release notes</a>
-              <UpdateConnectorButton connectorId={c.id} commands={updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={c.remote} target={c.target}
+              <UpdateConnectorButton connectorId={c.id} commands={c.platform ? { remote: programUpdateCommand(c.platform), manual: programUpdateCommand(c.platform) } : updateCommand} managerUrlIsLocal={managerUrlIsLocal} remote={c.remote} target={c.target}
                 from={c.version} openTunnels={on ? (c.activeTunnels ?? 0) : 0} label={c.remote.ok && c.target ? "Update now" : "How to update"} className="btn sm ink" />
             </div>
           )}

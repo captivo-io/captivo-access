@@ -10,7 +10,8 @@ vi.mock("@/lib/connector/groups", () => ({ standInMember: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     site: { findMany: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn() },
-    connector: { findUnique: vi.fn() },
+    connector: { findUnique: vi.fn(), findMany: vi.fn(async () => []) },
+    connectorGroupMember: { findMany: vi.fn(async () => []) },
   },
 }));
 
