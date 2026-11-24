@@ -1286,6 +1286,8 @@ input[type="datetime-local"].input,input[type="time"].input{color-scheme:inherit
 
 /* ---- resources (design hand-off 7.6) ---- */
 .sb-badge.bad{background:rgba(var(--bad-rgb),.16);color:var(--bad);}
+/* A second count beside the first (Connectors: offline, then out of date) sits close to it. */
+.sb-badge2{margin-left:-6px;}
 .rs-head-actions{display:contents;}
 .rs-summary{grid-template-columns:repeat(4,minmax(0,1fr));}
 @media (max-width:900px){.rs-summary{grid-template-columns:repeat(2,minmax(0,1fr));}.rs-summary .kcell:nth-child(3){border-left:0;}.rs-summary .kcell:nth-child(n+3){border-top:1px solid var(--line);}}
