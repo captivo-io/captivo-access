@@ -111,7 +111,7 @@ function CheckoutModal({ href, siteName, onClose }: { href: string; siteName: st
           <p className="ssh-err" role="alert">{st.active.who} has it checked out until {hm(st.active.until)}.</p>
         ) : st.active?.mine ? (
           <>
-            <p className="cell-sub">You have it checked out until <b className="mono">{hm(st.active.until)}</b>. For safety it can't be shown again; give it back, or check it out again after it ends.</p>
+            <p className="cell-sub">You have it checked out until <b className="mono">{hm(st.active.until)}</b>. For safety it can&apos;t be shown again; give it back, or check it out again after it ends.</p>
             <div className="row-actions"><button type="button" className="btn" disabled={busy} onClick={() => void giveBack()}>Give it back now</button></div>
           </>
         ) : (

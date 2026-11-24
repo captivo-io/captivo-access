@@ -791,7 +791,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           )}
           {checkoutShown && checkout && (
             <div className="rf-row">
-              <span className="rf-row-t"><b>Longest check-out</b><span className="cell-sub">Sooner if the person's grant ends, or when they give it back.</span></span>
+              <span className="rf-row-t"><b>Longest check-out</b><span className="cell-sub">Sooner if the person&apos;s grant ends, or when they give it back.</span></span>
               <div className="rf-row-c"><Pills value={checkoutMinutes} onChange={setCheckoutMinutes} options={[["60", "1 hour"], ["240", "4 hours"], ["480", "8 hours"], ["1440", "24 hours"]]} label="Longest check-out" /></div>
             </div>
           )}
