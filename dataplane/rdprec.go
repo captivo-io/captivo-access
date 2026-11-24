@@ -148,8 +148,12 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 	var once sync.Once
 	closeBoth := func() { once.Do(func() { tc.Close(); up.Close() }) }
 	done := make(chan struct{}, 2)
+	var offer *gfxCacheOffer
+	if rec != nil {
+		offer = newGfxCacheOffer(rec.siteID, rec.key)
+	}
 	go func() {
-		// The client's PDUs go on as they are; client (the keystroke log)
+		// The client's PDUs go on as they are (but for its cache offer, see gfxCacheOffer); client (the keystroke log)
 		// sees each first. While an admin holds control, ctl drops the
 		// client's input and writes the admin's between its PDUs.
 		r := bufio.NewReaderSize(tc, 64<<10)
@@ -158,6 +162,11 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 			pdu, err := readPDU(r)
 			if err != nil {
 				break
+			}
+			if offer != nil {
+				if pdu = offer.client(pdu); pdu == nil {
+					continue
+				}
 			}
 			if ctl != nil {
 				if ctl.relayClient(w, pdu, r.Buffered() == 0, client) != nil {
@@ -190,6 +199,7 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 			}
 			if rec != nil {
 				rec.server(pdu)
+				offer.server(pdu)
 			}
 			if _, err := w.Write(pdu); err != nil {
 				break

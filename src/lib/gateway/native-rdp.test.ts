@@ -76,6 +76,12 @@ describe("recorded sessions", () => {
     expect(f).toContain("prompt for credentials:i:0");
     expect(f).not.toContain("10.0.0.5");
   });
+  it("asks for no persistent bitmap cache, which the recording never sees", () => {
+    const rec = rdpFile({ gatewayHost: "acme.cloud.captivo.io", targetHost: "10.0.0.5", targetPort: 3389, token: "cr1.x", redirection: { clipboard: true, drives: false, printers: false }, recorded: true });
+    const plain = rdpFile({ gatewayHost: "acme.cloud.captivo.io", targetHost: "10.0.0.5", targetPort: 3389, token: "cr1.x", redirection: { clipboard: true, drives: false, printers: false } });
+    expect(rec).toContain("bitmapcachepersistenable:i:0\r\n");
+    expect(plain).not.toContain("bitmapcachepersistenable");
+  });
   it("keeps the clipboard and device channels closed as the rules say", () => {
     expect(blockedChannels({ clipboard: false, drives: false, printers: false })).toEqual(["cliprdr", "rdpdr"]);
     expect(blockedChannels({ clipboard: true, drives: false, printers: true })).toEqual([]);
