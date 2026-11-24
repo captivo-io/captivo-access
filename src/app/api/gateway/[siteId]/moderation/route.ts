@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { evaluateAccess } from "@/lib/access/evaluate";
 import { moderationRequired, type ModerationKind } from "@/lib/moderation/rules";
-import { cancelRequest, openRequest, requestFor } from "@/lib/moderation/requests";
+import { cancelRequest, moderatorCount, openRequest, requestFor } from "@/lib/moderation/requests";
 import { withTenantRoute } from "@/lib/tenant/request";
 
 export const runtime = "nodejs";
@@ -22,6 +22,7 @@ export const POST = withTenantRoute(async (req: Request, { params }: { params: P
   if (!site || !moderationRequired(site)) return NextResponse.json({ error: "not_moderated" }, { status: 404 });
   const decision = await evaluateAccess(user.id, siteId, new Date());
   if (!decision.allow) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if ((await moderatorCount(user.id)) === 0) return NextResponse.json({ error: "no_moderators" }, { status: 409 });
   return NextResponse.json(await openRequest(siteId, user, kind, site.name), { headers: { "cache-control": "no-store" } });
 });
 

@@ -38,6 +38,16 @@ export async function openRequest(siteId: string, user: { id: string; name: stri
   return viewOf(r, now);
 }
 
+/**
+ * How many people may moderate a session, leaving out one person (the user
+ * asking: nobody moderates their own session). With none, a request would
+ * only wait for nothing, so the user is told so at once.
+ */
+export async function moderatorCount(exceptUserId?: string): Promise<number> {
+  const roles = await resolvedModeratorRoles();
+  return db.user.count({ where: { role: { in: moderatorRoleList(roles) }, status: "ACTIVE", ...(exceptUserId ? { id: { not: exceptUserId } } : {}) } });
+}
+
 /** Best-effort: mail and phones of everyone who may moderate. */
 async function tellModerators(user: { name: string; email: string }, siteName: string, requestId: string): Promise<void> {
   const roles = await resolvedModeratorRoles();

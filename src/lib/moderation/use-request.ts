@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ModerationKind, ModerationStatus } from "./rules";
 
 export interface ModerationRequestState {
-  status: ModerationStatus | "asking" | "error";
+  /** no_moderators: nobody else may moderate, so asking would only wait. */
+  status: ModerationStatus | "asking" | "error" | "no_moderators";
   expiresAt: string | null;
   /** Ask again after a decline or when the wait ran out. */
   retry: () => void;
@@ -36,8 +37,9 @@ export function useModerationRequest(siteId: string, kind: ModerationKind, enabl
     };
     void (async () => {
       const r = await fetch(base, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind }) }).catch(() => null);
-      const j = r?.ok ? ((await r.json().catch(() => null)) as { id?: string; status?: ModerationStatus; expiresAt?: string } | null) : null;
+      const j = r ? ((await r.json().catch(() => null)) as { id?: string; status?: ModerationStatus; expiresAt?: string; error?: string } | null) : null;
       if (stop) return;
+      if (j?.error === "no_moderators") { setStatus("no_moderators"); return; }
       if (!j?.id || !j.status) { setStatus("error"); return; }
       idRef.current = j.id;
       setExpiresAt(j.expiresAt ?? null);

@@ -30,6 +30,7 @@ export function ModerationGate({ siteId, siteName, children }: { siteId: string;
     expired: "No moderator joined in time",
     cancelled: "You stopped waiting",
     error: "The request couldn't be sent",
+    no_moderators: "Nobody can moderate this resource",
   }[req.status];
   const note = waiting
     ? "This resource needs a moderator. The moderators have been told; the session starts as soon as one joins."
@@ -37,9 +38,11 @@ export function ModerationGate({ siteId, siteName, children }: { siteId: string;
       ? "You can ask again, or contact your Captivo admin."
       : req.status === "expired"
         ? "Requests wait 10 minutes. Ask again when a moderator is available."
-        : req.status === "error"
-          ? "Check your connection and try again."
-          : "Ask again when you are ready.";
+        : req.status === "no_moderators"
+          ? "This resource needs a moderator, and nobody else in your organization may moderate sessions. Contact your Captivo admin."
+          : req.status === "error"
+            ? "Check your connection and try again."
+            : "Ask again when you are ready.";
   return (
     <div className="connect-splash mod-gate" role="status" aria-live="polite">
       {waiting && <div className="connect-splash-ring" aria-hidden="true" />}
