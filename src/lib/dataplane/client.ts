@@ -39,6 +39,18 @@ export interface ActiveSession {
   watchable?: boolean;
   /** A native session an admin can take over: recorded native SSH and RDP (2.57+). */
   controllable?: boolean;
+  /** A moderated session (2.61+, dataplane/moderation.go). */
+  moderation?: SessionModeration | null;
+}
+
+export interface SessionModeration {
+  /** The ModerationRequest it started from. */
+  id: string;
+  moderatorId: string;
+  /** The moderator watches now; when not, the user's input is paused. */
+  present: boolean;
+  /** No moderator: the session ends here unless one joins. */
+  deadline?: string;
 }
 
 export interface LiveFeedEvent { at: string; type: string; text: string }
@@ -159,6 +171,21 @@ export async function kickViewer(sessionId: string, viewerId: string): Promise<b
   }
 }
 
+/** Hand a moderated session's moderator role to another console user (the one before left). */
+export async function setSessionModerator(sessionId: string, userId: string): Promise<boolean> {
+  if (!(await findOwnSession(sessionId))) return false;
+  try {
+    const res = await fetchWithTimeout(`${BASE()}/sessions/moderator`, {
+      timeoutMs: DP_TIMEOUT_MS, method: "POST", headers: authHeaders(), cache: "no-store",
+      body: JSON.stringify({ sessionId, userId }),
+    });
+    const body = res.ok ? ((await res.json().catch(() => ({}))) as { ok?: boolean }) : null;
+    return body?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A live session's recent events (newest first): null when it has ended,
  * "unavailable" when the data plane did not answer (try again).
@@ -208,6 +235,8 @@ export interface WatchStatus {
   controlBy?: string;
   ended?: string;
   message?: LiveMessage | null;
+  /** A moderated session's state (2.61+). */
+  moderation?: SessionModeration | null;
 }
 
 export async function getWatchStatus(userId: string, siteId: string): Promise<WatchStatus> {

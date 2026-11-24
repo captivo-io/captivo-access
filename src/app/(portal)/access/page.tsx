@@ -11,6 +11,7 @@ import { remaining } from "@/lib/portal/time-remaining";
 import { securityStatus } from "@/lib/portal/security-status";
 import { launchHref } from "@/lib/portal/launch-href";
 import { nativeRdpMode } from "@/lib/gateway/native-rdp";
+import { moderationRequired } from "@/lib/moderation/rules";
 import { nativeSshMode } from "@/lib/gateway/native-ssh";
 import { tunnelBlock } from "@/lib/gateway/tcp-tunnel";
 import { databaseBlock, dbEngineOf } from "@/lib/database/params";
@@ -62,6 +63,8 @@ async function AccessPageImpl() {
     if (recorded) anyRecorded = true;
     else allRecorded = false;
 
+    // Needs a moderator: only what a moderator can watch opens (lib/moderation/rules.ts).
+    const moderated = moderationRequired(g.site);
     const rdpMode = nativeRdpMode({ accessMode: g.site.accessMode, nativeRdp: g.site.nativeRdp, protocol: g.site.vaultCredential?.protocol, recorded, recordingRequired: required, connectorVersion: newestVersion(g.site) });
     const sshMode = nativeSshMode({ accessMode: g.site.accessMode, nativeSsh: g.site.nativeSsh, protocol: g.site.vaultCredential?.protocol, recorded, recordingRequired: required, connectorVersion: newestVersion(g.site) });
     const startISO = g.startsAt ? g.startsAt.toISOString() : null;
@@ -77,13 +80,14 @@ async function AccessPageImpl() {
       glyph: g.site.name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "··",
       status,
       href: launchHref(g.site.accessMode, g.site.id, g.site.hostname ?? ""),
-      rdpHref: rdpMode === "recorded" || rdpMode === "direct" ? `/api/portal/rdp/${g.site.id}` : null,
+      rdpHref: !moderated && (rdpMode === "recorded" || rdpMode === "direct") ? `/api/portal/rdp/${g.site.id}` : null,
       rdpRecorded: rdpMode === "recorded",
-      sshHref: sshMode === "recorded" || sshMode === "direct" ? `/api/portal/ssh/${g.site.id}` : null,
+      sshHref: sshMode === "recorded" || (!moderated && sshMode === "direct") ? `/api/portal/ssh/${g.site.id}` : null,
       sshRecorded: sshMode === "recorded",
       tunnelHref: g.site.accessMode === "TUNNEL" && tunnelBlock({ accessMode: g.site.accessMode, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/ssh/${g.site.id}` : null,
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,
       recorded,
+      moderated,
       time: remaining(startISO, endISO, g.schedule ?? null, now),
     };
     if (status === "upcoming") {

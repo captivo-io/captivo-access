@@ -7,6 +7,8 @@ import { managerVersion } from "@/lib/version";
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { workspaceView } from "@/lib/mobile/views";
 import type { NavCounts } from "./model";
+import { canModerate, MODERATION_WAIT_MS } from "@/lib/moderation/rules";
+import { resolvedModeratorRoles } from "@/lib/settings/platform";
 
 export interface ShellWorkspace { name: string; host: string | null }
 
@@ -22,7 +24,8 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
   const soft = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
   const mgr = managerVersion();
 
-  const [pending, unread, connectors, unreachableResources, myPending, ws, reviewPending] = await Promise.all([
+  const moderator = read && canModerate(user.role, await soft(resolvedModeratorRoles(), "admins_operators" as const));
+  const [pending, unread, connectors, unreachableResources, myPending, ws, reviewPending, moderationWaiting] = await Promise.all([
     grants ? soft(countPendingGrants(), 0) : 0,
     read ? soft(countUnreadNotifications(), 0) : 0,
     config ? soft(db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { version: true } }), []) : [],
@@ -30,6 +33,7 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
     soft(db.accessGrant.count({ where: { userId: user.id, status: "ACTIVE", requiresApproval: true, approvedAt: null } }), 0),
     soft(workspaceView(), { name: "Captivo Access", slug: null, origin: "" }),
     grants ? soft(db.accessReviewItem.count({ where: { decision: null, review: { status: "open" }, userId: { not: user.id } } }), 0) : 0,
+    moderator ? soft(db.moderationRequest.count({ where: { status: "waiting", requestedAt: { gt: new Date(Date.now() - MODERATION_WAIT_MS) }, userId: { not: user.id } } }), 0) : 0,
   ]);
   let host: string | null = null;
   try {
@@ -45,6 +49,7 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
       outdatedConnectors: connectors.filter((c) => c.version && isConnectorOutdated(c.version, mgr)).length,
       unreachableResources,
       myPending,
+      moderationWaiting,
     },
     workspace: { name: ws.slug ?? ws.name, host },
   };

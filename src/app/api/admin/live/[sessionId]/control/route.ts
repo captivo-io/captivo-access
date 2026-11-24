@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
-import { can } from "@/lib/auth/roles";
 import { setSessionControl } from "@/lib/dataplane/client";
 import { appendAuditEvents } from "@/lib/audit/append";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { mayActOnSession } from "@/lib/moderation/live";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,9 +12,8 @@ export const dynamic = "force-dynamic";
 export const POST = withTenantRoute(async (req: Request, { params }: { params: Promise<{ sessionId: string }> }) => {
   const admin = await getCurrentUser();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-
   const { sessionId } = await params;
+  if (!(await mayActOnSession(admin, sessionId))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const action = body.action === "release" ? "release" : "take";
 

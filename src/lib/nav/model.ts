@@ -38,6 +38,8 @@ export interface NavCounts {
   unreachableResources?: number;
   /** The person's own requests still waiting for a decision. */
   myPending?: number;
+  /** Sessions waiting for a moderator, for someone who may moderate. */
+  moderationWaiting?: number;
 }
 
 const badge = (n: number | undefined, tone: BadgeTone, title?: string): Pick<NavItem, "badge" | "badgeTone" | "badgeTitle"> =>
@@ -62,7 +64,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
     admin.push({ label: "Operate", items: [
       { label: "Grants", href: "/admin/grants", icon: "key", ...badge(grants ? counts.pending : 0, "warn", "waiting for a decision") },
       { label: "Access reviews", href: "/admin/reviews", icon: "check", ...badge(grants ? counts.reviewPending : 0, "warn", "grants to review") },
-      { label: "Sessions", href: "/admin/live", icon: "activity", ...badge(counts.live, "ok") },
+      { label: "Sessions", href: "/admin/live", icon: "activity", ...(counts.moderationWaiting ? badge(counts.moderationWaiting, "warn", "waiting for a moderator") : badge(counts.live, "ok")) },
       ...(config ? [{ label: "Recordings", href: "/admin/recordings", icon: "video" as const }] : []),
       { label: "Audit", href: "/admin/audit", icon: "list" },
     ] });
@@ -104,7 +106,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
     showSearch: read,
     showNotifications: read,
     // Waiting access requests ring the bell too, for those who can decide them.
-    notificationsBadge: read ? counts.unread + (grants ? counts.pending : 0) : 0,
+    notificationsBadge: read ? counts.unread + (grants ? counts.pending : 0) + (counts.moderationWaiting ?? 0) : 0,
   };
 }
 

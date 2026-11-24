@@ -26,7 +26,11 @@ export interface LiveExtra {
   database?: boolean;
   /** A connector-group resource: the member carrying this session. */
   via?: string | null;
+  /** A moderated session: who moderates, whether they watch, when it ends without one. */
+  moderation?: LiveModeration | null;
 }
+
+export interface LiveModeration { moderatorId: string; moderatorName: string | null; present: boolean; deadline: string | null }
 
 export type LiveRow =
   | ({ kind: "gateway"; sessionId: string; siteName: string; userLabel: string; protocol: string; startedAt: string; viewerCount: number; controlled: boolean; grantId: string | null } & LiveExtra)
@@ -41,10 +45,11 @@ export type LiveRow =
 export async function liveRows(): Promise<LiveRow[]> {
   const [sessions, webSessions] = await Promise.all([listActiveSessions(), listActiveWebSessions()]);
   const userIds = [...new Set([...sessions.map((s) => s.userId), ...webSessions.map((s) => s.userId)])];
+  const moderatorIds = [...new Set(sessions.flatMap((s) => (s.moderation?.moderatorId ? [s.moderation.moderatorId] : [])))];
   const siteIds = [...new Set([...sessions.map((s) => s.siteId), ...webSessions.map((s) => s.siteId)])];
 
   const [userList, siteList, liveGrants] = await Promise.all([
-    userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : Promise.resolve([]),
+    userIds.length ? db.user.findMany({ where: { id: { in: [...userIds, ...moderatorIds] } }, select: { id: true, name: true, email: true } }) : Promise.resolve([]),
     siteIds.length ? db.site.findMany({ where: { id: { in: siteIds } }, select: { ...SITE_TILE_SELECT, connectorGroupId: true } }) : Promise.resolve([]),
     userIds.length
       ? db.accessGrant.findMany({
@@ -91,6 +96,9 @@ export async function liveRows(): Promise<LiveRow[]> {
     controllable: !!s.controllable,
     database: s.kind === "database",
     via: via(s),
+    moderation: s.moderation
+      ? { moderatorId: s.moderation.moderatorId, moderatorName: users.get(s.moderation.moderatorId)?.name ?? users.get(s.moderation.moderatorId)?.email ?? null, present: s.moderation.present, deadline: s.moderation.deadline ?? null }
+      : null,
   }));
   const isolatedRows: LiveRow[] = sessions.filter((s) => s.kind === "isolated").map((s) => ({
     kind: "isolated" as const,

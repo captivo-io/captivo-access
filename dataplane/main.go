@@ -444,7 +444,23 @@ func main() {
 		// "ended": why a recheck closed this vendor's session here, so the page can say so.
 		// "message": an admin's recent message, which the page shows once.
 		// "guests": invited guests watching; "controlBy": who holds control.
-		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlBy != "", "guests": guests, "controlBy": controlBy, "ended": hub.EndedReason(uid, sid), "message": hub.PendingMessage(uid, sid, time.Now())})
+		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlBy != "", "guests": guests, "controlBy": controlBy, "ended": hub.EndedReason(uid, sid), "message": hub.PendingMessage(uid, sid, time.Now()), "moderation": hub.ModerationOf(uid, sid)})
+	})
+	// Hand a moderated session's moderator role to another console user.
+	in.HandleFunc("/sessions/moderator", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			SessionID string `json:"sessionId"`
+			UserID    string `json:"userId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionID == "" || body.UserID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "reason": "invalid_body"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": hub.SetModerator(body.SessionID, body.UserID)})
 	})
 	// Close a viewer's views of a session: an admin removed an invited guest.
 	in.HandleFunc("/sessions/kick-viewer", func(w http.ResponseWriter, r *http.Request) {

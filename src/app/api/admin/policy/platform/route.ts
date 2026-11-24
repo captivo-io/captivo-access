@@ -108,6 +108,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     // Not on this form: kept as stored unless sent.
     sessionInvitesEnabled: typeof body.sessionInvitesEnabled === "boolean" ? body.sessionInvitesEnabled : (await getPlatformSettings()).sessionInvitesEnabled,
     guestRequireSecondFactor: typeof body.guestRequireSecondFactor === "boolean" ? body.guestRequireSecondFactor : (await getPlatformSettings()).guestRequireSecondFactor,
+    moderatorRoles: (await getPlatformSettings()).moderatorRoles,
   });
   await saveGuacParamDefaults(parseGuacParams(body.guacParamDefaults));
   await recordAdminAction({

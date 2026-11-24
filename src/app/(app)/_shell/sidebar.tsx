@@ -117,9 +117,11 @@ export function Sidebar({ model, view, roleLabel, products, workspace, user, acc
               <p className="sb-group-h">{s.label}</p>
               {s.items.map((it) => {
                 const active = isActive(it.href);
-                // The live count is polled in the browser, like the header pill.
-                const n = it.href === "/admin/live" ? live : it.badge;
-                const tone = it.href === "/admin/live" ? "ok" : it.badgeTone;
+                // The live count is polled in the browser, like the header pill;
+                // sessions waiting for a moderator (a warn badge) come first.
+                const liveCount = it.href === "/admin/live" && it.badgeTone !== "warn";
+                const n = liveCount ? live : it.badge;
+                const tone = liveCount ? "ok" : it.badgeTone;
                 return (
                   <Link key={it.href} href={it.href} className={active ? "sb-link active" : "sb-link"} aria-current={active ? "page" : undefined}>
                     <NavIcon name={it.icon} />

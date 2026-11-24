@@ -58,6 +58,8 @@ export interface ResourceInitial {
   keystrokeLogging: boolean;
   nativeRdp: boolean;
   nativeSsh: boolean;
+  /** A session starts only once a moderator admits it (lib/moderation). */
+  requireModerator?: boolean;
   clipboardMode: string | null;
   watermark: boolean | null;
   fileTransferMode: string | null;
@@ -198,6 +200,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [keystrokeChoice, setKeystrokeChoice] = useState<boolean | null>(site ? site.keystrokeLogging : null);
   const [nativeRdp, setNativeRdp] = useState(site?.nativeRdp ?? false);
   const [nativeSsh, setNativeSsh] = useState(site?.nativeSsh ?? false);
+  const [moderated, setModerated] = useState(site?.requireModerator ?? false);
   const [clipboard, setClipboard] = useState(site?.clipboardMode ?? "inherit");
   const [ftWeb, setFtWeb] = useState(site && site.accessMode !== "GATEWAY" ? site.fileTransferMode ?? "inherit" : "inherit");
   const [guac, setGuac] = useState<GuacFields>(paramsToGuacFields(parseGuacParams(vault?.guacParams)));
@@ -367,6 +370,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   // and records the session (connector 2.49.0); an older connector leaves it
   // unrecorded, or, when the Policy requires recording, unavailable.
   const nativeSshShown = kind === "ssh";
+  // Four eyes: remote desktop and SSH resources (what a moderator can watch).
+  const moderatedShown = kind === "remote" || kind === "ssh";
+  const moderatedOn = moderatedShown && moderated;
   const nativeSshOn = nativeSshShown && nativeSsh;
   const nativeSshRecorded = nativeUnrecorded || nativeRdpLocked;
   const sshRecordedReady = routeConnectors.length === 0 || routeConnectors.some((c) => compareSemver(c.version, NATIVE_SSH_RECORDED_MIN_CONNECTOR) !== -1);
@@ -407,6 +413,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         recordSessions: record, keystrokeLogging: keystrokes,
         nativeRdp: nativeRdpOn,
         nativeSsh: nativeSshOn,
+        requireModerator: moderatedOn,
         clipboardMode: clipboard,
         watermark: watermark === "inherit" ? null : watermark === "on",
         fileTransferMode: remote ? undefined : ftWeb,
@@ -447,6 +454,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
       : sshRecordedReady ? { text: "Native SSH: recorded", tone: "p" }
       : { text: nativeRdpLocked ? "Native SSH: connector update needed" : "Native SSH: not recorded", tone: "warn" });
   }
+  if (moderatedOn) chips.push({ text: "Moderator required", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
   if (!isDb && !isTunnel && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
   if (!isDb && !isTunnel && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
@@ -655,6 +663,13 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {nativeSshNeedsUpdate && <p className="rf-msg bad">Recording sessions in the user&apos;s own SSH app needs connector {NATIVE_SSH_RECORDED_MIN_CONNECTOR} or later; {connector?.name} runs {connector?.version}. {nativeRdpLocked ? "Until it is updated, users can't connect with their own SSH app." : "Until it is updated, those sessions aren't recorded."}</p>}
           {nativeSshShown && site && vault?.sshHostKey && <SshHostKeyLine siteId={site.id} fingerprint={vault.sshHostKey} />}
           {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+          {moderatedShown && (
+            <Row title="Requires a moderator" custom={moderatedOn} desc="Four eyes: a session starts only when a moderator joins it from Live sessions, and the user can work only while the moderator watches. If the moderator leaves, the user's keyboard and mouse pause, and the session ends 2 minutes later unless a moderator joins. Who can moderate is set on the Policy page.">
+              <button type="button" role="switch" aria-checked={moderatedOn} aria-label="Requires a moderator" className={moderatedOn ? "toggle on" : "toggle"} onClick={() => setModerated(!moderated)}><span /></button>
+            </Row>
+          )}
+          {moderatedOn && nativeRdpOn && <p className="rf-msg">A moderator can&apos;t watch the user&apos;s own Remote Desktop app yet, so users see only Open in the browser while a moderator is required.</p>}
+          {moderatedOn && nativeSshOn && !nativeSshRecorded && <p className="rf-msg">A moderator can watch only a recorded session, so users can&apos;t use their own SSH app here until recording is on.</p>}
           {!isDb && !isTunnel && (
             <>
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { moderationRequired } from "@/lib/moderation/rules";
 import { evaluateAccess } from "@/lib/access/evaluate";
 import { effectiveSiteRecording, recordingRequired } from "@/lib/recording/effective";
 import { resolvedClipboardDefault, resolvedGuacParamDefaults, resolvedKeystrokeLoggingMode } from "@/lib/settings/platform";
@@ -21,7 +22,7 @@ export type NativeRdpRecorded = {
 
 export type NativeRdpTarget =
   | ({ ok: true; mode: NativeRdpMode; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number; redirection: NativeRedirection } & Partial<NativeRdpRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | NativeRdpBlock; reason?: string };
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_browser_only" | NativeRdpBlock; reason?: string };
 
 /**
  * Whether this user may open this resource in a native RDP client now, and
@@ -34,13 +35,15 @@ export async function nativeRdpTarget(userId: string, siteId: string, now: Date)
   const site = await db.site.findUnique({
     where: { id: siteId },
     select: {
-      name: true, accessMode: true, nativeRdp: true, recordSessions: true, keystrokeLogging: true, clipboardMode: true, ...siteRoutingSelect,
+      name: true, accessMode: true, nativeRdp: true, recordSessions: true, requireModerator: true, keystrokeLogging: true, clipboardMode: true, ...siteRoutingSelect,
       vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, guacParams: true, rotateAfterSession: true, rotateEveryDays: true } },
     },
   });
   if (!site) return { ok: false, status: 404, error: "not_found" };
   const decision = await evaluateAccess(userId, siteId, now);
   if (!decision.allow) return { ok: false, status: 403, error: "forbidden", reason: decision.reason };
+  // A moderator can't watch over a user's own Remote Desktop app yet: browser sessions only.
+  if (moderationRequired(site)) return { ok: false, status: 409, error: "moderator_browser_only" };
   const cred = site.vaultCredential;
   const mode = nativeRdpMode({
     accessMode: site.accessMode, nativeRdp: site.nativeRdp, protocol: cred?.protocol,

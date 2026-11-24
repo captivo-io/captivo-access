@@ -48,6 +48,7 @@ function settingsWith(recordingMode: string | null) {
     webAppFileTransferDefault: null,
     sessionInvitesEnabled: null,
     guestRequireSecondFactor: null,
+    moderatorRoles: null,
     recordingMode,
   };
 }

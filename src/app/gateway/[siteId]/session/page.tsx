@@ -10,6 +10,8 @@ import type { GatewayProtocol } from "@/lib/gateway/paste-keys";
 import { GatewaySession } from "./session-client";
 import { IsolatedSession } from "./isolated-client";
 import { ConsentGate } from "./consent-gate";
+import { ModerationGate } from "./moderation-gate";
+import { moderationRequired } from "@/lib/moderation/rules";
 import { withRequestTenant } from "@/lib/tenant/request";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +22,7 @@ export const metadata = { title: "Session" };
 async function GatewaySessionPageImpl({ params }: { params: Promise<{ siteId: string }> }) {
   const user = await requireUser();
   const { siteId } = await params;
-  const site = await db.site.findUnique({ where: { id: siteId }, select: { accessMode: true, name: true, recordSessions: true, clipboardMode: true, fileTransferMode: true, watermark: true } });
+  const site = await db.site.findUnique({ where: { id: siteId }, select: { accessMode: true, name: true, recordSessions: true, clipboardMode: true, fileTransferMode: true, watermark: true, requireModerator: true } });
   // This full-screen session page serves native GATEWAY (RDP/SSH/VNC) and ISOLATED
   // (remote browser) resources — both stream a screen via guacd. Everything else
   // (or a disabled capability) has no session here.
@@ -47,12 +49,15 @@ async function GatewaySessionPageImpl({ params }: { params: Promise<{ siteId: st
   // The remote's paste chord differs per protocol (terminal vs desktop).
   const cred = mode === "GATEWAY" ? await db.vaultCredential.findUnique({ where: { siteId }, select: { protocol: true } }) : null;
   const protocol: GatewayProtocol = cred?.protocol === "SSH" || cred?.protocol === "VNC" ? cred.protocol : "RDP";
+  // A resource that needs a moderator connects only once one admits the session (lib/moderation).
+  const moderated = moderationRequired(site);
   if (consentNeeded) {
-    return <ConsentGate accessMode={mode} siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} fileTransferMode={fileTransferMode} protocol={protocol} watermarkText={watermarkText} />;
+    return <ConsentGate accessMode={mode} siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} fileTransferMode={fileTransferMode} protocol={protocol} watermarkText={watermarkText} moderated={moderated} />;
   }
-  return mode === "ISOLATED"
+  const session = mode === "ISOLATED"
     ? <IsolatedSession siteId={siteId} siteName={site.name} recorded={recorded} fileTransferMode={fileTransferMode} />
     : <GatewaySession siteId={siteId} siteName={site.name} recorded={recorded} clipboardMode={clipboardMode} protocol={protocol} watermarkText={watermarkText} />;
+  return moderated ? <ModerationGate siteId={siteId} siteName={site.name}>{session}</ModerationGate> : session;
 }
 
 export default async function GatewaySessionPage(...args: Parameters<typeof GatewaySessionPageImpl>) {

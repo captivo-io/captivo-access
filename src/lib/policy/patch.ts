@@ -49,6 +49,7 @@ const PLATFORM_RULES: Record<keyof PlatformSettings, Rule> = {
   requireRequestJustification: { kind: "bool" },
   sessionInvitesEnabled: { kind: "bool" },
   guestRequireSecondFactor: { kind: "bool" },
+  moderatorRoles: { kind: "enum", values: ["admins", "admins_operators"] },
 };
 
 const SESSION_RULES: Record<SessionKey, Rule> = {

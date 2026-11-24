@@ -18,6 +18,8 @@ export function sessionEndMessage(reason: string): string {
       return "Your account has been disabled.";
     case "ip_not_allowed":
       return "You are connecting from a network that is not allowed for this resource.";
+    case "moderator_left":
+      return "The session ended because no moderator was watching it.";
     case "signed_out":
       return "You were signed out: your sign-in expired or was ended.";
     default:

@@ -8,6 +8,9 @@ import { workspaceView } from "@/lib/mobile/views";
 import { AutoRefresh } from "@/app/(app)/_shell/auto-refresh";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { SessionsView, type RecentRecording } from "./sessions-view";
+import { canModerate } from "@/lib/moderation/rules";
+import { waitingRequests } from "@/lib/moderation/requests";
+import { resolvedModeratorRoles } from "@/lib/settings/platform";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Live sessions" };
@@ -17,6 +20,7 @@ async function AdminLivePageImpl({ searchParams }: { searchParams: Promise<{ wat
   if (!user || !can(user.role, "read_console")) notFound();
   const { watch } = await searchParams;
   const since = new Date(Date.now() - 86_400_000);
+  const moderator = canModerate(user.role, await resolvedModeratorRoles());
 
   const [ws, rows, dayTotal, recent] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
@@ -32,6 +36,8 @@ async function AdminLivePageImpl({ searchParams }: { searchParams: Promise<{ wat
         })
       : Promise.resolve([]),
   ]);
+  // A moderator never admits their own session.
+  const waiting = moderator ? (await waitingRequests()).filter((r) => r.userId !== user.id) : [];
   const [users, sites] = await Promise.all([
     db.user.findMany({ where: { id: { in: recent.map((r) => r.userId) } }, select: { id: true, name: true, email: true } }),
     db.site.findMany({ where: { id: { in: recent.map((r) => r.siteId) } }, select: SITE_TILE_SELECT }),
@@ -58,6 +64,9 @@ async function AdminLivePageImpl({ searchParams }: { searchParams: Promise<{ wat
         canTerminate={can(user.role, "configure")}
         canReplay={can(user.role, "configure")}
         initialWatch={watch ?? null}
+        waiting={waiting}
+        canModerate={moderator}
+        meId={user.id}
       />
     </main>
   );

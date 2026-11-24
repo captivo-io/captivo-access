@@ -10,6 +10,7 @@ import { rotationOn } from "@/lib/vault/rotation";
 import { nativeSshMode, NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR, type NativeSshBlock, type NativeSshMode } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 import { TUNNEL_MIN_CONNECTOR, tunnelBlock, type TunnelBlock } from "@/lib/gateway/tcp-tunnel";
+import { moderationBlock, moderationRequired } from "@/lib/moderation/rules";
 
 /** What a recorded session needs on top of where the server is. */
 export type NativeSshRecorded = {
@@ -24,8 +25,8 @@ export type NativeSshRecorded = {
 };
 
 export type NativeSshTarget =
-  | ({ ok: true; mode: NativeSshMode | "tunnel"; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number } & Partial<NativeSshRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | NativeSshBlock | TunnelBlock; reason?: string };
+  | ({ ok: true; mode: NativeSshMode | "tunnel"; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number; moderated?: boolean } & Partial<NativeSshRecorded>)
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_needs_recording" | NativeSshBlock | TunnelBlock; reason?: string };
 
 /** The resource's file transfer rule, as its browser SSH session would have it. */
 export function sshFileTransfer(p: { enableFileTransfer?: boolean; blockUpload?: boolean; blockDownload?: boolean }): NativeSshRecorded["fileTransfer"] {
@@ -47,7 +48,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const site = await db.site.findUnique({
     where: { id: siteId },
     select: {
-      name: true, accessMode: true, nativeSsh: true, recordSessions: true, keystrokeLogging: true, tunnelHost: true, tunnelPort: true, ...siteRoutingSelect,
+      name: true, accessMode: true, nativeSsh: true, recordSessions: true, requireModerator: true, keystrokeLogging: true, tunnelHost: true, tunnelPort: true, ...siteRoutingSelect,
       vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true } },
     },
   });
@@ -71,6 +72,9 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   });
   if (mode !== "recorded" && mode !== "direct") return { ok: false, status: 409, error: mode };
   if (!cred) return { ok: false, status: 409, error: "not_ssh" };
+  // A moderator must be able to watch: only a recorded session passes the jump host's view.
+  const moderated = moderationRequired(site);
+  if (moderated && moderationBlock("native_ssh", mode === "recorded")) return { ok: false, status: 409, error: "moderator_needs_recording" };
   const where = { siteName: site.name, targetHost: cred.targetHost, targetPort: cred.targetPort };
 
   if (mode === "direct") {
@@ -95,7 +99,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   if (members.length === 0) return { ok: false, status: 409, error: sealed ? "vault_secret_reenter" : "connector_outdated" };
   const params = resolveGuacParams(parseGuacParams(vault.guacParams), await resolvedGuacParamDefaults());
   return {
-    ok: true, mode, ...where,
+    ok: true, mode, ...where, moderated,
     connectorId: members[0].id,
     connectors: candidatesFor(members, (m) => (sealed ? { sealedSecret: sealFor(m) } : {})),
     keystrokeLogging: effectiveKeystrokeLogging({

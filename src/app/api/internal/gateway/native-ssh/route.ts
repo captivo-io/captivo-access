@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { currentTenantId } from "@/lib/tenant/context";
 import { nativeSshTarget } from "@/lib/gateway/native-ssh-target";
+import { takeAdmission } from "@/lib/moderation/requests";
 import { requireDataplaneSecret, resolveTenantBySite, withTenantFrom } from "@/lib/tenant/internal";
 
 export const runtime = "nodejs";
@@ -32,6 +33,9 @@ async function handler(req: NextRequest) {
 
   const t = await nativeSshTarget(userId, siteId, new Date());
   if (!t.ok) return NextResponse.json({ error: t.error, reason: t.reason }, { status: t.status });
+  // A moderated resource: the connection uses the admission a moderator gave (lib/moderation).
+  const moderation = t.moderated ? await takeAdmission(siteId, userId, "ssh") : null;
+  if (t.moderated && !moderation) return NextResponse.json({ error: "moderator_required" }, { status: 409 });
   return NextResponse.json({
     tenantId: currentTenantId(),
     siteName: t.siteName,
@@ -49,6 +53,7 @@ async function handler(req: NextRequest) {
       ...(t.secret !== undefined ? { secret: t.secret } : {}),
       sshHostKey: t.sshHostKey ?? "",
     } : {}),
+    ...(moderation ? { moderation } : {}),
   });
 }
 

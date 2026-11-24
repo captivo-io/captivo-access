@@ -42,6 +42,7 @@ export type SiteValidation =
       guacParams: GuacParams;
       nativeRdp: boolean; // RDP only: also open in the user's own client (lib/gateway/native-rdp.ts)
       nativeSsh: boolean; // SSH only: also reach it with the user's own SSH client (lib/gateway/native-ssh.ts)
+      requireModerator: boolean; // a session starts only once a moderator admits it (lib/moderation)
     }
   | {
       ok: true;
@@ -189,6 +190,7 @@ export function validateSiteInput(
       guacParams: parseGuacParams(body.guacParams),
       nativeRdp: protocol === "RDP" && body.nativeRdp === true,
       nativeSsh: protocol === "SSH" && body.nativeSsh === true,
+      requireModerator: body.requireModerator === true,
     };
   }
 

@@ -126,7 +126,7 @@ func (c *ControlClient) ViewAuthz(userID, siteID string) (bool, error) {
 //
 // connectors lists every connector that may carry the session, each with the
 // secret sealed to its own key; the caller picks one (connpick.go).
-func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn, guacdAddress string, connectors []routeCandidate, tenantID string, record, keystrokeLogging bool, err error) {
+func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn, guacdAddress string, connectors []routeCandidate, tenantID string, record, keystrokeLogging bool, mod moderationRef, err error) {
 	var out struct {
 		Protocol         string            `json:"protocol"`
 		TargetHost       string            `json:"targetHost"`
@@ -142,9 +142,10 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		Record           bool              `json:"record"`
 		KeystrokeLogging bool              `json:"keystrokeLogging"`
 		Params           map[string]string `json:"params"`
+		Moderation       moderationRef     `json:"moderation"`
 	}
 	if err := c.post("/api/internal/gateway/descriptor", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
-		return GuacConn{}, "", nil, "", false, false, err
+		return GuacConn{}, "", nil, "", false, false, moderationRef{}, err
 	}
 	return GuacConn{
 		Protocol:     out.Protocol,
@@ -155,7 +156,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		SealedSecret: out.SealedSecret,
 		SecretKind:   out.SecretKind,
 		Params:       out.Params,
-	}, out.GuacdAddress, candidatesOr(out.Connectors, out.ConnectorID), out.TenantID, out.Record, out.KeystrokeLogging, nil
+	}, out.GuacdAddress, candidatesOr(out.Connectors, out.ConnectorID), out.TenantID, out.Record, out.KeystrokeLogging, out.Moderation, nil
 }
 
 // rdpTarget is where a native RDP tunnel goes, and the device redirection the
@@ -221,6 +222,8 @@ type sshTarget struct {
 	// A TCP tunnel resource (sshtunnel.go): the user's ssh -L carries their
 	// own app's connections to Host:Port, never recorded.
 	Tunnel bool
+	// A moderated session (moderation.go): only ever a recorded one.
+	Moderation moderationRef
 }
 
 // NativeSshTarget is NativeRdpTarget for the SSH jump host (sshjump.go): the
@@ -242,6 +245,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		Secret        string           `json:"secret"`
 		PinnedHostKey string           `json:"sshHostKey"`
 		Tunnel        bool             `json:"tunnel"`
+		Moderation    moderationRef    `json:"moderation"`
 	}
 	if err := c.post("/api/internal/gateway/native-ssh", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return sshTarget{}, err
@@ -250,7 +254,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		rdpTarget: rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)},
 		Record:    out.Record, Keystrokes: out.Keystrokes, FileTransfer: out.FileTransfer,
 		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey,
-		Tunnel: out.Tunnel,
+		Tunnel: out.Tunnel, Moderation: out.Moderation,
 	}, nil
 }
 

@@ -12,6 +12,8 @@ import { ResourceIcon } from "@/components/resource-icon";
 import type { SiteTile } from "@/lib/access/grant-rows";
 import { fmt, hm, useZone } from "../audit/audit-zone";
 import { GuestInvites } from "./guest-invites";
+import { ModerationQueue } from "./moderation-queue";
+import type { WaitingRequest } from "@/lib/moderation/requests";
 
 export interface RecentRecording {
   id: string;
@@ -36,6 +38,7 @@ const labelOf = (r: LiveRow) => (isTunnel(r) ? "TCP TUNNEL" : r.database ? (r.ki
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
 const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native && !r.watchable ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);
+const isModeratorOf = (r: LiveRow, meId: string) => !!meId && r.moderation?.moderatorId === meId;
 
 /** Seconds ticking on the client only, so the server render and the first client render agree. */
 function useNow(): number | null {
@@ -67,8 +70,12 @@ function accessOf(r: LiveRow, now: number | null): string {
  * elapsed time, who is watching and how busy it is; the watch window with the
  * live view, the session's events, a message to the user and terminate.
  */
-export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, canReplay, initialWatch }: {
+export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, canReplay, initialWatch, waiting = [], canModerate = false, meId = "" }: {
   rows: LiveRow[];
+  /** Sessions waiting for a moderator (shown to those who may moderate). */
+  waiting?: WaitingRequest[];
+  canModerate?: boolean;
+  meId?: string;
   dayTotal: number;
   recent: RecentRecording[];
   workspace: string;
@@ -93,6 +100,16 @@ export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, 
   const recorded = live.filter((r) => r.recording).length;
   const watching = watchKey ? live.find((r) => keyOf(r) === watchKey) ?? null : null;
 
+  // Become a moderated session's moderator (the one before left), then watch it.
+  async function takeOver(r: LiveRow) {
+    const id = sessionIdOf(r);
+    if (!id) return;
+    const res = await fetch(`/api/admin/live/${id}/moderate`, { method: "POST" }).catch(() => null);
+    if (!res?.ok) { setToast({ msg: "Couldn't take over as moderator. Try again.", ok: false }); return; }
+    setWatchKey(keyOf(r));
+    router.refresh();
+  }
+
   const onEnded = useCallback((r: LiveRow, ok: boolean) => {
     if (ok) setEnded((s) => new Set(s).add(keyOf(r)));
     setToast({ msg: ok ? `Session ended: ${r.userLabel} on ${r.siteName}` : "Couldn't end the session. Try again.", ok });
@@ -109,6 +126,12 @@ export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, 
         </div>
         <div className="row-actions"><span className="sv-pill"><span className="sv-spin" aria-hidden="true" />Live · updates by itself</span></div>
       </div>
+
+      {canModerate && (
+        <ModerationQueue requests={waiting} now={now}
+          onStarted={(id) => { setWatchKey(id); router.refresh(); }}
+          onToast={(msg, ok = true) => setToast({ msg, ok })} />
+      )}
 
       <div className="kstrip sv-kpis">
         <div className="kcell"><span className="kcell-k"><span className="rs-kdot ok" />Active sessions</span><span className="kcell-row"><span className="kcell-v">{live.length}</span><span className="kcell-s">{people} {people === 1 ? "person" : "people"}</span></span></div>
@@ -130,8 +153,11 @@ export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, 
       ) : (
         <div className="sv-grid">
           {live.map((r) => (
-            <Card key={keyOf(r)} r={r} now={now} watching={watchKey === keyOf(r)} canTerminate={canTerminate}
-              onWatch={() => setWatchKey(keyOf(r))} onEnded={onEnded} />
+            <Card key={keyOf(r)} r={r} now={now} watching={watchKey === keyOf(r)} canTerminate={canTerminate || isModeratorOf(r, meId)}
+              onWatch={() => setWatchKey(keyOf(r))} onEnded={onEnded}
+              canTakeOver={canModerate && !!r.moderation && r.moderation.moderatorId !== meId && r.userId !== meId}
+              moderatingMine={isModeratorOf(r, meId)}
+              onTakeOver={() => void takeOver(r)} />
           ))}
         </div>
       )}
@@ -153,7 +179,7 @@ export function SessionsView({ rows, dayTotal, recent, workspace, canTerminate, 
       )}
 
       {watching && (
-        <WatchWindow r={watching} now={now} workspace={workspace} canAct={canTerminate}
+        <WatchWindow r={watching} now={now} workspace={workspace} canAct={canTerminate || isModeratorOf(watching, meId)} canInvite={canTerminate} moderating={isModeratorOf(watching, meId)}
           onClose={() => { setWatchKey(null); router.refresh(); }} onEnded={onEnded}
           onToast={(msg, ok = true) => setToast({ msg, ok })} />
       )}
@@ -196,9 +222,10 @@ function useTail(r: LiveRow): string[] {
   return tail;
 }
 
-function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
+function Card({ r, now, watching, canTerminate, onWatch, onEnded, canTakeOver, onTakeOver, moderatingMine }: {
   r: LiveRow; now: number | null; watching: boolean; canTerminate: boolean;
   onWatch: () => void; onEnded: (r: LiveRow, ok: boolean) => void;
+  canTakeOver: boolean; onTakeOver: () => void; moderatingMine: boolean;
 }) {
   const zone = useZone();
   const kind = kindOf(r);
@@ -229,9 +256,24 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
           <span className="cell-sub">Started {hm(r.startedAt, zone)}</span>
           {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : isTunnel(r) ? <span className="cell-sub">TCP tunnel · not recorded</span> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native && r.recording ? <><Sparkline values={r.activity} /><span className="cell-sub">Own {nativeApp(r)} app · recorded</span></> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
         </div>
+        {r.moderation && <ModerationLine m={r.moderation} now={now} canTakeOver={canTakeOver} onTakeOver={onTakeOver} mine={moderatingMine} />}
         <Actions r={r} canTerminate={canTerminate} onWatch={src ? onWatch : undefined} onEnded={onEnded} />
       </div>
     </article>
+  );
+}
+
+/** A moderated session's moderator, and whether they watch; without one, when it ends. */
+function ModerationLine({ m, now, canTakeOver, onTakeOver, mine }: { m: NonNullable<LiveRow["moderation"]>; now: number | null; canTakeOver: boolean; onTakeOver: () => void; mine: boolean }) {
+  const left = m.deadline && now !== null ? clockOf(Math.max(0, Date.parse(m.deadline) - now)) : "";
+  return (
+    <div className={m.present ? "sv-mod" : "sv-mod absent"}>
+      <span className="chip warn">MODERATED</span>
+      {m.present
+        ? <span className="cell-sub">Moderator: <b>{m.moderatorName ?? "Unknown"}</b> · watching</span>
+        : <span>{mine ? "You moderate it: watch live to let them continue" : "No moderator watching"} · input paused · ends in <span className="mono">{left}</span></span>}
+      {!m.present && canTakeOver && <button type="button" className="btn sm" onClick={onTakeOver}>Moderate</button>}
+    </div>
   );
 }
 
@@ -303,8 +345,8 @@ function WatchGone({ onClose }: { onClose: () => void }) {
 
 const FEED_TONE: Record<string, string> = { command: "ok", text: "warn", file: "violet", watch: "violet", control: "violet", message: "p", start: "muted" };
 
-function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
-  r: LiveRow; now: number | null; workspace: string; canAct: boolean;
+function WatchWindow({ r, now, workspace, canAct, canInvite = canAct, moderating = false, onClose, onEnded, onToast }: {
+  r: LiveRow; now: number | null; workspace: string; canAct: boolean; canInvite?: boolean; moderating?: boolean;
   onClose: () => void; onEnded: (r: LiveRow, ok: boolean) => void; onToast: (msg: string, ok?: boolean) => void;
 }) {
   const zone = useZone();
@@ -414,6 +456,7 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
               <span className="rv-mark mono" aria-hidden="true">{[workspace, r.userEmail ?? r.userLabel, r.siteName, clock].filter(Boolean).join(" · ")}</span>
               {banner && <span className="sv-banner"><b>ADMIN</b>{banner}</span>}
             </div>
+            {moderating && <p className="sv-mod-note" role="status"><b>You moderate this session.</b> The user can work only while this window is open; closing it pauses their keyboard and mouse, and the session ends 2 minutes later unless a moderator joins.</p>}
             <p className="sv-note"><i aria-hidden="true" />{r.native && r.kind === "gateway" && r.protocol === "rdp" ? (r.controllable ? "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched or taken over. Take control in the view: their input is paused while you have it. The screen and typed text keep being recorded." : "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched. You can't control it. The screen and typed text keep being recorded.") : r.native ? (r.controllable ? "A line in the user's terminal tells them an admin is watching, and when you take or give back control; their typing is paused while you have it. The terminal and commands keep being recorded." : "A line in the user's terminal tells them an admin is watching. You can't type into it. The terminal and commands keep being recorded.") : "The user is told that this session is being watched. The screen and commands keep being recorded."}</p>
           </div>
           <aside className="sv-side">
@@ -444,7 +487,7 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
                 <button type="submit" className="btn" disabled={sending || !text.trim()}>{sending ? "Sending…" : "Send"}</button>
               </form>
             )}
-            {canAct && id && r.kind === "gateway" && (!r.native || r.watchable) && <GuestInvites sessionId={id} onToast={onToast} />}
+            {canInvite && id && r.kind === "gateway" && (!r.native || r.watchable) && <GuestInvites sessionId={id} onToast={onToast} />}
             {canAct && <Actions r={r} canTerminate={canAct} onEnded={onEnded} block />}
           </aside>
         </div>
