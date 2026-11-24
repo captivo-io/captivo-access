@@ -207,7 +207,11 @@ func bridgeSSH(sc *ssh.ServerConn, chans <-chan ssh.NewChannel, reqs <-chan *ssh
 // `a` faces the data plane, `b` the server. When the server's side ends, its
 // last requests (exit-status) reach `a` before it closes.
 func pipeSSHChannel(a ssh.Channel, areqs <-chan *ssh.Request, b ssh.Channel, breqs <-chan *ssh.Request) {
-	go forwardChannelRequests(areqs, b)
+	// A request of the client's still on its way (an exec the server already
+	// answered and finished) must get its reply before `a` closes, or the
+	// client sees the channel end without one and reports EOF.
+	var pending sync.WaitGroup
+	go forwardChannelRequestsTracked(areqs, b, &pending)
 	reqsDone := make(chan struct{})
 	go func() {
 		forwardChannelRequests(breqs, a)
@@ -227,8 +231,27 @@ func pipeSSHChannel(a ssh.Channel, areqs <-chan *ssh.Request, b ssh.Channel, bre
 	case <-reqsDone:
 	case <-time.After(2 * time.Second):
 	}
+	replied := make(chan struct{})
+	go func() { pending.Wait(); close(replied) }()
+	select {
+	case <-replied:
+	case <-time.After(2 * time.Second):
+	}
 	a.Close()
 	b.Close()
+}
+
+// forwardChannelRequestsTracked is forwardChannelRequests, counting each
+// request until its reply is sent.
+func forwardChannelRequestsTracked(in <-chan *ssh.Request, out ssh.Channel, pending *sync.WaitGroup) {
+	for r := range in {
+		pending.Add(1)
+		ok, err := out.SendRequest(r.Type, r.WantReply, r.Payload)
+		if r.WantReply {
+			_ = r.Reply(ok && err == nil, nil)
+		}
+		pending.Done()
+	}
 }
 
 func forwardChannelRequests(in <-chan *ssh.Request, out ssh.Channel) {
