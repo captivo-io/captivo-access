@@ -2,8 +2,9 @@
 // resources open the in-Captivo native session page (screen stream); web
 // (TRANSPARENT) resources open directly.
 // A DATABASE resource has no page to open: its card offers connection details
-// for the user's own client instead (dbHref); a TUNNEL one an ssh command (sshHref).
+// for the user's own client instead (dbHref); a TUNNEL one an ssh command (sshHref),
+// a KUBERNETES one a kubeconfig (kubeHref).
 export function launchHref(accessMode: string, siteId: string, hostname: string): string {
-  if (accessMode === "DATABASE" || accessMode === "TUNNEL") return "";
+  if (accessMode === "DATABASE" || accessMode === "TUNNEL" || accessMode === "KUBERNETES") return "";
   return accessMode === "GATEWAY" || accessMode === "ISOLATED" ? `/gateway/${siteId}/session` : `https://${hostname}`;
 }

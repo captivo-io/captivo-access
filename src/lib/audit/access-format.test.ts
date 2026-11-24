@@ -48,6 +48,9 @@ describe("native RDP sessions", () => {
     expect(accessReasonLabel("native_rdp_not_allowed")).toBe("Not allowed in the user's own app · own RDP app");
     expect(accessReasonLabel("session_open native_tcp")).toBe("Session opened · TCP tunnel");
     expect(accessReasonLabel("native_tcp_no_grant")).toBe("No grant for this resource · TCP tunnel");
+    expect(accessReasonLabel("session_open kubernetes")).toBe("Session opened · own kubectl");
+    expect(accessReasonLabel("session_open kubernetes_exec web/api-1")).toBe("Session opened · kubectl exec web/api-1");
+    expect(accessReasonLabel("kubernetes_refused list secrets")).toBe("Refused by the resource's rules · list secrets");
     expect(accessReasonLabel("session_close 21s")).toBe("Session closed · 21s");
   });
   it("recognise the RD Gateway request they are stored under", () => {

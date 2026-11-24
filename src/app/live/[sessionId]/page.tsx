@@ -43,7 +43,7 @@ async function LiveSessionPageImpl({ params }: { params: Promise<{ sessionId: st
   // does (its connector decodes the picture). Both can be taken over where the
   // data plane offers it.
   const nativeControl = canControl && !!match?.controllable;
-  if (match?.native && match.watchable && match.protocol === "ssh") return <TermLiveViewer sessionId={sessionId} canControl={nativeControl} />;
+  if (match?.native && match.watchable && (match.protocol === "ssh" || match.protocol === "kubectl")) return <TermLiveViewer sessionId={sessionId} canControl={nativeControl} />;
   if (match?.native && match.watchable) return <LiveViewer sessionId={sessionId} canControl={nativeControl} />;
   return match?.kind === "isolated"
     ? <KasmLiveViewer sessionId={sessionId} canControl={canControl} label={match.host} />

@@ -19,7 +19,7 @@ export interface SiteRow {
   /** RDP / SSH / VNC / TELNET for a remote session; null otherwise. */
   protocol: string | null;
   description: string | null;
-  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE" | "TUNNEL";
+  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE" | "TUNNEL" | "KUBERNETES";
   hasLogo: boolean;
   iconName: string | null;
   iconColor: string | null;
@@ -56,11 +56,12 @@ const STORE_KEY = "captivo:sites-view";
 function protocolOf(s: SiteRow): string {
   if (s.accessMode === "GATEWAY") return s.protocol ?? "REMOTE";
   if (s.accessMode === "TUNNEL") return "TCP";
+  if (s.accessMode === "KUBERNETES") return "K8S";
   if (s.accessMode === "DATABASE") return s.protocol === "MYSQL" ? "MYSQL" : s.protocol === "MSSQL" ? "SQL SERVER" : "POSTGRESQL";
   const u = s.upstreamUrl ?? "";
   return u.startsWith("http://") ? "HTTP" : "HTTPS";
 }
-const isRemote = (s: SiteRow) => s.accessMode === "GATEWAY" || s.accessMode === "DATABASE" || s.accessMode === "TUNNEL";
+const isRemote = (s: SiteRow) => s.accessMode === "GATEWAY" || s.accessMode === "DATABASE" || s.accessMode === "TUNNEL" || s.accessMode === "KUBERNETES";
 const target = (s: SiteRow) => s.upstreamUrl ?? (s.gatewayTarget ? `${(s.protocol ?? "").toLowerCase() || "tcp"}://${s.gatewayTarget}` : null);
 const stripScheme = (u: string) => u.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "");
 function targetHost(s: SiteRow): string | null {
@@ -399,7 +400,7 @@ function BulkMove({ sites, connectors, groups, onCancel, onDone }: { sites: Site
   const dest = options.find((o) => o.value === to);
   const there = (s: SiteRow) => (s.connectorGroupId ? `g:${s.connectorGroupId}` : s.connectorId) === to;
   // A sealed password moves only where one of its seals still opens.
-  const sealed = sites.filter((s) => (s.accessMode === "GATEWAY" || s.accessMode === "DATABASE") && s.sealed && !there(s) && !s.sealedKeys.some((k) => dest?.keys.includes(k)));
+  const sealed = sites.filter((s) => (s.accessMode === "GATEWAY" || s.accessMode === "DATABASE" || s.accessMode === "KUBERNETES") && s.sealed && !there(s) && !s.sealedKeys.some((k) => dest?.keys.includes(k)));
   const movable = sites.filter((s) => !there(s) && !sealed.includes(s));
   async function go() {
     setBusy(true);
@@ -589,6 +590,7 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
             {s.accessMode === "ISOLATED" && <span className="rs-mode">ISOLATED</span>}
             {s.accessMode === "DATABASE" && <span className="rs-mode">DATABASE</span>}
             {s.accessMode === "TUNNEL" && <span className="rs-mode">TUNNEL</span>}
+            {s.accessMode === "KUBERNETES" && <span className="rs-mode">KUBERNETES</span>}
           </div>
           <div className="rs-host">
             <span className="rs-proto-l">{proto}</span><span className="t-muted"> · </span>

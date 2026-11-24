@@ -1,4 +1,4 @@
-import { TRANSFER_VERBS, accessReasonLabel, isDatabaseMethod, isNativeRdpMethod, isNativeSshMethod } from "@/lib/audit/access-format";
+import { TRANSFER_VERBS, accessReasonLabel, isDatabaseMethod, isKubernetesMethod, isNativeRdpMethod, isNativeSshMethod } from "@/lib/audit/access-format";
 
 // One audit record as a SIEM receives it, whichever log it came from. Pure:
 // the pump reads the rows, these functions decide what they say.
@@ -88,7 +88,7 @@ export function accessRecord(row: AccessRow): LogRecord {
     category = "session";
     action = code === "session_open" ? "session.open" : "session.close";
     name = code === "session_open" ? "Session opened" : "Session closed";
-    const how = isNativeRdpMethod(row.method) ? " with their own RDP app" : isNativeSshMethod(row.method) ? " with their own SSH app" : isDatabaseMethod(row.method) ? " with their own database client" : "";
+    const how = isNativeRdpMethod(row.method) ? " with their own RDP app" : isNativeSshMethod(row.method) ? " with their own SSH app" : isDatabaseMethod(row.method) ? " with their own database client" : isKubernetesMethod(row.method) ? " with their own kubectl" : "";
     // session_close carries the session's length after the code ("45s", "1h05m").
     const length = row.reason?.trim().split(/\s+/).find((w) => /^\d+[smh]/.test(w));
     message = code === "session_open" ? `${who} opened a session to ${where}${how}` : `${who} closed the session to ${where}${length ? ` after ${length}` : ""}`;

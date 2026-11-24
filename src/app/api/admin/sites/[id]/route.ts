@@ -107,6 +107,43 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     return NextResponse.json({ ok: true });
   }
 
+  if (v.mode === "KUBERNETES") {
+    // The token is sealed to the API server's address and the account's name: change
+    // either and it must be entered again. A credential of another kind isn't kept.
+    const prev = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true } });
+    const hadKube = prev?.protocol === "KUBERNETES";
+    if (!hadKube && !v.secret) return NextResponse.json({ error: "kube_token_required" }, { status: 400 });
+    const target = { host: v.targetHost, port: v.targetPort, username: v.username };
+    if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
+    let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = {};
+    if (v.secret) {
+      try {
+        secretUpdate = storedSecretColumns(await storedSecretFor(holder, v.secret, target));
+      } catch (e) {
+        if (e instanceof VaultInputError) return NextResponse.json({ error: e.message }, { status: 409 });
+        throw e;
+      }
+      if (!secretUpdate.sealedTo) return NextResponse.json({ error: "vault_connector_key_required" }, { status: 409 });
+    }
+    await db.$transaction(async (tx) => {
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, nativeRdp: false, nativeSsh: false, requireModerator: false, accessMode: "KUBERNETES", ...logoData } });
+      const fields = { protocol: "KUBERNETES" as const, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, kubeParams: v.kubeParams as Prisma.InputJsonValue, guacParams: Prisma.DbNull, dbParams: Prisma.DbNull };
+      if (hadKube) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate } });
+      else {
+        await tx.vaultCredential.deleteMany({ where: { siteId: id } });
+        await tx.vaultCredential.create({ data: { siteId: id, ...fields, ...(secretUpdate as ReturnType<typeof storedSecretColumns>), secretKind: "PASSWORD" } });
+      }
+    });
+    await recordAdminAction({
+      actor: { id: admin.id, email: admin.email },
+      action: "resource.update", targetType: "resource", targetId: id,
+      summary: `Updated resource "${v.name}"`,
+      clientIp: clientIp(req.headers) ?? null,
+    });
+    if (connectorGroupId && hadKube && !v.secret) await reshareGroupSecrets({ groupIds: [connectorGroupId] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
+    return NextResponse.json({ ok: true });
+  }
+
   if (v.mode === "DATABASE") {
     const prev = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true, targetHost: true, targetPort: true } });
     // A credential of another kind (a remote desktop's) is not kept for a database;

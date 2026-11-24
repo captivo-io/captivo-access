@@ -61,17 +61,17 @@ const KEYWORDS: [RegExp, string, boolean?][] = [
 ];
 
 /** What a resource is, for the automatic icon and its default colour. */
-export type ResourceKind = "web" | "isolated" | "rdp" | "ssh" | "vnc" | "database" | "tunnel";
+export type ResourceKind = "web" | "isolated" | "rdp" | "ssh" | "vnc" | "database" | "tunnel" | "kubernetes";
 
 export function autoIcon(text: string, kind: ResourceKind): string {
   const remote = kind === "rdp" || kind === "ssh" || kind === "vnc";
   const hit = KEYWORDS.find(([re, , weak]) => (!weak || !remote) && re.test(text));
   if (hit) return hit[1];
-  return kind === "database" ? "database" : kind === "tunnel" ? "plug" : kind === "ssh" ? "terminal" : remote ? "desktop" : kind === "isolated" ? "shield" : "globe";
+  return kind === "database" ? "database" : kind === "tunnel" ? "plug" : kind === "kubernetes" ? "cube" : kind === "ssh" ? "terminal" : remote ? "desktop" : kind === "isolated" ? "shield" : "globe";
 }
 
 export function defaultColor(kind: ResourceKind): IconColor {
-  return kind === "database" ? "green" : kind === "tunnel" ? "cyan" : kind === "rdp" || kind === "ssh" || kind === "vnc" ? "violet" : "blue";
+  return kind === "database" ? "green" : kind === "tunnel" ? "cyan" : kind === "kubernetes" ? "amber" : kind === "rdp" || kind === "ssh" || kind === "vnc" ? "violet" : "blue";
 }
 
 export interface TileIcon {
@@ -88,10 +88,11 @@ export function resolveIcon(s: { name: string; target?: string | null; kind: Res
   return { name: picked ?? autoIcon(`${s.name} ${s.target ?? ""}`, s.kind), color, auto: !picked };
 }
 
-/** From the stored site: web / isolated / rdp / ssh / vnc / database / tunnel. */
+/** From the stored site: web / isolated / rdp / ssh / vnc / database / tunnel / kubernetes. */
 export function kindOf(s: { accessMode: string; protocol?: string | null }): ResourceKind {
   if (s.accessMode === "ISOLATED") return "isolated";
   if (s.accessMode === "TUNNEL") return "tunnel";
+  if (s.accessMode === "KUBERNETES") return "kubernetes";
   if (s.accessMode === "DATABASE") return "database";
   if (s.accessMode === "GATEWAY") {
     const p = (s.protocol ?? "").toUpperCase();
@@ -104,6 +105,7 @@ export function kindOf(s: { accessMode: string; protocol?: string | null }): Res
 export function protoLabel(kind: ResourceKind, target: string | null | undefined): string {
   if (kind === "database") return "PostgreSQL";
   if (kind === "tunnel") return "TCP";
+  if (kind === "kubernetes") return "K8S";
   if (kind === "rdp" || kind === "ssh" || kind === "vnc") return kind.toUpperCase();
   return (target ?? "").startsWith("http://") ? "HTTP" : "HTTPS";
 }

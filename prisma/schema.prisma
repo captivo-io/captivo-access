@@ -272,6 +272,7 @@ enum SiteAccessMode {
   ISOLATED
   DATABASE // a database server for the user's own client, through the data plane's proxy (dataplane/pgproxy.go)
   TUNNEL // any TCP service, for the user's own app through an SSH port forward on the jump host (dataplane/sshtunnel.go)
+  KUBERNETES // a cluster's API server for the user's own kubectl, through the data plane (dataplane/kubeproxy.go)
 }
 
 model Connector {
@@ -440,6 +441,7 @@ enum VaultProtocol {
   POSTGRES
   MYSQL
   MSSQL
+  KUBERNETES // a service account token
 }
 
 enum VaultSecretKind {
@@ -465,6 +467,7 @@ model VaultCredential {
   secretKind VaultSecretKind @default(PASSWORD)
   guacParams Json? // curated per-resource Guacamole connection params (validated allowlist)
   dbParams   Json? // DATABASE resources: { database, databases[], tls, caCertPem } (src/lib/database/params.ts)
+  kubeParams Json? // KUBERNETES resources: { caCertPem, serverName, identity, groups[], namespaces[], readOnly, portForward } (src/lib/kubernetes/params.ts)
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
@@ -1069,6 +1072,7 @@ model LogDestination {
 /// the data plane's proxy with (dataplane/pgproxy.go). It starts connections
 /// for hours, so it lives here rather than in the data plane's memory, and it
 /// belongs to the browser session that asked for it: signing out ends it.
+/// A kubeconfig's token is one too (dataplane/kubeproxy.go).
 model DbTicket {
   id         String    @id @default(cuid())
   tenantId   String    @default("default")

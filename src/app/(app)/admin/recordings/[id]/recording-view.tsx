@@ -17,6 +17,7 @@ import { VideoRecordingPlayer } from "./video-recording-player";
 import { TermRecordingPlayer } from "./term-recording-player";
 import { PreparingRecording } from "./preparing-recording";
 import { QueryLog } from "./query-log";
+import { RequestLog } from "./request-log";
 
 export interface RecordingInfo {
   id: string;
@@ -174,7 +175,9 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
       <div className="rv-grid">
         <div className="rv-stage">
           {sql ? (
-            <QueryLog events={keys} state={keysState} startedAt={rec.startedAt} />
+            rec.protocol === "kubernetes"
+              ? <RequestLog events={keys} state={keysState} startedAt={rec.startedAt} />
+              : <QueryLog events={keys} state={keysState} startedAt={rec.startedAt} />
           ) : empty ? (
             <div className="rv-empty">
               <b>Empty session</b>

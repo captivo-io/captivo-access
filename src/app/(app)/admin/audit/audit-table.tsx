@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { parseDatetimeLocal, formatDatetimeLocal } from "@/lib/time/datetime-local";
-import { accessReasonLabel, isDatabaseMethod, isNativeRdpMethod, isNativeSshMethod, transferBadge } from "@/lib/audit/access-format";
+import { accessReasonLabel, isDatabaseMethod, isKubernetesMethod, isNativeRdpMethod, isNativeSshMethod, transferBadge } from "@/lib/audit/access-format";
 import { groupBursts, describeAgent, type Burst } from "@/lib/audit/grouping";
 import type { Histogram } from "@/lib/audit/histogram";
 import { AuditDrawer, DetailList } from "./audit-drawer";
@@ -67,7 +67,7 @@ export function formatBytes(raw: string): string {
 const initials = (s: string) => (s.split(/[\s@.]+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("") || "?").toUpperCase();
 // A remote session's open / close marker (the reason carries which), not an HTTP request.
 const isSession = (r: AccessRowJSON) => /^session_(open|close)/.test(r.reason ?? "");
-const notHttp = (r: AccessRowJSON) => r.method === "CONNECT" || isSession(r) || isNativeRdpMethod(r.method) || isNativeSshMethod(r.method) || isDatabaseMethod(r.method);
+const notHttp = (r: AccessRowJSON) => r.method === "CONNECT" || isSession(r) || isNativeRdpMethod(r.method) || isNativeSshMethod(r.method) || isDatabaseMethod(r.method) || isKubernetesMethod(r.method);
 
 function params(f: AccessFilters, offset: number, histogram: boolean): URLSearchParams {
   const p = new URLSearchParams();
@@ -106,6 +106,7 @@ function Method({ r, site }: { r: AccessRowJSON; site?: SiteInfo }) {
   if (isNativeRdpMethod(r.method)) return <span className="au-m" title={r.method}>RDP</span>;
   if (isNativeSshMethod(r.method)) return <span className="au-m" title="Own SSH app, through the jump host">SSH</span>;
   if (isDatabaseMethod(r.method)) return <span className="au-m" title="Own database client, through the database proxy">DB</span>;
+  if (isKubernetesMethod(r.method)) return <span className="au-m" title="Own kubectl, through the Kubernetes proxy">K8S</span>;
   const cls = { GET: "get", HEAD: "get", POST: "post", PUT: "put", PATCH: "put", DELETE: "del" }[r.method] ?? "";
   return <span className={`au-m ${cls}`}>{r.method}</span>;
 }

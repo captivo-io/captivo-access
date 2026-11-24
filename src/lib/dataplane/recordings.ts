@@ -85,7 +85,7 @@ export async function fetchFromConnector(input: {
    * a caller that does not say which one it wants cannot be served a right answer,
    * and a default here would silently hand a player the wrong stream.
    */
-  format: "guac" | "rrweb" | "video" | "keys" | "term";
+  format: "guac" | "rrweb" | "video" | "keys" | "term" | "rdp";
   fromSeq?: number;
   fromByte?: number;
   toByte?: number;

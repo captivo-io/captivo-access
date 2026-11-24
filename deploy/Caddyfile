@@ -29,6 +29,11 @@ manager.{$ACCESS_DOMAIN} {
 	# hostname but must reach the data-plane, not the Next.js manager. Caddy proxies the WebSocket upgrade transparently.
 	@guac path /guac-tunnel /guac-view /kasm-tunnel /kasm-tunnel/* /kasm-view /kasm-view/* /web-view /remoteDesktopGateway /remoteDesktopGateway/*
 	reverse_proxy @guac access-dataplane:3103
+	# Kubernetes API for the user's own kubectl (watches stream, exec upgrades).
+	@k8s path /k8s/*
+	reverse_proxy @k8s access-dataplane:3103 {
+		flush_interval -1
+	}
 	reverse_proxy access-manager:3100
 }
 

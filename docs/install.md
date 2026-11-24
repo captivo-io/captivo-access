@@ -157,7 +157,8 @@ with every gateway connector and reverse-proxied at `/kasm-tunnel`, so host-ngin
 deployments must route `/kasm-tunnel` (and `/kasm-tunnel/`) and `/kasm-view` (and
 `/kasm-view/`, the admin live-watch relay) to the data-plane like `/guac-tunnel`
 (and `/remoteDesktopGateway/`, the RD Gateway for native RDP clients, with WebSocket
-upgrades and a long read timeout),
+upgrades and a long read timeout; and `/k8s/`, the Kubernetes API for the user's own
+kubectl, with upgrades, response buffering off and no request body limit),
 and if you set the connector's `ALLOWED_TARGETS` it must include
 `captivo-kasm:6901` and `captivo-kasm:7900`, like `captivo-guacd:4822`),
 `CONNECTOR_TUNNEL_URL` (overrides the default

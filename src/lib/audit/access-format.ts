@@ -53,6 +53,10 @@ const REASONS: Record<string, string> = {
   host_key_changed: "The server's SSH host key changed",
   sign_in_failed: "Signing in to the server failed",
   connector_outdated: "The connector needs an update",
+  // Kubernetes requests (dataplane/kubeproxy.go): what was refused or opened follows.
+  kubernetes_refused: "Refused by the resource's rules",
+  kubernetes_portforward: "Port forward",
+  kubernetes_proxy: "Proxy to a pod or service",
 };
 
 // Words after the code that are themselves codes (dataplane/rdpgw.go writes
@@ -63,6 +67,10 @@ const REASON_DETAILS: Record<string, string> = {
   native_ssh_recorded: "own SSH app, recorded",
   native_tcp: "TCP tunnel",
   database: "own database client",
+  kubernetes: "own kubectl",
+  kubernetes_exec: "kubectl exec",
+  kubernetes_attach: "kubectl attach",
+  grant_ended: "grant ended",
   ticket_ended: "connection ticket ended",
   grant_inactive: "grant no longer active",
 };
@@ -95,6 +103,12 @@ export function isNativeRdpMethod(method: string): boolean {
 // this method: there is no HTTP request behind it.
 export function isNativeSshMethod(method: string): boolean {
   return method === "SSH";
+}
+
+// A Kubernetes session through the proxy (dataplane/kubeproxy.go); its path is
+// the namespace ("/web") when the event has one.
+export function isKubernetesMethod(method: string): boolean {
+  return method === "K8S";
 }
 
 // A database session through the proxy (dataplane/pgproxy.go); its path is
