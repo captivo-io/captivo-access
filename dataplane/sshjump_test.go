@@ -279,6 +279,13 @@ func TestSSHJumpGoesThroughThePickedGroupMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	// One echo round trip: the jump lists the session once the relay runs.
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(conn, make([]byte, 4)); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Join(*dialed, ",") != "c2/10.0.0.5:22" {
 		t.Fatalf("dialed %v, want the online member", *dialed)
 	}
