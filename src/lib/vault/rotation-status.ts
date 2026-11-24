@@ -24,6 +24,8 @@ export type RotationStatus = {
   verifiedAt: string | null;
   dueAt: string | null;
   pending: boolean;
+  /** "hashicorp" or "cyberark" when the credential lives in the customer's own vault (connector/vaultprovider.go). */
+  vaultSource: string | null;
   /** RDP: a local account of the server or a domain account, and whether an admin said so. */
   windowsAccount: { account: WindowsAccount; chosen: boolean } | null;
   /** Linux, Windows, a database: this server's reconcile account. AD: the directory's reset account. */
@@ -45,7 +47,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
       protocol: true, secretKind: true, secret: true, dbParams: true, sealedTo: true, extraSeals: true, targetHost: true, targetPort: true, username: true,
       rotateAfterSession: true, rotateEveryDays: true, rotateVerifyDaily: true, rotateDueAt: true, rotatedAt: true, verifiedAt: true,
       rotationState: true, rotationDetail: true, pendingSeals: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true,
-      guacParams: true, rotationAccount: true,
+      guacParams: true, rotationAccount: true, secretSource: true,
       site: {
         select: {
           nativeRdp: true, nativeSsh: true, recordSessions: true,
@@ -77,7 +79,8 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
   return {
     method: "method" in m ? m.method : null,
     unsupported: "unsupported" in m ? m.unsupported : null,
-    windowsAccount: c.protocol === "RDP" ? windowsAccountOf(c) : null,
+    windowsAccount: c.protocol === "RDP" && !c.secretSource ? windowsAccountOf(c) : null,
+    vaultSource: c.secretSource,
     cleartext: (c.protocol === "MYSQL" || c.protocol === "MSSQL") && parseDbParams(c.dbParams, c.protocol).tls === "disable",
     native: nativeBlocksRotation({ ...c.site, recorded: await effectiveSiteRecording(c.site.recordSessions) }),
     afterSession: c.rotateAfterSession,

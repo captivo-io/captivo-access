@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { sealSecret } from "@/lib/vault/seal";
@@ -14,6 +14,8 @@ import { NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR } from "@/l
 import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
 import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
+import { CredentialSource, type CredentialSource as CredentialSourceKind } from "./vault-ref-fields";
+import { VAULT_PROVIDER_MIN_CONNECTOR } from "@/lib/vault/providers";
 import { platformLabel } from "@/lib/connector/platform-label";
 import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
@@ -82,7 +84,7 @@ export interface ResourceInitial {
   iconColor: string | null;
   logoBg: string | null;
 }
-export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; kubeParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[]; sshHostKey?: string | null }
+export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; kubeParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[]; sshHostKey?: string | null; secretSource?: string | null }
 export type EgressEvent = { dest: string; blocked: boolean; reason: string; count: number; last: string };
 
 const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: string; color: IconColor }[] = [
@@ -209,6 +211,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [insecure, setInsecure] = useState(site?.insecureSkipVerify ?? false);
   const [username, setUsername] = useState(vault?.username ?? "");
   const [secret, setSecret] = useState("");
+  // Where the credential lives: typed here (kept sealed by Captivo) or in the customer's own vault.
+  const [source, setSource] = useState<CredentialSourceKind>((vault?.secretSource as CredentialSourceKind | null | undefined) ?? "local");
+  const [refSealText, setRefSealText] = useState<string | null>(null);
+  const [refProblemText, setRefProblemText] = useState<string | null>(null);
+  const onRef = useCallback((t: string | null, p: string | null) => { setRefSealText(t); setRefProblemText(p); }, []);
+  const effSecret = source === "local" ? secret : refSealText ?? "";
   // Session rules.
   const [record, setRecord] = useState(site?.recordSessions ?? false);
   // A new remote desktop or SSH resource logs keystrokes with its recording
@@ -314,7 +322,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const sealedTargetChanged = !!vault?.sealed && !!hostPort &&
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
-  const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
+  const unsealedMembers = group && vault?.sealed && !effSecret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
   const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && !(DB_ENGINES as readonly string[]).includes(vault.protocol)) || (isKube && vault.protocol !== "KUBERNETES") || (!isKube && vault.protocol === "KUBERNETES"));
 
   function pickKind(k: Kind) {
@@ -376,7 +384,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (kind === "web" && !(customDomain ? domainOk : labelOk || !suffix)) missing.push("public address");
   if (kind === "web" && hostState && hostState.host === publicHost && !hostState.available) missing.push("a free public address");
   if (cred && !username.trim()) missing.push(isKube ? "service account" : "username");
-  if (cred && needSecret && !secret) missing.push(isKube ? "token" : "password");
+  if (cred && source !== "local" && refProblemText && (needSecret || refSealText !== null || !vault?.secretSource)) missing.push("vault details");
+  else if (cred && needSecret && !effSecret) missing.push(source !== "local" ? "vault reference" : isKube ? "token" : "password");
   if (isDb && !dbNameOk) missing.push("database name");
   if (isKube && !kubeCaOk) missing.push("a PEM CA certificate");
   if (isKube && kubeIdentity === "impersonate" && !kubeGroupsOk) missing.push("valid groups");
@@ -431,14 +440,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     setBusy(true);
     try {
       let secretBody: Record<string, unknown> = {};
-      if (cred && secret && hostPort) {
+      if (cred && effSecret && hostPort) {
         try {
           // Sealed in this browser to every connector that may carry the session.
           const target = { host: hostPort.host, port: hostPort.port, username: username.trim() };
-          const extra = Object.fromEntries(await Promise.all(routeKeys.slice(1).map(async (k) => [k, await sealSecret(k, secret, target)] as const)));
+          const extra = Object.fromEntries(await Promise.all(routeKeys.slice(1).map(async (k) => [k, await sealSecret(k, effSecret, target)] as const)));
           secretBody = vaultKey
-            ? { sealedSecret: await sealSecret(vaultKey, secret, target), sealedTo: vaultKey, ...(Object.keys(extra).length ? { extraSeals: extra } : {}) }
-            : { secret };
+            ? { sealedSecret: await sealSecret(vaultKey, effSecret, target), sealedTo: vaultKey, ...(Object.keys(extra).length ? { extraSeals: extra } : {}), ...(source !== "local" ? { secretSource: source } : {}) }
+            : { secret: effSecret };
         } catch {
           setError(errorMessage("vault_unsupported_browser", edit));
           return;
@@ -658,9 +667,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <div className="rf-creds">
               <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Service account" : "Username"}</span></span>
                 <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : isDb ? "app_readonly" : isKube ? "captivo-access" : "Administrator"} /></label>
-              <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Token" : "Password"}</span></span>
+              {vaultKey && <CredentialSource source={source} onSource={setSource} saved={!!vault?.secretSource && vault.secretSource === source} onRef={onRef} minConnector={VAULT_PROVIDER_MIN_CONNECTOR} />}
+              {source === "local" && <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Token" : "Password"}</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
-                  placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>
+                  placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>}
               {isKube ? (
                 <p className="rf-hint rf-wide">Users never see the token; the connector signs every request in with it. It is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved token was encrypted for the previous address, account or connector, so paste it again." : ""}</p>
               ) : (

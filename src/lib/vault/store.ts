@@ -14,7 +14,7 @@ export { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 // key yet (not updated) gets the earlier server-side encryption, which is
 // sealed as soon as it reports one (sealLegacyCredentials).
 
-export type StoredSecret = { secret: string; sealedTo: string | null; extraSeals?: Record<string, string> | null };
+export type StoredSecret = { secret: string; sealedTo: string | null; extraSeals?: Record<string, string> | null; /** set by a newly entered secret: where it lives (null = a password); left out when a seal is only copied or replaced */ source?: string | null };
 
 export class VaultInputError extends Error {}
 
@@ -65,7 +65,7 @@ export function splitSeals(seals: Record<string, string>, order: string[]): Stor
 
 /** A StoredSecret as VaultCredential columns. */
 export function storedSecretColumns(s: StoredSecret) {
-  return { secret: s.secret, sealedTo: s.sealedTo, extraSeals: (s.extraSeals ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull };
+  return { secret: s.secret, sealedTo: s.sealedTo, extraSeals: (s.extraSeals ?? Prisma.DbNull) as Prisma.InputJsonValue | typeof Prisma.DbNull, ...(s.source !== undefined ? { secretSource: s.source } : {}) };
 }
 
 // The value to store for a new secret aimed at target through holder.
@@ -82,14 +82,16 @@ export async function storedSecretFor(holder: string | VaultHolder, input: Secre
       if (!isSealedValue(v)) throw new VaultInputError("invalid_sealed_secret");
       seals[k] = v;
     }
-    return splitSeals(seals, [input.sealedTo, ...keys]);
+    return { ...splitSeals(seals, [input.sealedTo, ...keys]), source: input.source ?? null };
   }
   if (keys.length) {
     const seals: Record<string, string> = {};
     for (const k of keys) seals[k] = await sealSecret(k, input.secret, target);
-    return splitSeals(seals, keys);
+    return { ...splitSeals(seals, keys), source: input.source ?? null };
   }
-  return { secret: encrypt(input.secret), sealedTo: null, extraSeals: null };
+  // A vault reference carries the provider's own credentials: never kept where the server can open it.
+  if (input.source) throw new VaultInputError("vault_connector_key_required");
+  return { secret: encrypt(input.secret), sealedTo: null, extraSeals: null, source: null };
 }
 
 // A sealed secret opens only for the target and connector it was sealed for.
@@ -188,7 +190,7 @@ export async function hasVaultCredential(siteId: string): Promise<boolean> {
 export async function getVaultCredentialMeta(siteId: string) {
   const c = await db.vaultCredential.findUnique({
     where: { siteId },
-    select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true, kubeParams: true, sshHostKey: true, sealedTo: true, secret: true, extraSeals: true, site: { select: holderSelect } },
+    select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true, kubeParams: true, sshHostKey: true, secretSource: true, sealedTo: true, secret: true, extraSeals: true, site: { select: holderSelect } },
   });
   if (!c) return null;
   const { sealedTo, secret, extraSeals, site, ...rest } = c;

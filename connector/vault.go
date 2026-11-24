@@ -280,7 +280,7 @@ func (s *sealedRelay) fillConnect(elems []string) ([]string, error) {
 		}
 		return ""
 	}
-	secret, err := openSealed(s.key, s.sealed, vaultTargetAAD(get("hostname"), get("port"), get("username")))
+	secret, err := openSecret(s.key, s.sealed, vaultTargetAAD(get("hostname"), get("port"), get("username")))
 	if err != nil {
 		return nil, err
 	}
