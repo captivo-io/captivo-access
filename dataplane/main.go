@@ -81,14 +81,14 @@ func main() {
 	if err != nil {
 		log.Printf("WARNING: ssh jump host not started: %v", err)
 	}
-	// PostgreSQL, MySQL and SQL Server clients for database resources (pgproxy.go,
-	// mysqlproxy.go, mssqlproxy.go). DB_ADDR=off / MYSQL_ADDR=off / MSSQL_ADDR=off turns one off. Without DB_TLS_CERT/DB_TLS_KEY
+	// PostgreSQL, MySQL, SQL Server, Redis and MongoDB clients for database resources (pgproxy.go,
+	// mysqlproxy.go, mssqlproxy.go, redisproxy.go, mongoproxy.go). DB_ADDR=off / MYSQL_ADDR=off / MSSQL_ADDR=off / REDIS_ADDR=off / MONGO_ADDR=off turns one off. Without DB_TLS_CERT/DB_TLS_KEY
 	// it keeps a self-signed certificate in DB_TLS_DIR.
 	edgeCert, err := newEdgeCert(os.Getenv("DB_TLS_CERT"), os.Getenv("DB_TLS_KEY"), env("DB_TLS_DIR", "/data"))
 	if err != nil {
 		log.Printf("WARNING: no certificate for the database proxies and recorded native RDP: %v", err)
 	}
-	dbOn, myOn, msOn, err := startDbProxy(env("DB_ADDR", ":15432"), env("MYSQL_ADDR", ":13306"), env("MSSQL_ADDR", ":11433"), edgeCert, pgProxyDeps{
+	dbUp, err := startDbProxy(dbAddrs{pg: env("DB_ADDR", ":15432"), my: env("MYSQL_ADDR", ":13306"), ms: env("MSSQL_ADDR", ":11433"), redis: env("REDIS_ADDR", ":16380"), mongo: env("MONGO_ADDR", ":17017")}, edgeCert, pgProxyDeps{
 		ctrl: ctrl, hub: hub, audit: audit, now: time.Now, recIndex: ctrl.SendRecording,
 		session: reg.Get,
 		pick:    func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
@@ -102,7 +102,7 @@ func main() {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"enabled": dbOn, "mysql": myOn, "mssql": msOn})
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": dbUp.pg, "mysql": dbUp.my, "mssql": dbUp.ms, "redis": dbUp.redis, "mongodb": dbUp.mongo})
 	})
 	in.HandleFunc("/ssh-ticket", serveSSHTicket(sshInfo, sshTickets, secret))
 	in.HandleFunc("/ssh-info", serveSSHInfo(sshInfo, secret))

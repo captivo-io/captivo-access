@@ -241,6 +241,10 @@ func wrongEngine(t dbTarget) string {
 		return "this resource is a MySQL database; connect with a MySQL client (the Connect details in your portal)"
 	case "mssql":
 		return "this resource is a SQL Server database; connect with a SQL Server client (the Connect details in your portal)"
+	case "redis":
+		return "this resource is a Redis database; connect with a Redis client (the Connect details in your portal)"
+	case "mongodb":
+		return "this resource is a MongoDB database; connect with a MongoDB client (the Connect details in your portal)"
 	}
 	return "this resource is a PostgreSQL database; connect with a PostgreSQL client (the Connect details in your portal)"
 }

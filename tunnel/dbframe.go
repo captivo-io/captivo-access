@@ -9,7 +9,7 @@ package tunnel
 // queries. The password never leaves the connector.
 type DbDialRequest struct {
 	Kind     string `json:"kind"`   // "db"
-	Engine   string `json:"engine"` // "postgres" | "mysql" | "mssql"
+	Engine   string `json:"engine"` // "postgres" | "mysql" | "mssql" | "redis" | "mongodb"
 	Host     string `json:"host"`
 	Port     string `json:"port"`
 	Username string `json:"username"`

@@ -25,7 +25,7 @@ import (
 )
 
 // Database access (Kind "db"): the connector signs in to the resource's
-// PostgreSQL, MySQL (mysql.go) or SQL Server (mssql.go) server with the saved password and hands the data plane a
+// PostgreSQL, MySQL (mysql.go), SQL Server (mssql.go), Redis (redis.go) or MongoDB (mongo.go) server with the saved password and hands the data plane a
 // connection that is already past authentication. The user's client never
 // sees the password, and neither does the control plane: it opens here only,
 // for the target it was sealed for.
@@ -59,7 +59,7 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		return
 	}
 	addr := net.JoinHostPort(req.Host, req.Port)
-	if req.Engine != "postgres" && req.Engine != "mysql" && req.Engine != "mssql" {
+	if req.Engine != "postgres" && req.Engine != "mysql" && req.Engine != "mssql" && req.Engine != "redis" && req.Engine != "mongodb" {
 		writeDbErr(st, "this connector does not support the "+req.Engine+" engine", "")
 		return
 	}
@@ -83,6 +83,10 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		conn, br, resp, perr = mySignIn(req, password)
 	case "mssql":
 		conn, br, resp, perr = mssqlSignIn(req, password)
+	case "redis":
+		conn, br, resp, perr = redisSignIn(req, password)
+	case "mongodb":
+		conn, br, resp, perr = mongoSignIn(req, password)
 	default:
 		conn, br, resp.TLS, perr = pgSignIn(req, password)
 	}
@@ -90,7 +94,13 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		var pe *pgError
 		var me *myError
 		var te *tunnel.TDSServerError
+		var re *redisError
+		var mo *mongoError
 		switch {
+		case errors.As(perr, &mo):
+			writeDbErr(st, mo.msg, mo.code)
+		case errors.As(perr, &re):
+			writeDbErr(st, re.msg, "")
 		case errors.As(perr, &te):
 			writeDbErr(st, te.Msg, strconv.FormatUint(uint64(te.Number), 10))
 		case errors.As(perr, &pe):
