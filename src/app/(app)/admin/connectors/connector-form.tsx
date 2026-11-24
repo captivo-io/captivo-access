@@ -22,7 +22,8 @@ export function ConnectorForm({ onDone }: { onDone?: () => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pairing, setPairing] = useState<{ code: string; installCommand: string; installCommandManual: string; managerUrlIsLocal: boolean } | null>(null);
+  const [pairing, setPairing] = useState<{ code: string; installCommand: string; installCommandManual: string; installCommandWindows?: string; installCommandLinux?: string; managerUrlIsLocal: boolean } | null>(null);
+  const [host, setHost] = useState<"docker" | "linux" | "windows">("docker");
   const [withUpdater, setWithUpdater] = useState(true);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -45,9 +46,12 @@ export function ConnectorForm({ onDone }: { onDone?: () => void }) {
         code: result.code,
         installCommand: result.installCommand,
         installCommandManual: result.installCommandManual ?? result.installCommand,
+        installCommandWindows: result.installCommandWindows,
+        installCommandLinux: result.installCommandLinux,
         managerUrlIsLocal: Boolean(result.managerUrlIsLocal),
       });
       setName("");
+      setHost("docker");
     } catch {
       setError("Couldn't create the connector, please try again.");
     } finally {
@@ -98,12 +102,38 @@ export function ConnectorForm({ onDone }: { onDone?: () => void }) {
             in the list (as <b>Pending</b>, then <b>Online</b>) once it connects — creating it here doesn&apos;t
             add a row until then. This pairing code is shown only once.
           </p>
-          <UpdaterChoice on={withUpdater} onChange={setWithUpdater} />
-          <CommandBlock
-            command={withUpdater ? pairing.installCommand : pairing.installCommandManual}
-            display={formatShellCommand(withUpdater ? pairing.installCommand : pairing.installCommandManual)}
-            title="connector-install"
-          />
+          {(pairing.installCommandWindows || pairing.installCommandLinux) && (
+            <div className="seg" role="tablist" aria-label="Where it runs">
+              {([["docker", "Docker"], ["linux", "Linux service"], ["windows", "Windows service"]] as const)
+                .filter(([k]) => k === "docker" || (k === "linux" ? pairing.installCommandLinux : pairing.installCommandWindows))
+                .map(([k, l]) => (
+                  <button key={k} type="button" role="tab" aria-selected={host === k} className={host === k ? "seg-opt on" : "seg-opt"} onClick={() => setHost(k)}>{l}</button>
+                ))}
+            </div>
+          )}
+          {host === "docker" ? (
+            <>
+              <UpdaterChoice on={withUpdater} onChange={setWithUpdater} />
+              <CommandBlock
+                command={withUpdater ? pairing.installCommand : pairing.installCommandManual}
+                display={formatShellCommand(withUpdater ? pairing.installCommand : pairing.installCommandManual)}
+                title="connector-install"
+              />
+            </>
+          ) : (
+            <>
+              <p className="cell-sub">
+                Installs the connector as {host === "windows" ? "a Windows service (run it from an elevated PowerShell)" : "a systemd service (it asks for sudo)"}, with no Docker. It serves web apps,
+                databases, Kubernetes clusters and TCP tunnels. Remote desktops, SSH in the browser and isolated browsers
+                need the Docker install, which brings the engines for them. Update it later with{" "}
+                <code>{host === "windows" ? "connector.exe update" : "captivo-connector update"}</code> on the host.
+              </p>
+              {(() => {
+                const cmd = host === "windows" ? pairing.installCommandWindows! : pairing.installCommandLinux!;
+                return <CommandBlock command={cmd} display={cmd.replace(/; /g, ";\n")} title={host === "windows" ? "connector-install-windows" : "connector-install-linux"} />;
+              })()}
+            </>
+          )}
           {pairing.managerUrlIsLocal && (
             <p className="notice error">
               <code>MANAGER_URL</code> points at <code>localhost</code> (you&apos;re viewing this over

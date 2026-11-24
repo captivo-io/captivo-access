@@ -7,6 +7,7 @@ import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import { resolveConnectorChoice } from "@/lib/connector/groups";
+import { connectorsThatCannotServe, NO_ENGINES_TEXT } from "@/lib/connector/platform";
 import type { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
@@ -49,6 +50,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (!connector) {
     return NextResponse.json({ error: "connector_not_found" }, { status: 400 });
   }
+  const cannotServe = await connectorsThatCannotServe(v.mode, v.connectorId, connectorGroupId);
+  if (cannotServe.length) return NextResponse.json({ error: "connector_platform", detail: `${cannotServe.join(", ")}: ${NO_ENGINES_TEXT}` }, { status: 409 });
 
   const logoResult = parseLogoUpload(body.logo, body.logoType);
   if (logoResult.action === "error") {

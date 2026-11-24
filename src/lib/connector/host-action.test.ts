@@ -7,6 +7,10 @@ const tele = (extra: Partial<ConnectorTelemetry> = {}): ConnectorTelemetry => ({
 });
 
 describe("remoteControl", () => {
+  it("has no updater for a connector installed as a program", () => {
+    expect(remoteControl(true, tele({ updater: { version: "2.41.0", dockerOk: true } }), undefined, Date.now(), "windows")).toEqual({ ok: false, reason: "program" });
+    expect(remoteControl(false, tele(), undefined, Date.now(), "linux")).toEqual({ ok: false, reason: "offline" });
+  });
   it("needs the connector online with a working updater", () => {
     expect(remoteControl(false, tele({ updater: { version: "2.41.0", dockerOk: true } }))).toEqual({ ok: false, reason: "offline" });
     expect(remoteControl(true, tele())).toEqual({ ok: false, reason: "no_updater" });

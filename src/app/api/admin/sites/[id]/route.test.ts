@@ -13,7 +13,8 @@ vi.mock("@/lib/tenant/request", () => ({ withTenantRoute: (h: unknown) => h }));
 vi.mock("@/lib/current-user", () => ({ getCurrentUser: async () => ({ id: "a1", email: "a@x", role: "ADMIN" }) }));
 vi.mock("@/lib/db", () => ({
   db: {
-    connector: { findUnique: async () => ({ id: "c1" }) },
+    connector: { findUnique: async () => ({ id: "c1" }), findMany: async () => [] },
+    connectorGroupMember: { findMany: async () => [] },
     site: { findUnique: async () => ({ id: "s1", hostname: null }) },
     vaultCredential: { count: vi.fn(), findUnique: vi.fn(async () => null) },
     $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),

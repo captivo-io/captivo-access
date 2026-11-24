@@ -37,7 +37,7 @@ export function storedHostAction(v: unknown): StoredHostAction | null {
 
 export type RemoteControl =
   | { ok: true; updaterVersion: string }
-  | { ok: false; reason: "offline" | "no_updater" | "no_docker" | "installing" };
+  | { ok: false; reason: "offline" | "no_updater" | "no_docker" | "installing" | "program" };
 
 /**
  * How long after pairing a connector without an updater counts as still being
@@ -51,8 +51,10 @@ export const UPDATER_INSTALL_GRACE_MS = 20 * 60_000;
  * connector reports an updater only while the updater's heartbeat is fresh, and
  * only connectors from 2.41.0 report one at all.
  */
-export function remoteControl(online: boolean, t: ConnectorTelemetry | null | undefined, pairedAt?: Date | string | null, now = Date.now()): RemoteControl {
+export function remoteControl(online: boolean, t: ConnectorTelemetry | null | undefined, pairedAt?: Date | string | null, now = Date.now(), platform?: string | null): RemoteControl {
   if (!online || !t) return { ok: false, reason: "offline" };
+  // Installed as a program: no updater and no Docker, updated by `connector update` on its host.
+  if (platform) return { ok: false, reason: "program" };
   if (!t.updater) {
     const paired = pairedAt ? new Date(pairedAt).getTime() : NaN;
     return { ok: false, reason: now - paired < UPDATER_INSTALL_GRACE_MS ? "installing" : "no_updater" };

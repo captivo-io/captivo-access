@@ -8,7 +8,7 @@ import { compareSemver } from "@/lib/updates/semver";
 // moment the session opens (dataplane/connpick.go), because only it knows
 // which tunnels are up and how many sessions each carries.
 
-export type RouteConnector = { id: string; name: string; status: ConnectorStatus; version: string | null; vaultPublicKey: string | null };
+export type RouteConnector = { id: string; name: string; status: ConnectorStatus; version: string | null; vaultPublicKey: string | null; platform?: string | null };
 export type RouteMember = RouteConnector & { standby: boolean };
 
 export type SiteRouting = {
@@ -18,7 +18,7 @@ export type SiteRouting = {
   probeByConnector: Prisma.JsonValue | null;
 };
 
-const connectorSelect = { id: true, name: true, status: true, version: true, vaultPublicKey: true } as const;
+const connectorSelect = { id: true, name: true, status: true, version: true, vaultPublicKey: true, platform: true } as const;
 
 /** The Site fields routeMembers reads; spread into a Site select. */
 export const siteRoutingSelect = {
@@ -43,13 +43,15 @@ export function memberProbes(v: Prisma.JsonValue | null | undefined): Record<str
   return out;
 }
 
-export type Exclusion = "revoked" | "outdated" | "no_seal" | "unreachable";
+export type Exclusion = "revoked" | "outdated" | "no_seal" | "unreachable" | "no_engines";
 
 export type RouteOptions = {
   /** Members older than this cannot carry the session (native RDP/SSH relays). */
   minVersion?: string;
   /** False for a member that cannot open the resource's sealed secret. */
   canOpen?: (m: RouteMember) => boolean;
+  /** The session needs guacd or the isolated browser beside the connector: a connector installed as a program has neither. */
+  engines?: boolean;
 };
 
 /**
@@ -60,7 +62,10 @@ export type RouteOptions = {
  * no filtering, so its behaviour is the one it always had.
  */
 export function routeMembers(r: SiteRouting, opts: RouteOptions = {}): { eligible: RouteMember[]; excluded: { member: RouteMember; why: Exclusion }[] } {
-  if (!r.connectorGroup) return { eligible: [{ ...r.connector, standby: false }], excluded: [] };
+  if (!r.connectorGroup) {
+    const only = { ...r.connector, standby: false };
+    return opts.engines && r.connector.platform ? { eligible: [], excluded: [{ member: only, why: "no_engines" }] } : { eligible: [only], excluded: [] };
+  }
   const probes = memberProbes(r.probeByConnector);
   const members = r.connectorGroup.members.map((m) => ({ ...m.connector, standby: m.standby }));
   const someoneReaches = members.some((m) => m.status !== "REVOKED" && probes[m.id]?.ok === true);
@@ -69,6 +74,7 @@ export function routeMembers(r: SiteRouting, opts: RouteOptions = {}): { eligibl
   for (const m of members) {
     const why: Exclusion | null =
       m.status === "REVOKED" ? "revoked"
+      : opts.engines && m.platform ? "no_engines"
       : opts.minVersion && compareSemver(m.version, opts.minVersion) === -1 ? "outdated"
       : opts.canOpen && !opts.canOpen(m) ? "no_seal"
       : someoneReaches && probes[m.id]?.ok === false ? "unreachable"

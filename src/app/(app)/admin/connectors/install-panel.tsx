@@ -59,7 +59,7 @@ export function InstallPanel({ first, pending, blockedReason = null }: { first: 
         <span className="cn-plus" aria-hidden="true">+</span>
         <div>
           <h2>{first ? "Add your first connector" : "Add a new connector"}</h2>
-          <p>Runs on any Linux host with Docker inside the network. It dials out over TLS: no inbound ports, no VPN.</p>
+          <p>Runs inside the network on a Linux host with Docker, or as a Windows or Linux service. It dials out over TLS: no inbound ports, no VPN.</p>
         </div>
       </div>
       {blockedReason ? <p className="rf-msg warn">{blockedReason}</p> : <ConnectorForm key={k} onDone={() => { setK((n) => n + 1); router.refresh(); }} />}

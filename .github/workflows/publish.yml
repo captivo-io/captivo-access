@@ -22,6 +22,29 @@ jobs:
         with: { fetch-depth: 0 }
       - run: scripts/check-connector-release.sh
 
+  # The connector as a program for hosts without Docker (Windows service, Linux
+  # systemd unit): archives and SHA256SUMS on the GitHub release, which the
+  # console's install command and `connector update` download from.
+  connector-binaries:
+    needs: connector-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: connector/go.mod }
+      - run: scripts/build-connector-binaries.sh "${GITHUB_REF_NAME#v}" dist
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The release's notes are written by hand after the tag; make the release if it is not there yet.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --title "Captivo Access ${GITHUB_REF_NAME#v}" --notes "Release notes follow."
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
   build-and-push:
     needs: connector-release
     runs-on: ubuntu-latest

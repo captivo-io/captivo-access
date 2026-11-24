@@ -29,6 +29,15 @@ describe("routeMembers", () => {
     expect(excluded.map((e) => [e.member.id, e.why])).toEqual([["old", "outdated"], ["nokey", "no_seal"]]);
   });
 
+  it("leaves a connector installed as a program out of sessions that need guacd or the isolated browser", () => {
+    const lone: SiteRouting = { connectorId: "w", connector: conn("w", { platform: "windows" }), connectorGroup: null, probeByConnector: null };
+    expect(routeMembers(lone).eligible.map((m) => m.id)).toEqual(["w"]);
+    expect(routeMembers(lone, { engines: true })).toMatchObject({ eligible: [], excluded: [{ why: "no_engines" }] });
+    const group = grouped([{ connector: conn("w", { platform: "linux" }) }, { connector: conn("d") }]);
+    expect(routeMembers(group, { engines: true }).eligible.map((m) => m.id)).toEqual(["d"]);
+    expect(routeMembers(group).eligible.map((m) => m.id)).toEqual(["w", "d"]);
+  });
+
   it("skips a member that can't reach the resource only while another one can", () => {
     const at = new Date().toISOString();
     const some = grouped([{ connector: conn("a") }, { connector: conn("b") }], { a: { ok: false, at }, b: { ok: true, at } });

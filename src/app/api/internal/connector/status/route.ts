@@ -44,6 +44,8 @@ async function handler(req: NextRequest) {
       // The connector's vault key: a changed one means its /data was lost, and
       // secrets sealed to the old key need entering again (shown on the resource).
       ...(isVaultPublicKey(body.vaultPublicKey) ? { vaultPublicKey: body.vaultPublicKey } : {}),
+      // What the connector says it runs as; none means the Docker image. A drop says nothing.
+      ...(status === "ONLINE" ? { platform: body.platform === "windows" || body.platform === "linux" ? body.platform : null } : {}),
     },
   });
   // The card's event history: the tunnel coming and going, and new versions.

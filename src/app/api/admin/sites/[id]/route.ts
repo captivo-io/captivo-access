@@ -7,6 +7,7 @@ import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
 import { keptSecretStillOpens, rotationColumnsForNewSecret, sealLegacyCredentials, storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import { resolveConnectorChoice } from "@/lib/connector/groups";
+import { connectorsThatCannotServe, NO_ENGINES_TEXT } from "@/lib/connector/platform";
 import { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
 import { DB_ENGINES } from "@/lib/database/params";
@@ -43,6 +44,8 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
 
   const connector = await db.connector.findUnique({ where: { id: v.connectorId }, select: { id: true } });
   if (!connector) return NextResponse.json({ error: "connector_not_found" }, { status: 400 });
+  const cannotServe = await connectorsThatCannotServe(v.mode, v.connectorId, connectorGroupId);
+  if (cannotServe.length) return NextResponse.json({ error: "connector_platform", detail: `${cannotServe.join(", ")}: ${NO_ENGINES_TEXT}` }, { status: 409 });
 
   const existing = await db.site.findUnique({ where: { id }, select: { id: true, hostname: true } });
   if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });

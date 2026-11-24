@@ -288,6 +288,8 @@ model Connector {
   egressPolicy     String?
   logLevel         String? // debug | info | warn | error; null = inherit the policy default — pushed to the connector live
   vaultPublicKey   String? // X25519 public key (base64) resource secrets are sealed to; the private half stays on the connector
+  /// "windows" or "linux" for a connector installed as a program (no guacd or isolated browser beside it); null for the Docker image.
+  platform         String?
   createdAt        DateTime               @default(now())
   sites            Site[]
   pairings         ConnectorPairing[]

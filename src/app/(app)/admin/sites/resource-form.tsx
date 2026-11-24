@@ -14,6 +14,7 @@ import { NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR } from "@/l
 import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
 import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
+import { platformLabel } from "@/lib/connector/platform-label";
 import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
@@ -25,7 +26,7 @@ type Kind = "web" | "isolated" | "remote" | "ssh" | "database" | "tunnel" | "kub
 type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: string };
 
 export interface ResourceContext {
-  connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null; version?: string | null }[];
+  connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null; version?: string | null; platform?: string | null }[];
   /** Connector groups: a resource on one is served by any eligible member. */
   groups?: ResourceGroup[];
   recordingEnabled: boolean;
@@ -47,7 +48,7 @@ export interface ResourceContext {
   moderators?: number;
 }
 
-export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; version: string | null }[] };
+export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; version: string | null; platform?: string | null }[] };
 
 export interface ResourceInitial {
   id: string;
@@ -105,6 +106,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "hostname_taken": return "That public address is already in use.";
     case "invalid_upstream_url": case "connector_name_upstream_required": case "isolated_url_required": return "Enter the internal address as http(s)://host:port.";
     case "connector_not_found": return "Pick a connector.";
+    case "connector_platform": return "This connector is installed as a program, so it can't serve remote desktops, SSH or isolated browsers. Pick a connector installed with Docker.";
     case "remote_desktop_fields_required": return "Enter the internal address, username and password.";
     case "invalid_port": return "The port must be between 1 and 65535.";
     case "native_gateway_disabled": return "Remote desktop and SSH are not enabled on this installation.";
@@ -251,6 +253,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const rkind: ResourceKind = kind === "remote" ? (protocol === "VNC" ? "vnc" : "rdp") : kind;
   const remote = kind === "remote" || kind === "ssh";
   const isDb = kind === "database";
+  // A connector installed as a program has no guacd or isolated browser beside it.
+  const needsEngines = kind === "remote" || kind === "ssh" || kind === "isolated";
   const isTunnel = kind === "tunnel";
   const isKube = kind === "kubernetes";
   // A saved account the connector signs in with: remote desktops, databases and clusters (a service account's token).
@@ -554,17 +558,17 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <span className="rq-label"><span>Connector</span><Link href="/admin/connectors" className="rf-link">+ New connector</Link></span>
             <div className="rf-conns" role="radiogroup" aria-label="Connector">
               {ctx.connectors.map((c) => (
-                <button key={c.id} type="button" role="radio" aria-checked={!groupId && connectorId === c.id} disabled={!c.online && connectorId !== c.id}
+                <button key={c.id} type="button" role="radio" aria-checked={!groupId && connectorId === c.id} disabled={(!c.online && connectorId !== c.id) || (needsEngines && !!c.platform)} title={needsEngines && c.platform ? `Installed as a program (${platformLabel(c.platform)}): it serves web apps, databases, clusters and TCP tunnels, not ${kind === "isolated" ? "isolated browsers" : "remote desktops"}.` : undefined}
                   className={!groupId && connectorId === c.id ? "rf-conn on" : "rf-conn"} onClick={() => changeConnector(c.id)}>
                   <span className="rf-plug" aria-hidden="true"><PlugIcon />{c.online && <span className="rf-plug-dot" />}</span>
-                  <span className="rf-conn-t"><b>{c.name}</b><span className="mono t-muted">{c.id.slice(0, 9)} · {c.online ? "online" : "offline"}</span></span>
+                  <span className="rf-conn-t"><b>{c.name}</b><span className="mono t-muted">{c.id.slice(0, 9)} · {c.online ? "online" : "offline"}{c.platform ? ` · ${platformLabel(c.platform)}` : ""}</span></span>
                   {connectorId === c.id && !groupId && <span className="rf-check" aria-hidden="true">✓</span>}
                 </button>
               ))}
               {(ctx.groups ?? []).map((g) => {
                 const up = g.members.filter((m) => m.online).length;
                 return (
-                  <button key={g.id} type="button" role="radio" aria-checked={groupId === g.id} disabled={up === 0 && groupId !== g.id}
+                  <button key={g.id} type="button" role="radio" aria-checked={groupId === g.id} disabled={(up === 0 && groupId !== g.id) || (needsEngines && g.members.some((m) => !!m.platform))}
                     className={groupId === g.id ? "rf-conn rf-group on" : "rf-conn rf-group"} onClick={() => changeGroup(g)}>
                     <span className="rf-plug" aria-hidden="true"><PlugIcon /><PlugIcon />{up > 0 && <span className="rf-plug-dot" />}</span>
                     <span className="rf-conn-t"><b>{g.name}</b><span className="mono t-muted">group · {g.members.length} connector{g.members.length === 1 ? "" : "s"} · {up} online</span></span>
@@ -573,7 +577,10 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 );
               })}
             </div>
-            {group && <p className="rf-hint">Sessions are spread over the online active members ({group.members.filter((m) => !m.standby).map((m) => m.name).join(", ")}){group.members.some((m) => m.standby) ? `; ${group.members.filter((m) => m.standby).map((m) => m.name).join(", ")} take${group.members.filter((m) => m.standby).length === 1 ? "s" : ""} over when none is online` : ""}.</p>}
+            {needsEngines && (group ? group.members.some((m) => !!m.platform) : !!connector?.platform) && (
+              <p className="rf-msg warn">{group ? "A connector in this group" : connector?.name} is installed as a program, with no remote-desktop or isolated-browser engine beside it. Pick a connector installed with Docker for this kind of resource.</p>
+            )}
+                        {group && <p className="rf-hint">Sessions are spread over the online active members ({group.members.filter((m) => !m.standby).map((m) => m.name).join(", ")}){group.members.some((m) => m.standby) ? `; ${group.members.filter((m) => m.standby).map((m) => m.name).join(", ")} take${group.members.filter((m) => m.standby).length === 1 ? "s" : ""} over when none is online` : ""}.</p>}
           </div>
 
           <Sec n="02" title="Addresses" />

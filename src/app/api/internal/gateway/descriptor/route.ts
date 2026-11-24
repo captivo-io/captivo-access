@@ -57,7 +57,7 @@ async function handler(req: NextRequest) {
     if (!isolationEnabled()) return NextResponse.json({ error: "isolation_disabled" }, { status: 404 });
     // DLP watermark (live-view): vendor email + live UTC clock, rendered by KasmVNC to
     // every client. Resolve per-site override against the global default.
-    const isoMembers = routeMembers(site).eligible;
+    const isoMembers = routeMembers(site, { engines: true }).eligible;
     if (isoMembers.length === 0) return NextResponse.json({ error: "no_connector" }, { status: 503 });
     const watermarkOn = site.watermark ?? (await resolvedWatermarkDefault());
     let watermarkText = "";
@@ -102,7 +102,7 @@ async function handler(req: NextRequest) {
   if (cred.stale) return NextResponse.json({ error: "vault_secret_reenter" }, { status: 409 });
   // A group member carries the session only with its own seal of the secret.
   const sealed = !!cred.sealedSecret;
-  const { eligible } = routeMembers(site, sealed ? { canOpen: (m) => !!m.vaultPublicKey && !!cred.seals[m.vaultPublicKey] } : {});
+  const { eligible } = routeMembers(site, { engines: true, ...(sealed ? { canOpen: (m) => !!m.vaultPublicKey && !!cred.seals[m.vaultPublicKey] } : {}) });
   if (eligible.length === 0) return NextResponse.json({ error: sealed ? "vault_secret_reenter" : "no_connector" }, { status: sealed ? 409 : 503 });
   const first = eligible[0];
   const sealFor = (m: { vaultPublicKey: string | null }) => (m.vaultPublicKey ? cred.seals[m.vaultPublicKey] : undefined) ?? cred.sealedSecret;

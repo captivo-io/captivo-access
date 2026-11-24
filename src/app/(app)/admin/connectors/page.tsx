@@ -32,7 +32,7 @@ async function AdminConnectorsPageImpl() {
   const now = new Date();
   const connectors = await db.connector.findMany({
     select: {
-      id: true, name: true, status: true, lastSeenAt: true, version: true, createdAt: true, remoteAddr: true, tunnelSpark: true, hostAction: true,
+      id: true, name: true, status: true, lastSeenAt: true, version: true, createdAt: true, remoteAddr: true, tunnelSpark: true, hostAction: true, platform: true,
       sites: { select: { probeOk: true } },
       groupMemberships: { select: { standby: true, group: { select: { name: true } } } },
       days: { where: { day: { gte: dayKey(new Date(now.getTime() - 30 * 86_400_000)) } }, select: { day: true, samples: true, online: true } },
@@ -95,7 +95,8 @@ async function AdminConnectorsPageImpl() {
       unreachable: c.sites.filter((s) => s.probeOk === false).length,
       uptime: summarizeUptime(c.days, now),
       events: c.events.map((e) => ({ at: e.at.toISOString(), level: e.level as EventLevel, text: e.text })),
-      remote: remoteControl(!!live[i]?.online && c.status === "ONLINE", t, c.createdAt),
+      remote: remoteControl(!!live[i]?.online && c.status === "ONLINE", t, c.createdAt, Date.now(), c.platform),
+      platform: c.platform,
       target: updateTarget(c.version, mgr),
       hostAction: liveHostAction(t?.hostAction ?? null, storedHostAction(c.hostAction), now),
       stored: storedHostAction(c.hostAction),

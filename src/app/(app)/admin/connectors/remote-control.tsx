@@ -32,6 +32,7 @@ const NO_REMOTE: Record<string, string> = {
   no_docker: "The updater on this host can't reach Docker (a rootless Docker, or a socket somewhere other than /var/run/docker.sock?). Run the update on the host instead.",
   offline: "It is offline, so the console can't update it.",
   installing: "Its updater is still being installed (it starts last, after the images download); in a few minutes an update is one click here.",
+  program: "It is installed as a program, so there is no updater: the command downloads the release, checks its checksum, replaces the program and restarts the service.",
 };
 
 /**
@@ -59,6 +60,7 @@ export function UpdateConnectorButton({
   const [error, setError] = useState<string | null>(null);
   const viaConsole = !!remote?.ok && !!target;
   const command = withUpdater ? commands.remote : commands.manual;
+  const program = !!remote && !remote.ok && remote.reason === "program";
 
   async function go() {
     setBusy(true);
@@ -83,7 +85,7 @@ export function UpdateConnectorButton({
 
   const manual = (
     <>
-      <CommandBlock command={command} display={formatShellCommand(command)} title="connector-update" />
+      <CommandBlock command={command} display={program ? command : formatShellCommand(command)} title="connector-update" />
       {managerUrlIsLocal && (
         <p className="notice error" style={{ marginBottom: 0 }}>
           <code>MANAGER_URL</code> points at <code>localhost</code> — replace it with the manager&apos;s
@@ -128,10 +130,10 @@ export function UpdateConnectorButton({
         ) : (
           <>
             <p className="cell-sub" style={{ marginTop: 0 }}>
-              Run this on the connector&apos;s host. It keeps the connector&apos;s token, so no re-pairing.
+              Run this on the connector&apos;s host{program ? " (as administrator or root)" : ""}. It keeps the connector&apos;s token, so no re-pairing.
               {remote && !remote.ok && NO_REMOTE[remote.reason] ? <> {NO_REMOTE[remote.reason]}</> : null}
             </p>
-            <UpdaterChoice on={withUpdater} onChange={setWithUpdater} />
+            {!program && <UpdaterChoice on={withUpdater} onChange={setWithUpdater} />}
             {manual}
             <div className="row-actions">
               <button type="button" className="btn sm" onClick={() => setOpen(false)}>Close</button>
@@ -156,7 +158,7 @@ export function NoUpdaterBand({ connectorId, commands, managerUrlIsLocal, remote
   remote: RemoteControl;
   version: string | null;
 }) {
-  if (remote.ok || remote.reason === "offline") return null;
+  if (remote.ok || remote.reason === "offline" || remote.reason === "program") return null;
   return (
     <div className="cn-band info">
       <span className="cn-band-t">

@@ -1,3 +1,4 @@
+import { connectorsThatCannotServe, NO_ENGINES_TEXT } from "@/lib/connector/platform";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
@@ -62,6 +63,11 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     })),
     dest.connectorGroupId ? { connectorGroupId: dest.connectorGroupId, keys: dest.keys } : { connectorId: dest.connectorId, keys: dest.keys },
   );
+  // A connector installed as a program serves only web apps, databases, clusters and tunnels.
+  for (const s of sites.filter((x) => plan.move.includes(x.id))) {
+    const cannot = await connectorsThatCannotServe(s.accessMode, dest.connectorGroupId ? null : dest.connectorId, dest.connectorGroupId);
+    if (cannot.length) return NextResponse.json({ error: "connector_platform", detail: `"${s.name}" cannot move to ${cannot.join(", ")}: ${NO_ENGINES_TEXT}` }, { status: 409 });
+  }
   if (plan.move.length) {
     await db.site.updateMany({ where: { id: { in: plan.move } }, data: { connectorId: dest.connectorId, connectorGroupId: dest.connectorGroupId } });
     for (const s of sites.filter((x) => plan.move.includes(x.id))) {

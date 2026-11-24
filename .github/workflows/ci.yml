@@ -26,6 +26,21 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  # The connector also ships as a Windows and Linux program (scripts/build-connector-binaries.sh):
+  # a file named *_linux.go or *_windows.go quietly drops out of the other build.
+  connector-builds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: connector/go.mod }
+      - run: |
+          cd connector
+          for t in linux/amd64 linux/arm64 windows/amd64; do
+            GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go vet . && GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -o /dev/null .
+          done
+
   rls-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 10

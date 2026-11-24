@@ -12,18 +12,17 @@ package main
 
 import (
 	"context"
-	"io"
 	"log"
 	"os"
 	"strings"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "show-password" {
-		os.Exit(showPassword(os.Stdout, os.Args[2:]))
-	}
-	// Keep stderr (docker logs) and also capture recent lines for the console tail.
-	log.SetOutput(io.MultiWriter(os.Stderr, logRingBuf))
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+// runConnector is the connector itself: it returns only on a fatal error.
+func runConnector() {
 	// Initial threshold from env; the Manager can override it live via policy.
 	setLogLevel(envOr("LOG_LEVEL", "info"))
 
@@ -33,12 +32,12 @@ func main() {
 
 	managerURL := os.Getenv("MANAGER_URL")
 	dataplaneURL := os.Getenv("DATAPLANE_URL")
-	tokenFile := envOr("TOKEN_FILE", "/data/token")
+	tokenFile := envOr("TOKEN_FILE", dataPath("token"))
 	// Recording bytes stay on this host. The key is generated here and never
 	// leaves: that is what makes "the operator cannot read recordings" true
 	// rather than a claim.
-	recKeyFile := envOr("RECORDING_KEY_FILE", "/data/recording.key")
-	recDir := envOr("RECORDING_DIR", "/data/recordings")
+	recKeyFile := envOr("RECORDING_KEY_FILE", dataPath("recording.key"))
+	recDir := envOr("RECORDING_DIR", dataPath("recordings"))
 	recKey, err := loadOrCreateRecKey(recKeyFile)
 	if err != nil {
 		// Fail loud at boot: a connector that cannot key its store would accept
@@ -46,7 +45,7 @@ func main() {
 		log.Fatalf("recording key: %v", err)
 	}
 	store := newRecStore(recDir, recKey)
-	vk, err := loadOrCreateVaultKey(envOr("VAULT_KEY_FILE", "/data/vault.key"))
+	vk, err := loadOrCreateVaultKey(envOr("VAULT_KEY_FILE", dataPath("vault.key")))
 	if err != nil {
 		// Same reasoning as the recording key: never run with a replaced key.
 		log.Fatalf("vault key: %v", err)
@@ -54,7 +53,7 @@ func main() {
 	vaultKey = vk
 	// Warn loudly if the store will not outlive the container. Recordings are no
 	// longer held by the control plane, so if this volume is lost nobody has a copy.
-	if warn := recordingVolumeWarning(recDir); warn != "" {
+	if warn := recordingVolumeWarning(recDir); warn != "" && !standalone {
 		log.Printf("WARNING: %s", warn)
 	}
 	// The enrollment pairing code and the long-lived connector token travel over
@@ -102,12 +101,15 @@ func main() {
 	if tools := findMediaTools(); tools != nil {
 		recMaintenance = newRecMaint(store, tools)
 	} else {
-		logWarn("recording maintenance: no video encoder in this image; recordings are kept as written")
+		logWarn("recording maintenance: no video encoder %s; recordings are kept as written", map[bool]string{true: "on this host", false: "in this image"}[standalone])
 		recMaintenance = newRecMaint(store, nil)
 	}
 	go recMaintenance.run(context.Background())
 	// The isolated browser's only way out (see egress.go).
-	startEgressProxy(envOr("EGRESS_PROXY_LISTEN", ":3128"), allow)
+	// Nothing to serve it to on a program install (no isolated browser).
+	if listen := envOr("EGRESS_PROXY_LISTEN", map[bool]string{true: "off", false: ":3128"}[standalone]); listen != "off" {
+		startEgressProxy(listen, allow)
+	}
 	runClient(dataplaneURL, token, allow, store)
 }
 

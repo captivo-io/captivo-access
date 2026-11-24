@@ -796,6 +796,55 @@ flowchart LR
   `--ssl-mode=REQUIRED` accept; SQL Server clients need Trust server
   certificate for it.
 
+## Connectors without Docker (Windows and Linux services)
+
+The Docker install is the default: it brings guacd and the isolated browser
+beside the connector. For a host with no Docker, the connector also ships as a
+single program, installed as a Windows service or a systemd unit.
+
+- **Getting it.** **Connectors → Add connector** has **Linux service** and
+  **Windows service** tabs next to Docker. The command downloads
+  `captivo-connector_<version>_<os>_<arch>` (`.zip` on Windows, `.tar.gz` on
+  Linux; amd64, and arm64 for Linux) and `SHA256SUMS` from the GitHub release of
+  the console's own version, refuses a download that does not match, and runs
+  `connector service install`. The same binary has `connector update` and
+  `connector service uninstall [--keep-data]`.
+- **What it serves.** Web apps, databases (PostgreSQL, MySQL, SQL Server, Redis,
+  MongoDB), Kubernetes clusters and TCP tunnels. It has no remote-desktop,
+  SSH-in-the-browser or isolated-browser engine, so the console refuses to put
+  those resources on it (`connector_platform`), disables it in the resource
+  form, and leaves it out of a group's candidates for them. The connector tells
+  the data plane which it is with the `X-Connector-Platform` header
+  (`Connector.platform`: `windows`, `linux`, or empty for Docker).
+- **Settings.** `connector.conf` (`KEY=VALUE`, the environment the Docker image
+  gets as `-e` flags): `/etc/captivo-connector/connector.conf` on Linux,
+  `%ProgramData%\Captivo\Connector\connector.conf` on Windows. The first start
+  redeems `PAIR_CODE`; after that the token is in the state directory
+  (`/var/lib/captivo-connector`, `%ProgramData%\Captivo\Connector\data`),
+  next to the recording and vault keys and the recordings. `ALLOWED_TARGETS`,
+  `LOG_LEVEL` and the rest work as in Docker.
+- **Linux.** A systemd unit that runs as its own user
+  (`captivo-connector`), can write only its state directory, and restarts
+  whatever stopped it. `journalctl -u captivo-connector -f` is its log. Run the
+  install as root; it needs systemd (on a container host, use the Docker image).
+- **Windows.** A service (`CaptivoConnector`, automatic, delayed start,
+  restarted after a failure) under its own virtual account
+  `NT SERVICE\CaptivoConnector`; the data and settings folders are readable only
+  by that account, SYSTEM and administrators. Its log is `connector.log` in the
+  data folder, rotated at 10 MB. Run the install from an elevated PowerShell.
+  This is new: the Windows service has been built and its commands tested as a
+  program on Linux, and the install command's download and checksum steps run
+  under PowerShell, but the service itself needs its first run on a Windows
+  host.
+- **Updating.** `connector update` (`sudo captivo-connector update`, or
+  `connector.exe update` from an elevated shell) finds the latest release,
+  checks its checksum, replaces the program and restarts the service;
+  `--version X.Y.Z` picks one, `--check` only says whether a newer one exists.
+  There is no updater beside it, so **Update** in the console shows this
+  command instead of a button. `CONNECTOR_RELEASE_BASE` points it at a mirror.
+- **Recordings.** Command logs (databases, Kubernetes) are kept as usual. There
+  is no video encoder on the host, so nothing that needs one is recorded there.
+
 ## Moderated sessions (four eyes)
 
 A resource can require a moderator: nobody works on it alone. A session starts

@@ -7,6 +7,8 @@ import { createPairing } from "@/lib/connector/enrollment";
 import { kickConnector } from "@/lib/connector/dataplane";
 import { managerBaseUrl, connectorTunnelUrl, isLocalManagerUrl } from "@/lib/url";
 import { buildInstallCommand } from "@/lib/connector/repair";
+import { linuxInstallCommand, windowsInstallCommand } from "@/lib/connector/standalone";
+import { managerVersion } from "@/lib/version";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
@@ -40,6 +42,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   // A connector runs on a different machine, so a localhost manager URL (seen
   // when the admin browses via an SSH tunnel) won't be reachable from it.
   const managerUrlIsLocal = isLocalManagerUrl(managerUrl);
+  // The same connector as a program, for a host without Docker (Windows, or Linux with systemd).
+  const program = { code, managerUrl, tunnelUrl: connectorTunnelUrl(), version: managerVersion() };
 
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
@@ -48,7 +52,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     summary: `Created connector "${name}"`,
     clientIp: clientIp(req.headers) ?? null,
   });
-  return NextResponse.json({ code, installCommand, installCommandManual, managerUrlIsLocal });
+  return NextResponse.json({ code, installCommand, installCommandManual, installCommandWindows: windowsInstallCommand(program), installCommandLinux: linuxInstallCommand(program), managerUrlIsLocal });
 });
 
 export const GET = withTenantRoute(async () => {
