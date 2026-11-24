@@ -129,7 +129,7 @@ function DbConnectModal({ href, siteName, onClose }: { href: string; siteName: s
           {rd && <li>Clients that send only a password (Redis before 6) take the ticket as the password. Redis 6 and later clients take it as the user name. TLS must be on. CONFIG, MONITOR, replication and ACL changes are not available.</li>}
           {mg && <li>The connection string has to ask for <span className="mono">authMechanism=PLAIN</span> with <span className="mono">authSource=$external</span> and TLS: that is how the ticket is passed, so a client left on its default sign-in is refused. Managing users and roles is not available.</li>}
           {my && <li>The MariaDB client takes <span className="mono">--ssl</span> instead of <span className="mono">--ssl-mode=REQUIRED</span>.</li>}
-          <li>{t?.recorded ? "Every query you run is logged with its time and row count. Results are not stored." : "Your connections are logged; the queries are not."} The connection ends when your access ends.</li>
+          <li>{t?.recorded ? (rd || mg ? "Every command you run is logged with its time and duration, not its values, filters or documents. Results are not stored." : "Every query you run is logged with its time and row count. Results are not stored.") : `Your connections are logged; the ${rd || mg ? "commands" : "queries"} are not.`} The connection ends when your access ends.</li>
           <li>The user name is yours alone: don&apos;t share it, and get new details instead of saving them for long.</li>
         </ul>
       </div>
