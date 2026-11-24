@@ -751,7 +751,60 @@ flowchart LR
   certificate in the data-plane's `/data` volume, which `sslmode=require` and
   `--ssl-mode=REQUIRED` accept; SQL Server clients need Trust server
   certificate for it.
-- **Not yet:** SQL Server, rotating database passwords.
+
+## TCP tunnels (any other service, your own app)
+
+A **TCP tunnel** resource is any TCP service inside the network that has no
+path of its own in Captivo: Redis, MongoDB, Oracle, Elasticsearch, a license
+server, a vendor's desktop console, a Kubernetes API. The admin adds it with
+**Add resource → TCP tunnel**, the service's `host:port` and a connector; there
+is no saved account. Under **My access** the user presses **Connect** and gets a
+command for the SSH client every computer already has (OpenSSH, built into
+Windows 10 and later, macOS and Linux):
+
+```
+ssh -L 6379:redis.corp:6379 -o ExitOnForwardFailure=yes -p 2222 k7f3q9wz2m4x@acme.cloud.captivo.io
+```
+
+While that window is open, the user's own app connects to `localhost:6379` on
+their computer. The dialog picks the service's port, or 10000 above it for a
+port below 1024 (`10443` for 443), and the user can change it.
+
+```mermaid
+flowchart LR
+    F["My access<br/>ssh -L command (ticket, 2 min)"] --> M["User's app → localhost:6379<br/>OpenSSH forwards it"]
+    M -->|"SSH · port 2222"| D["Data-plane jump host<br/>ticket · grant · allowlist"]
+    D -->|outbound tunnel| CN["Connector<br/>egress boundary"]
+    CN -->|"TCP 6379"| S["Redis"]
+```
+
+- **The same jump host as native SSH.** The ticket starts the tunnel within two
+  minutes. Every connection the app makes arrives as a `direct-tcpip` channel and
+  goes to the resource's service through its connector (any member of a group),
+  whatever host and port the command was edited to name. Remote forwarding and
+  everything else is refused.
+- **One tunnel is one session.** However many connections the app opens, the SSH
+  connection is one entry in **Live sessions**: rechecked every minute against
+  the grant, the user and the allowlist, and ended there by an admin. Ending it
+  closes every connection, and the window says why. Ctrl+C in the window, or
+  closing it, ends the tunnel too.
+- **Not recorded.** The bytes are the app's own protocol, often encrypted, so
+  there is nothing to replay or watch. The audit log keeps `session_open
+  native_tcp` and the close with how long the tunnel was open and how much it
+  carried down; the data-plane log adds the connection count and both directions.
+  For that reason a workspace whose Policy **requires recording** can't open
+  tunnels: the portal shows **Connect** greyed out and the jump host refuses
+  the ticket.
+- **The app signs in itself.** Captivo injects no credential: what the user can
+  do is what the service lets that sign-in do.
+- **Connector 2.39.0 or later** (the raw TCP relay native RDP brought); nothing
+  new runs on the connector, and its `ALLOWED_TARGETS` applies.
+- **Not in this version:** UDP, more than one port per resource, a way past
+  networks that block outbound port 2222 (a small `captivo` helper over 443 is
+  the next step if customers need one).
+
+Prefer a resource's own type when there is one: a browser session, native SSH
+or RDP, or a database resource records what the tunnel can't.
 
 ## The isolated-browser path (isolated)
 

@@ -28,6 +28,8 @@ export const POST = withTenantRoute(async (_req: NextRequest, { params }: { para
       probeOk: true,
       accessMode: true,
       vaultCredential: { select: { targetHost: true, targetPort: true } },
+      tunnelHost: true,
+      tunnelPort: true,
       connector: { select: { status: true } },
     },
   });
@@ -40,14 +42,18 @@ export const POST = withTenantRoute(async (_req: NextRequest, { params }: { para
     // alive, never proxy to a connector we've already revoked.
     return NextResponse.json({ error: "connector_revoked" });
   }
-  if (site.accessMode === "GATEWAY" || site.accessMode === "DATABASE") {
-    if (!site.vaultCredential) {
+  if (site.accessMode === "GATEWAY" || site.accessMode === "DATABASE" || site.accessMode === "TUNNEL") {
+    // A TCP tunnel keeps its service on the site; the others on their credential.
+    const target = site.accessMode === "TUNNEL"
+      ? (site.tunnelHost && site.tunnelPort ? { targetHost: site.tunnelHost, targetPort: site.tunnelPort } : null)
+      : site.vaultCredential;
+    if (!target) {
       return NextResponse.json({ error: "no_upstream_url" });
     }
     const probe = await probeGatewaySite({
       connectorId: site.connectorId,
-      targetHost: site.vaultCredential.targetHost,
-      targetPort: site.vaultCredential.targetPort,
+      targetHost: target.targetHost,
+      targetPort: target.targetPort,
     });
     const transition = classifyTransition(site.probeOk, probe.probeOk);
     if (transition) {

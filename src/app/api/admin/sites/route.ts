@@ -105,6 +105,22 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     return NextResponse.json({ id: site.id });
   }
 
+  if (v.mode === "TUNNEL") {
+    // A TCP tunnel: the service's address on the site; no credential, nothing recorded.
+    const site = await db.site.create({
+      data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, tunnelHost: v.targetHost, tunnelPort: v.targetPort, recordSessions: false, keystrokeLogging: false, accessMode: "TUNNEL", ...logoData },
+      select: { id: true },
+    });
+    await recordAdminAction({
+      actor: { id: admin.id, email: admin.email },
+      action: "resource.create",
+      targetType: "resource", targetId: site.id,
+      summary: `Created resource "${v.name}"`,
+      clientIp: clientIp(req.headers) ?? null,
+    });
+    return NextResponse.json({ id: site.id });
+  }
+
   // GATEWAY (remote desktop) or DATABASE: the site (null hostname/upstream) + its credential, atomically.
   let stored;
   try {

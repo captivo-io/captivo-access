@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { autoIcon, resolveIcon, kindOf, protoLabel, slugFromName, ICON_NAMES } from "./icons";
 
 describe("resource icons", () => {
-  it("has the 20 icons", () => expect(ICON_NAMES).toHaveLength(20));
+  it("has the 21 icons", () => expect(ICON_NAMES).toHaveLength(21));
   it("picks from the name and address", () => {
     expect(autoIcon("pfSense 10.0.0.1", "web")).toBe("firewall");
     expect(autoIcon("Proxmox Pro", "web")).toBe("layers");
@@ -13,6 +13,8 @@ describe("resource icons", () => {
     expect(autoIcon("Captivo On-Prem", "web")).toBe("cloud");
     expect(autoIcon("WIN-SK", "rdp")).toBe("desktop");
     expect(autoIcon("Muhasebe Wiki", "web")).toBe("globe");
+    expect(autoIcon("Redis 10.0.0.9:6379", "tunnel")).toBe("database");
+    expect(autoIcon("License server 10.0.0.9:27000", "tunnel")).toBe("plug");
   });
   it("keeps a picked icon and colour, else automatic", () => {
     expect(resolveIcon({ name: "x", kind: "rdp", iconName: "mail", iconColor: "green" })).toEqual({ name: "mail", color: "green", auto: false });
@@ -21,6 +23,8 @@ describe("resource icons", () => {
   it("reads the kind and protocol", () => {
     expect(kindOf({ accessMode: "GATEWAY", protocol: "SSH" })).toBe("ssh");
     expect(kindOf({ accessMode: "ISOLATED" })).toBe("isolated");
+    expect(kindOf({ accessMode: "TUNNEL" })).toBe("tunnel");
+    expect(protoLabel("tunnel", null)).toBe("TCP");
     expect(protoLabel("web", "http://10.0.0.1:8080")).toBe("HTTP");
     expect(protoLabel("vnc", null)).toBe("VNC");
   });

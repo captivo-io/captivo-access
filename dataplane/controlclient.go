@@ -218,6 +218,9 @@ type sshTarget struct {
 	SecretKind    string
 	Secret        string // legacy, unsealed
 	PinnedHostKey string
+	// A TCP tunnel resource (sshtunnel.go): the user's ssh -L carries their
+	// own app's connections to Host:Port, never recorded.
+	Tunnel bool
 }
 
 // NativeSshTarget is NativeRdpTarget for the SSH jump host (sshjump.go): the
@@ -238,6 +241,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		SecretKind    string           `json:"secretKind"`
 		Secret        string           `json:"secret"`
 		PinnedHostKey string           `json:"sshHostKey"`
+		Tunnel        bool             `json:"tunnel"`
 	}
 	if err := c.post("/api/internal/gateway/native-ssh", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return sshTarget{}, err
@@ -246,6 +250,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		rdpTarget: rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)},
 		Record:    out.Record, Keystrokes: out.Keystrokes, FileTransfer: out.FileTransfer,
 		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey,
+		Tunnel: out.Tunnel,
 	}, nil
 }
 

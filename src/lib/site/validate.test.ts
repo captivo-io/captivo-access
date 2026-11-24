@@ -13,6 +13,13 @@ describe("validateSiteInput", () => {
     expect(validateSiteInput({ ...body, engine: "POSTGRES" }, base)).toMatchObject({ ok: false, error: "invalid_database" });
     expect(validateSiteInput({ ...body, engine: "ORACLE" }, base)).toMatchObject({ ok: false, error: "invalid_engine" });
   });
+  it("tunnel: a host and a port, no account; needs the gateway", () => {
+    const body = { accessMode: "TUNNEL", connectorId: "c", name: "Redis", targetHost: "redis.corp", targetPort: 6379 };
+    expect(validateSiteInput(body, base)).toEqual({ ok: true, mode: "TUNNEL", connectorId: "c", name: "Redis", description: null, targetHost: "redis.corp", targetPort: 6379 });
+    expect(validateSiteInput({ ...body, targetPort: 0 }, base)).toMatchObject({ ok: false, error: "invalid_port" });
+    expect(validateSiteInput({ ...body, targetHost: "http://redis" }, base)).toMatchObject({ ok: false, error: "tunnel_target_required" });
+    expect(validateSiteInput(body, { ...base, nativeGateway: false })).toMatchObject({ ok: false, error: "native_gateway_disabled" });
+  });
   it("self-host: appends .<accessDomain> to a bare label", () => {
     const r = validateSiteInput({ accessMode: "TRANSPARENT", connectorId: "c", name: "n", hostname: "WIKI", upstreamUrl: "http://10.0.0.5:80" }, selfHost);
     expect(r).toMatchObject({ ok: true, hostname: "wiki.access.example.com" });

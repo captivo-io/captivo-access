@@ -28,6 +28,8 @@ export interface CardVM {
   /** The user's own SSH client is recorded too (connector/sshproxy.go). */
   sshRecorded?: boolean;
   rdpRecorded?: boolean;
+  /** Where to get the ssh command of a TCP tunnel resource, when it opens now. */
+  tunnelHref?: string | null;
   /** Where to get connection details for the user's own database client (a DATABASE resource). */
   dbHref?: string | null;
   time: Remaining;

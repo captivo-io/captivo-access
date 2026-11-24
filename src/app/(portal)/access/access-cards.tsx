@@ -6,6 +6,7 @@ import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { ResourceIcon } from "@/components/resource-icon";
 import { SshCommandButton } from "./ssh-command";
 import { DbConnectButton } from "./db-connect";
+import { TunnelCommandButton } from "./tunnel-command";
 
 type TypeFilter = "all" | "web" | "remote";
 const PAGE_SIZE = 25;
@@ -23,7 +24,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return cards.filter((c) => {
-      const remote = c.accessMode === "GATEWAY" || c.accessMode === "DATABASE";
+      const remote = c.accessMode === "GATEWAY" || c.accessMode === "DATABASE" || c.accessMode === "TUNNEL";
       if (type === "web" && remote) return false;
       if (type === "remote" && !remote) return false;
       return !s || c.siteName.toLowerCase().includes(s) || c.hostname.toLowerCase().includes(s);
@@ -42,7 +43,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
           <input type="search" placeholder="Search resources…" value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} aria-label="Search resources" />
         </label>
         <div className="seg" role="group" aria-label="Type">
-          {([["all", "All"], ["web", "Web"], ["remote", cards.some((c) => c.accessMode === "DATABASE") ? "Remote & databases" : "Remote desktop"]] as const).map(([k, l]) => (
+          {([["all", "All"], ["web", "Web"], ["remote", cards.some((c) => c.accessMode === "DATABASE" || c.accessMode === "TUNNEL") ? "Remote & databases" : "Remote desktop"]] as const).map(([k, l]) => (
             <button key={k} type="button" className={type === k ? "seg-opt on" : "seg-opt"} aria-pressed={type === k} onClick={() => { setType(k); setPage(0); }}>{l}</button>
           ))}
         </div>
@@ -57,6 +58,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
         ) : shown.map((c) => {
           const remote = c.accessMode === "GATEWAY";
           const isDb = c.accessMode === "DATABASE";
+          const isTunnel = c.accessMode === "TUNNEL";
           // A window with an end depletes; permanent and recurring ones do not.
           const timed = c.time.tone !== "schedule" && c.time.text !== "Permanent";
           const low = c.time.pct < 20;
@@ -65,7 +67,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
               <span className="ma-res">
                 <ResourceIcon name={c.tile.icon} color={c.tile.color} logoUrl={c.tile.logoUrl} logoBg={c.tile.logoBg} size={40} />
                 <span className="ma-res-main">
-                  <span className="ma-res-t"><b>{c.siteName}</b><span className={isDb ? "chip green" : remote ? "chip violet" : "chip"}>{isDb ? "DATABASE" : remote ? "REMOTE" : "WEB"}</span></span>
+                  <span className="ma-res-t"><b>{c.siteName}</b><span className={isDb ? "chip green" : isTunnel ? "chip cyan" : remote ? "chip violet" : "chip"}>{isDb ? "DATABASE" : isTunnel ? "TCP" : remote ? "REMOTE" : "WEB"}</span></span>
                   {c.hostname && <span className="mono t-muted ma-host">{c.hostname}</span>}
                 </span>
               </span>
@@ -88,7 +90,9 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                   <a className="btn sm" href={c.rdpHref} download title={c.rdpRecorded ? "Connect with your own Remote Desktop app. The file works for two minutes. Captivo signs you in, so leave any password prompt empty; the session is recorded and may be watched live or taken over by an admin." : `Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.${c.recorded ? " These sessions are not recorded." : ""}`}>.rdp file</a>
                 )}
                 {c.status === "active" && c.sshHref && <SshCommandButton href={c.sshHref} siteId={c.siteId} siteName={c.siteName} recorded={!!c.recorded} sshRecorded={!!c.sshRecorded} />}
-                {isDb
+                {isTunnel
+                  ? (c.status === "active" && c.tunnelHref ? <TunnelCommandButton href={c.tunnelHref} siteId={c.siteId} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This tunnel can't open right now: its connector needs an update, or the workspace requires every session to be recorded." : undefined}>Connect</span>)
+                  : isDb
                   ? (c.status === "active" && c.dbHref ? <DbConnectButton href={c.dbHref} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This database's connector needs an update first." : undefined}>Connect</span>)
                   : c.status === "active"
                   ? <a className="btn ink sm" href={c.href} target="_blank" rel="noopener noreferrer">Open ↗</a>

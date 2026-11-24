@@ -193,6 +193,7 @@ const NATIVE: Record<string, string> = {
   native_ssh: " with their own SSH client (not recorded)",
   native_ssh_recorded: " with their own SSH client",
   native_rdp: " with their own Remote Desktop client (not recorded)",
+  native_tcp: " through a TCP tunnel (not recorded)",
   database: " (database)",
 };
 
@@ -206,7 +207,7 @@ export function noteText(input: {
   const who = input.email && input.email !== input.who ? `${input.who} (${input.email})` : input.who;
   if (code === "session_open") {
     const how = NATIVE[extra] ?? "";
-    const unrecorded = extra === "native_ssh" || extra === "native_rdp";
+    const unrecorded = extra === "native_ssh" || extra === "native_rdp" || extra === "native_tcp";
     return {
       kind: "open",
       body: `Captivo Access: ${who} opened a session to ${input.site}${how} at ${when}.${input.recordingsUrl && !unrecorded ? ` Recordings: ${input.recordingsUrl}` : ""}`,

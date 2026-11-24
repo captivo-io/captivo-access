@@ -12,13 +12,14 @@ import { recordToggleLock } from "@/lib/recording/mode";
 import { compareSemver } from "@/lib/updates/semver";
 import { NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-rdp";
 import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
+import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
 import { dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { IconPicker, lookBody, type Look } from "./icon-picker";
 
-type Kind = "web" | "isolated" | "remote" | "ssh" | "database";
+type Kind = "web" | "isolated" | "remote" | "ssh" | "database" | "tunnel";
 type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: string };
 
 export interface ResourceContext {
@@ -63,7 +64,10 @@ export interface ResourceInitial {
   egressMode: string | null;
   egressHosts: string[];
   egressReportOnlyUntil: string | null;
-  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE";
+  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE" | "TUNNEL";
+  /** TUNNEL: the service inside the network. */
+  tunnelHost?: string | null;
+  tunnelPort?: number | null;
   hasLogo: boolean;
   customDomain: boolean;
   domainVerifiedAt: string | null;
@@ -80,6 +84,7 @@ const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: strin
   { kind: "remote", title: "Remote desktop", tag: "RDP", desc: "A Windows desktop in the browser; no client install.", icon: "desktop", color: "violet" },
   { kind: "ssh", title: "SSH terminal", tag: "SSH", desc: "A terminal in the browser; credentials are never shown to the user.", icon: "terminal", color: "violet" },
   { kind: "database", title: "Database", tag: "SQL", desc: "Users connect with their own client (psql, mysql, SSMS, DBeaver); every query is logged.", icon: "database", color: "green" },
+  { kind: "tunnel", title: "TCP tunnel", tag: "TCP", desc: "Any other TCP service (Redis, MongoDB, a vendor's console) for the user's own app, through an ssh port forward. Not recorded.", icon: "plug", color: "cyan" },
 ];
 const DB_TLS: [string, string][] = [["require", "Encrypted"], ["verify-full", "Encrypted + verified"], ["disable", "Off"]];
 const CLIP: [string, string][] = [["allow", "Copy & paste"], ["no_copy", "Paste only"], ["no_paste", "Copy only"], ["none", "Block"]];
@@ -106,6 +111,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "invalid_database": return "Database names can't have spaces or quotes, at most 63 characters, at most 50 of them.";
     case "invalid_ca_cert": return "Paste the CA certificate in PEM form (-----BEGIN CERTIFICATE-----).";
     case "vault_connector_key_required": return "A database password is sealed to its connector, and this connector has no vault key yet. Update it to 2.46.0 or later.";
+    case "tunnel_target_required": return "Enter the service's address as host:port.";
     case "limit_reached": return "Your plan's resource limit is reached. Ask your platform operator to raise it.";
     default: return edit ? "Couldn't save the resource. Try again." : "Couldn't add the resource. Try again.";
   }
@@ -119,6 +125,7 @@ function kindOfInitial(site: ResourceInitial | undefined, vault: VaultMeta | und
   if (!site) return { kind: "web", protocol: "RDP" };
   if (site.accessMode === "ISOLATED") return { kind: "isolated", protocol: "RDP" };
   if (site.accessMode === "DATABASE") return { kind: "database", protocol: "RDP" };
+  if (site.accessMode === "TUNNEL") return { kind: "tunnel", protocol: "RDP" };
   if (site.accessMode === "GATEWAY") {
     const p = (vault?.protocol ?? "RDP").toUpperCase();
     return p === "SSH" ? { kind: "ssh", protocol: "SSH" } : { kind: "remote", protocol: p === "VNC" ? "VNC" : "RDP" };
@@ -175,7 +182,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [hostState, setHostState] = useState<{ host: string; available: boolean } | null>(null);
   // Internal address.
   const [address, setAddress] = useState(
-    (site?.accessMode === "GATEWAY" || site?.accessMode === "DATABASE") && vault ? `${vault.targetHost}${vault.targetPort === defaultPort(vault.protocol.toUpperCase()) ? "" : `:${vault.targetPort}`}` : site?.upstreamUrl ?? "",
+    (site?.accessMode === "GATEWAY" || site?.accessMode === "DATABASE") && vault ? `${vault.targetHost}${vault.targetPort === defaultPort(vault.protocol.toUpperCase()) ? "" : `:${vault.targetPort}`}`
+    : site?.accessMode === "TUNNEL" && site.tunnelHost ? `${site.tunnelHost.includes(":") ? `[${site.tunnelHost}]` : site.tunnelHost}:${site.tunnelPort}`
+    : site?.upstreamUrl ?? "",
   );
   const [addrTouched, setAddrTouched] = useState(false);
   const [probe, setProbe] = useState<Probe>({ state: "idle" });
@@ -215,10 +224,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const rkind: ResourceKind = kind === "remote" ? (protocol === "VNC" ? "vnc" : "rdp") : kind;
   const remote = kind === "remote" || kind === "ssh";
   const isDb = kind === "database";
+  const isTunnel = kind === "tunnel";
   // A saved account the connector signs in with: remote desktops and databases.
   const cred = remote || isDb;
   const portProto = isDb ? engine : protocol;
-  const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : isDb ? dbEngineLabel(engine) : protoLabel(rkind, address.trim());
+  const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : isDb ? dbEngineLabel(engine) : isTunnel ? "TCP" : protoLabel(rkind, address.trim());
   const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine !== "POSTGRES" && dbName.trim() === "");
   const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
@@ -251,13 +261,15 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
   // Internal address checks.
   const addr = address.trim();
-  const addrOk = kind === "web" || kind === "isolated" ? WEB_RE.test(addr) : HOSTPORT_RE.test(addr);
+  // A TCP service has no default port: it is always named.
+  const namedPort = Number(/:(\d{1,5})$/.exec(addr)?.[1] ?? 0);
+  const addrOk = kind === "web" || kind === "isolated" ? WEB_RE.test(addr) : isTunnel ? HOSTPORT_RE.test(addr) && namedPort >= 1 && namedPort <= 65535 : HOSTPORT_RE.test(addr);
   const hostPort = useMemo(() => {
     const m = HOSTPORT_RE.exec(addr);
-    if (!m || !cred) return null;
+    if (!m || !(cred || isTunnel)) return null;
     const port = m[2] ? Number(m[2].slice(1)) : defaultPort(portProto);
     return { host: m[1].replace(/^\[|\]$/g, ""), port };
-  }, [addr, cred, portProto]);
+  }, [addr, cred, isTunnel, portProto]);
   const https = (kind === "web" || kind === "isolated") && /^https:\/\//i.test(addr);
   const vaultKey = routeKeys[0] ?? null;
   // The saved password still opens where the resource now goes when one of its seals is for a connector there.
@@ -328,7 +340,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (cred && !username.trim()) missing.push("username");
   if (cred && needSecret && !secret) missing.push("password");
   if (isDb && !dbNameOk) missing.push("database name");
-  const ready = missing.length === 0 && (kind !== "isolated" || ctx.isolationEnabled) && (!cred || ctx.nativeGateway);
+  const ready = missing.length === 0 && (kind !== "isolated" || ctx.isolationEnabled) && (!(cred || isTunnel) || ctx.nativeGateway);
   const kindTitle = KINDS.find((k) => k.kind === kind)!.title;
   const summary = ready
     ? `${kindTitle} · ${publicHost || "only through Captivo"} → ${addr}`
@@ -336,7 +348,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
   const recordLock = recordToggleLock(ctx.recordingMode);
   const effRecord = recordLock.locked ? !!recordLock.forcedValue : record;
-  const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off" && kind !== "database";
+  const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off" && kind !== "database" && !isTunnel;
   const keystrokes = keystrokeChoice ?? remote;
   const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
   // Native RDP, through the RD Gateway. On a recorded resource Captivo signs in
@@ -360,6 +372,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const sshRecordedReady = routeConnectors.length === 0 || routeConnectors.some((c) => compareSemver(c.version, NATIVE_SSH_RECORDED_MIN_CONNECTOR) !== -1);
   const nativeSshOldConnector = nativeSshOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_SSH_MIN_CONNECTOR) === -1);
   const nativeSshNeedsUpdate = nativeSshOn && nativeSshRecorded && !sshRecordedReady && !nativeSshOldConnector;
+  // A tunnel opens nowhere while the Policy requires recording: its bytes are the app's own protocol.
+  const tunnelLocked = isTunnel && ctx.recordingEnabled && ctx.recordingMode === "required";
+  const tunnelOldConnector = isTunnel && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, TUNNEL_MIN_CONNECTOR) === -1);
   const dbOldConnector = isDb && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, dbMinConnector(engine)) === -1);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
@@ -382,11 +397,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           return;
         }
       }
-      const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : isDb ? "DATABASE" : "GATEWAY";
+      const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : isDb ? "DATABASE" : isTunnel ? "TUNNEL" : "GATEWAY";
       const body: Record<string, unknown> = {
         connectorId, connectorGroupId: groupId ?? undefined, name: name.trim(), accessMode,
         hostname: customDomain ? domain.trim().toLowerCase() : label, customDomain,
-        upstreamUrl: cred ? undefined : addr,
+        upstreamUrl: cred || isTunnel ? undefined : addr,
         description: description.trim() || undefined,
         insecureSkipVerify: https && insecure,
         recordSessions: record, keystrokeLogging: keystrokes,
@@ -397,6 +412,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         fileTransferMode: remote ? undefined : ftWeb,
         ...(kind === "isolated" ? { egressMode, egressHosts } : {}),
         ...(remote && hostPort ? { protocol, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, guacParams: guacFieldsToParams(guac) } : {}),
+        ...(isTunnel && hostPort ? { targetHost: hostPort.host, targetPort: hostPort.port } : {}),
         ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
       };
@@ -417,7 +433,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   }
 
   const chips: { text: string; tone: string }[] = [];
-  if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : "Recording on", tone: "bad" });
+  if (isTunnel) chips.push(tunnelLocked ? { text: "Blocked: the Policy requires recording", tone: "warn" } : { text: "Not recorded", tone: "warn" });
+  else if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : "Recording on", tone: "bad" });
   if (isDb && dbTls === "disable") chips.push({ text: "No TLS to the server", tone: "warn" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
   if (nativeRdpOn) {
@@ -431,9 +448,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
       : { text: nativeRdpLocked ? "Native SSH: connector update needed" : "Native SSH: not recorded", tone: "warn" });
   }
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
-  if (!isDb && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
-  if (!isDb && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
-  if (!isDb && ftMode !== "inherit") chips.push({ text: `Files: ${FT.find(([v]) => v === ftMode)?.[1]}`, tone: "p" });
+  if (!isDb && !isTunnel && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
+  if (!isDb && !isTunnel && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
+  if (!isDb && !isTunnel && ftMode !== "inherit") chips.push({ text: `Files: ${FT.find(([v]) => v === ftMode)?.[1]}`, tone: "p" });
   const logoUrl = look.logo === "keep" ? storedLogoUrl : look.logo === null ? null : look.logo.previewUrl;
   const tile = <ResourceIcon name={look.iconName ?? autoName} color={look.iconColor} logoUrl={logoUrl} logoBg={look.logoBg} size={42} />;
 
@@ -450,7 +467,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <span className="rq-label"><span>Resource type</span></span>
             <div className="rf-kinds" role="radiogroup" aria-label="Resource type">
               {KINDS.map((k) => {
-                const off = (k.kind === "isolated" && !ctx.isolationEnabled) || ((k.kind === "remote" || k.kind === "ssh" || k.kind === "database") && !ctx.nativeGateway);
+                const off = (k.kind === "isolated" && !ctx.isolationEnabled) || ((k.kind === "remote" || k.kind === "ssh" || k.kind === "database" || k.kind === "tunnel") && !ctx.nativeGateway);
                 return (
                   <button key={k.kind} type="button" role="radio" aria-checked={kind === k.kind} disabled={off} title={off ? "Not enabled on this installation" : undefined}
                     className={kind === k.kind ? "rf-kind on" : "rf-kind"} onClick={() => pickKind(k.kind)}>
@@ -534,19 +551,19 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               )}
             </div>
           ) : (
-            <p className="rf-dotnote"><span aria-hidden="true" />No public address: users reach it through {kind === "isolated" ? "the Captivo portal" : isDb ? "Captivo's database proxy, with a ticket from the portal" : "the Captivo gateway"}.</p>
+            <p className="rf-dotnote"><span aria-hidden="true" />No public address: users reach it through {kind === "isolated" ? "the Captivo portal" : isDb ? "Captivo's database proxy, with a ticket from the portal" : isTunnel ? "an ssh port forward on Captivo's jump host, with a command from the portal" : "the Captivo gateway"}.</p>
           )}
           <div className="rq-sec">
-            <span className="rq-label"><span>Internal address</span><span className="mono t-muted">{kind === "web" || kind === "isolated" ? "http(s)://ip:port" : `ip:${defaultPort(portProto)}`}</span></span>
+            <span className="rq-label"><span>Internal address</span><span className="mono t-muted">{kind === "web" || kind === "isolated" ? "http(s)://ip:port" : isTunnel ? "host:port" : `ip:${defaultPort(portProto)}`}</span></span>
             <div className="rf-addr">
               <input className={addrTouched && addr && !addrOk ? "input mono bad" : probe.state === "ok" ? "input mono good" : "input mono"} value={address}
                 onChange={(e) => changeAddress(e.target.value)} onBlur={() => setAddrTouched(true)}
-                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? `:${defaultPort(engine)}` : ""}`} aria-label="Internal address" />
+                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : isTunnel ? "10.0.0.2:6379" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? `:${defaultPort(engine)}` : ""}`} aria-label="Internal address" />
               <button type="button" className="btn rf-probe" disabled={!addrOk || !connectorId || probe.state === "busy"} onClick={() => void runProbe()}>
                 {probe.state === "busy" ? <span className="rf-spin" aria-hidden="true" /> : <PulseIcon />}Test connection
               </button>
             </div>
-            {addrTouched && addr && !addrOk && <p className="rf-msg bad">{kind === "web" || kind === "isolated" ? "Use http(s)://host:port, with an optional path." : "Use host or host:port."}</p>}
+            {addrTouched && addr && !addrOk && <p className="rf-msg bad">{kind === "web" || kind === "isolated" ? "Use http(s)://host:port, with an optional path." : isTunnel ? "Use host:port, with the service's port." : "Use host or host:port."}</p>}
             {probe.state === "ok" && <p className="rf-probe-r ok">✓ {group ? "Reached through the group" : "The connector reached the target"}{probe.ms != null ? ` · ${probe.ms} ms` : ""}{group && probe.error ? `: ${probe.error}` : ""}</p>}
             {probe.state === "fail" && <p className="rf-probe-r bad">× {group ? "No member reached this target" : "The connector couldn&apos;t reach this target"} ({probe.error}). Check the address and the firewall.</p>}
             <p className="rf-hint">The connector dials this address from inside your network; it is stored only in the console. To limit what a connector may reach, set <code>ALLOWED_TARGETS</code> on it.</p>
@@ -601,7 +618,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
           <Sec n="03" title="Session rules" />
           <p className="rf-sub">Every setting left on “Policy” follows the Policy page.</p>
-          {ctx.recordingEnabled && (
+          {isTunnel && (
+            <div className="rf-row">
+              <span className="rf-row-t"><b>Not recorded</b><span className="cell-sub">The tunnel carries the app&apos;s own protocol, so Captivo can&apos;t record or watch it. The audit log keeps who connected, when, for how long and how much data moved. Access is checked again every minute, and an admin can end the tunnel from Live sessions.</span></span>
+            </div>
+          )}
+          {tunnelLocked && <p className="rf-msg bad">The Policy page requires every session to be recorded, so users can&apos;t open this tunnel until that changes.</p>}
+          {tunnelOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; TCP tunnels need {TUNNEL_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+          {ctx.recordingEnabled && !isTunnel && (
             <Row title={isDb ? "Query log" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
               <button type="button" role="switch" aria-checked={effRecord} aria-label={isDb ? "Query log" : "Record sessions"} disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
             </Row>
@@ -631,7 +655,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {nativeSshNeedsUpdate && <p className="rf-msg bad">Recording sessions in the user&apos;s own SSH app needs connector {NATIVE_SSH_RECORDED_MIN_CONNECTOR} or later; {connector?.name} runs {connector?.version}. {nativeRdpLocked ? "Until it is updated, users can't connect with their own SSH app." : "Until it is updated, those sessions aren't recorded."}</p>}
           {nativeSshShown && site && vault?.sshHostKey && <SshHostKeyLine siteId={site.id} fingerprint={vault.sshHostKey} />}
           {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
-          {!isDb && (
+          {!isDb && !isTunnel && (
             <>
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
             <Pills value={clipboard} onChange={setClipboard} options={[["inherit", `Policy (${CLIP.find(([v]) => v === ctx.clipboardDefault)?.[1] ?? ctx.clipboardDefault})`], ...CLIP]} label="Clipboard" />
@@ -710,7 +734,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           <div className="rf-portal">
             <ResourceIcon name={look.iconName ?? autoName} color={look.iconColor} logoUrl={logoUrl} logoBg={look.logoBg} size={44} />
             <span className="rf-portal-t"><b>{name || "New resource"}</b><span className="cell-sub">{description.trim() || "No description"}</span></span>
-            <span className="rf-open">{isDb ? "Connect" : "Open"}</span>
+            <span className="rf-open">{isDb || isTunnel ? "Connect" : "Open"}</span>
           </div>
           <p className="rf-hint">The icon, name and description show in the portal of the people who get access.</p>
         </aside>

@@ -73,6 +73,15 @@ export type SiteValidation =
       recordSessions: boolean; // the query log
       dbParams: DbParams;
     }
+  | {
+      ok: true;
+      mode: "TUNNEL";
+      connectorId: string;
+      name: string;
+      description: string | null;
+      targetHost: string;
+      targetPort: number;
+    }
   | { ok: false; error: string };
 
 // true/false is a per-resource choice; anything else ("inherit", absent) is null.
@@ -93,8 +102,18 @@ export function validateSiteInput(
   const connectorId = str(body.connectorId);
   const name = str(body.name);
   const description = str(body.description) || null;
-  const mode = body.accessMode === "GATEWAY" ? "GATEWAY" : body.accessMode === "ISOLATED" ? "ISOLATED" : body.accessMode === "DATABASE" ? "DATABASE" : "TRANSPARENT";
+  const mode = body.accessMode === "GATEWAY" ? "GATEWAY" : body.accessMode === "ISOLATED" ? "ISOLATED" : body.accessMode === "DATABASE" ? "DATABASE" : body.accessMode === "TUNNEL" ? "TUNNEL" : "TRANSPARENT";
   if (!connectorId || !name) return { ok: false, error: "connector_name_required" };
+
+  if (mode === "TUNNEL") {
+    // Any TCP service, through the jump host (lib/gateway/tcp-tunnel.ts): no account, nothing recorded.
+    if (!opts.nativeGateway) return { ok: false, error: "native_gateway_disabled" };
+    const targetHost = str(body.targetHost);
+    const targetPort = typeof body.targetPort === "number" ? body.targetPort : Number(str(body.targetPort));
+    if (!targetHost || /[\s/]/.test(targetHost)) return { ok: false, error: "tunnel_target_required" };
+    if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) return { ok: false, error: "invalid_port" };
+    return { ok: true, mode: "TUNNEL", connectorId, name, description, targetHost, targetPort };
+  }
 
   if (mode === "DATABASE") {
     if (!opts.nativeGateway) return { ok: false, error: "native_gateway_disabled" };

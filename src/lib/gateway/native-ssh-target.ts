@@ -9,6 +9,7 @@ import { getVaultCredential } from "@/lib/vault/store";
 import { rotationOn } from "@/lib/vault/rotation";
 import { nativeSshMode, NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR, type NativeSshBlock, type NativeSshMode } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
+import { TUNNEL_MIN_CONNECTOR, tunnelBlock, type TunnelBlock } from "@/lib/gateway/tcp-tunnel";
 
 /** What a recorded session needs on top of where the server is. */
 export type NativeSshRecorded = {
@@ -23,8 +24,8 @@ export type NativeSshRecorded = {
 };
 
 export type NativeSshTarget =
-  | ({ ok: true; mode: NativeSshMode; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number } & Partial<NativeSshRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | NativeSshBlock; reason?: string };
+  | ({ ok: true; mode: NativeSshMode | "tunnel"; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number } & Partial<NativeSshRecorded>)
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | NativeSshBlock | TunnelBlock; reason?: string };
 
 /** The resource's file transfer rule, as its browser SSH session would have it. */
 export function sshFileTransfer(p: { enableFileTransfer?: boolean; blockUpload?: boolean; blockDownload?: boolean }): NativeSshRecorded["fileTransfer"] {
@@ -46,13 +47,22 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const site = await db.site.findUnique({
     where: { id: siteId },
     select: {
-      name: true, accessMode: true, nativeSsh: true, recordSessions: true, keystrokeLogging: true, ...siteRoutingSelect,
+      name: true, accessMode: true, nativeSsh: true, recordSessions: true, keystrokeLogging: true, tunnelHost: true, tunnelPort: true, ...siteRoutingSelect,
       vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true } },
     },
   });
   if (!site) return { ok: false, status: 404, error: "not_found" };
   const decision = await evaluateAccess(userId, siteId, now);
   if (!decision.allow) return { ok: false, status: 403, error: "forbidden", reason: decision.reason };
+  if (site.accessMode === "TUNNEL") {
+    // A TCP tunnel: the jump host forwards the command's connections to the service (lib/gateway/tcp-tunnel.ts).
+    const block = tunnelBlock({ accessMode: site.accessMode, recordingRequired: await recordingRequired(), connectorVersion: newestVersion(site) });
+    if (block) return { ok: false, status: 409, error: block };
+    if (!site.tunnelHost || !site.tunnelPort) return { ok: false, status: 409, error: "not_ssh" };
+    const members = routeMembers(site, { minVersion: TUNNEL_MIN_CONNECTOR }).eligible;
+    if (members.length === 0) return { ok: false, status: 409, error: "connector_outdated" };
+    return { ok: true, mode: "tunnel", siteName: site.name, targetHost: site.tunnelHost, targetPort: site.tunnelPort, connectorId: members[0].id, connectors: candidatesFor(members) };
+  }
   const cred = site.vaultCredential;
   const recorded = await effectiveSiteRecording(site.recordSessions);
   const mode = nativeSshMode({

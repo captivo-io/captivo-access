@@ -15,7 +15,8 @@ const TICKET_TIMEOUT_MS = 4_000;
 
 // A command for the signed-in user's own SSH client: the resource's server
 // behind the jump host, with a ticket as the jump user name that starts
-// connections for the next two minutes. Each click makes a new one. The
+// connections for the next two minutes; for a TCP tunnel resource, the port
+// forward to its service. Each click makes a new one. The
 // ticket is registered with the data plane, which runs the jump host.
 export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<{ siteId: string }> }) => {
   const user = await getCurrentUser();
@@ -48,6 +49,8 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
     targetHost: t.targetHost,
     targetPort: t.targetPort,
     fingerprint: j.fingerprint ?? null,
+    // A TCP tunnel: the command forwards a local port to the service (lib/gateway/tcp-tunnel.ts).
+    tunnel: t.mode === "tunnel",
     // Recorded: Captivo signs in as the saved account, and the session follows the resource's rules.
     recorded: t.mode === "recorded",
     ...(t.mode === "recorded" ? { username: t.username, fileTransfer: t.fileTransfer } : {}),

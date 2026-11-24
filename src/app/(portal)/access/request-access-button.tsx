@@ -150,7 +150,7 @@ function RequestDialogBody({ onClose, requireJustification }: { onClose: () => v
                 {s.hostname && <span className="mono t-muted">{s.hostname}</span>}
               </span>
               {s.ticket && s.ticket !== "off" && <span className="chip" title="Needs a ticket number">TICKET</span>}
-              <span className={s.accessMode === "GATEWAY" ? "chip violet" : "chip"}>{s.accessMode === "GATEWAY" ? "REMOTE" : s.accessMode === "DATABASE" ? "DB" : "WEB"}</span>
+              <span className={s.accessMode === "GATEWAY" ? "chip violet" : "chip"}>{s.accessMode === "GATEWAY" ? "REMOTE" : s.accessMode === "DATABASE" ? "DB" : s.accessMode === "TUNNEL" ? "TCP" : "WEB"}</span>
             </button>
           ))}
         </div>

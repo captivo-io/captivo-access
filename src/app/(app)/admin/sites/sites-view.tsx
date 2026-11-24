@@ -19,7 +19,7 @@ export interface SiteRow {
   /** RDP / SSH / VNC / TELNET for a remote session; null otherwise. */
   protocol: string | null;
   description: string | null;
-  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE";
+  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE" | "TUNNEL";
   hasLogo: boolean;
   iconName: string | null;
   iconColor: string | null;
@@ -55,11 +55,12 @@ const STORE_KEY = "captivo:sites-view";
 /** HTTPS / HTTP for a web app or isolated browser, the session protocol for a remote one. */
 function protocolOf(s: SiteRow): string {
   if (s.accessMode === "GATEWAY") return s.protocol ?? "REMOTE";
+  if (s.accessMode === "TUNNEL") return "TCP";
   if (s.accessMode === "DATABASE") return s.protocol === "MYSQL" ? "MYSQL" : s.protocol === "MSSQL" ? "SQL SERVER" : "POSTGRESQL";
   const u = s.upstreamUrl ?? "";
   return u.startsWith("http://") ? "HTTP" : "HTTPS";
 }
-const isRemote = (s: SiteRow) => s.accessMode === "GATEWAY" || s.accessMode === "DATABASE";
+const isRemote = (s: SiteRow) => s.accessMode === "GATEWAY" || s.accessMode === "DATABASE" || s.accessMode === "TUNNEL";
 const target = (s: SiteRow) => s.upstreamUrl ?? (s.gatewayTarget ? `${(s.protocol ?? "").toLowerCase() || "tcp"}://${s.gatewayTarget}` : null);
 const stripScheme = (u: string) => u.replace(/^[a-z]+:\/\//i, "").replace(/\/$/, "");
 function targetHost(s: SiteRow): string | null {
@@ -220,7 +221,7 @@ export function SitesView({
   });
   const avg = counts.avg == null ? "—" : counts.avg < 10 ? counts.avg.toFixed(1) : String(Math.round(counts.avg));
   // Recorded, but typed keys not logged: easy to miss when the resource was set up.
-  const keysOff = (s: SiteRow) => recordingEnabled && keystrokeMode === "per_resource" && s.accessMode !== "DATABASE"
+  const keysOff = (s: SiteRow) => recordingEnabled && keystrokeMode === "per_resource" && s.accessMode !== "DATABASE" && s.accessMode !== "TUNNEL"
     && (recordingMode === "required" || (recordingMode !== "off" && s.recordSessions)) && !s.keystrokeLogging;
   const ctx = { health, latency, checked, publicHost, testOne, onIcon: setIconFor, logoBust, keysOff, selected, onSelect: select, onDeleted: (n: string) => { setToast({ msg: `${n} deleted`, ok: true }); router.refresh(); } };
   const allShown = shown.length > 0 && shown.every((s) => selected.has(s.id));
@@ -587,6 +588,7 @@ function ResourceCard({ s, c }: { s: SiteRow; c: Ctx }) {
             {s.accessMode === "GATEWAY" && <span className="rs-mode">GATEWAY</span>}
             {s.accessMode === "ISOLATED" && <span className="rs-mode">ISOLATED</span>}
             {s.accessMode === "DATABASE" && <span className="rs-mode">DATABASE</span>}
+            {s.accessMode === "TUNNEL" && <span className="rs-mode">TUNNEL</span>}
           </div>
           <div className="rs-host">
             <span className="rs-proto-l">{proto}</span><span className="t-muted"> · </span>

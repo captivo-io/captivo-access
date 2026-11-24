@@ -61,6 +61,7 @@ const REASON_DETAILS: Record<string, string> = {
   native_rdp: "own RDP app",
   native_ssh: "own SSH app",
   native_ssh_recorded: "own SSH app, recorded",
+  native_tcp: "TCP tunnel",
   database: "own database client",
   ticket_ended: "connection ticket ended",
   grant_inactive: "grant no longer active",
@@ -70,7 +71,7 @@ export function accessReasonLabel(reason: string | null): string | null {
   if (!reason) return null;
   // A native client's refusal carries the check's code after the client
   // (dataplane/rdpgw.go "native_rdp_no_grant", sshjump.go "native_ssh_expired").
-  const native = /^(native_rdp|native_ssh)_(.+)$/.exec(reason.trim());
+  const native = /^(native_rdp|native_ssh|native_tcp)_(.+)$/.exec(reason.trim());
   if (native) {
     const sftp = /^sftp_(\w+)_off$/.exec(native[2]);
     const why = native[2] === "not_allowed" ? "Not allowed in the user's own app"
