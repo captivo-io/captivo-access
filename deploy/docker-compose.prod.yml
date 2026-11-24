@@ -82,6 +82,8 @@ services:
       DB_PUBLIC_PORT: ${DB_PUBLIC_PORT:-15432}
       MYSQL_PUBLIC_PORT: ${MYSQL_PUBLIC_PORT:-13306}
       MSSQL_PUBLIC_PORT: ${MSSQL_PUBLIC_PORT:-11433}
+      REDIS_PUBLIC_PORT: ${REDIS_PUBLIC_PORT:-16380}
+      MONGODB_PUBLIC_PORT: ${MONGODB_PUBLIC_PORT:-17017}
       DB_PUBLIC_HOST: ${DB_PUBLIC_HOST:-}
       DATAPLANE_SECRET: ${DATAPLANE_SECRET:?required}
       # Cross-subdomain SSO cookie domain — must be a leading-dot domain
@@ -149,27 +151,31 @@ services:
       # The SSH jump host for users' own SSH clients (native SSH resources).
       # SSH_ADDR=off turns it off; then publish nothing below.
       SSH_ADDR: ${SSH_ADDR:-:2222}
-      # The PostgreSQL, MySQL and SQL Server proxies for users' own database
+      # The PostgreSQL, MySQL, SQL Server, Redis and MongoDB proxies for users' own database
       # clients (database resources). They terminate TLS themselves; without
       # DB_TLS_CERT/DB_TLS_KEY they keep a self-signed certificate in /data,
       # which clients accept with sslmode=require / --ssl-mode=REQUIRED (SQL
       # Server clients: Trust server certificate).
-      # DB_ADDR=off / MYSQL_ADDR=off / MSSQL_ADDR=off turns one off; then don't publish its port below.
+      # DB_ADDR=off / MYSQL_ADDR=off / MSSQL_ADDR=off / REDIS_ADDR=off / MONGO_ADDR=off turns one off; then don't publish its port below.
       DB_ADDR: ${DB_ADDR:-:15432}
       MYSQL_ADDR: ${MYSQL_ADDR:-:13306}
       MSSQL_ADDR: ${MSSQL_ADDR:-:11433}
+      REDIS_ADDR: ${REDIS_ADDR:-:16380}
+      MONGO_ADDR: ${MONGO_ADDR:-:17017}
       DB_TLS_CERT: ${DB_TLS_CERT:-}
       DB_TLS_KEY: ${DB_TLS_KEY:-}
     volumes:
       - access_dataplane:/data   # the jump host's key and the proxy's certificate: keep them across updates
     # The SSH jump host and the database proxy are published raw: SSH is its
     # own encryption and the proxy requires TLS. Set SSH_PUBLIC_PORT /
-    # DB_PUBLIC_PORT / MYSQL_PUBLIC_PORT / MSSQL_PUBLIC_PORT on the manager if you map them elsewhere.
+    # DB_PUBLIC_PORT / MYSQL_PUBLIC_PORT / MSSQL_PUBLIC_PORT / REDIS_PUBLIC_PORT / MONGODB_PUBLIC_PORT on the manager if you map them elsewhere.
     ports:
       - "${SSH_PUBLIC_PORT:-2222}:2222"
       - "${DB_PUBLIC_PORT:-15432}:15432"
       - "${MYSQL_PUBLIC_PORT:-13306}:13306"
       - "${MSSQL_PUBLIC_PORT:-11433}:11433"
+      - "${REDIS_PUBLIC_PORT:-16380}:16380"
+      - "${MONGODB_PUBLIC_PORT:-17017}:17017"
     # No other data-plane port is published to the host. Caddy terminates
     # TLS and reverse-proxies to them by service name on the compose network:
     #   connect.<ACCESS_DOMAIN> -> :3101  (connector WSS tunnel)

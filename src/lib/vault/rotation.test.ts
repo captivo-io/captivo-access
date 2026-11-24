@@ -41,6 +41,8 @@ describe("rotationMethod", () => {
     expect(rotationMethod({ protocol: "POSTGRES", secretKind: "PASSWORD" }, null)).toEqual({ method: "postgres" });
     expect(rotationMethod({ protocol: "MYSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mysql" });
     expect(rotationMethod({ protocol: "MSSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mssql" });
+    expect(rotationMethod({ protocol: "REDIS", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
+    expect(rotationMethod({ protocol: "MONGODB", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
   });
 });
 

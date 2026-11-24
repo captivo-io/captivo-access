@@ -92,6 +92,7 @@ export function rotationMethod(c: { protocol: string; secretKind: string; userna
   if (c.protocol === "POSTGRES") return { method: "postgres" };
   if (c.protocol === "MYSQL") return { method: "mysql" };
   if (c.protocol === "MSSQL") return { method: "mssql" };
+  if (c.protocol === "REDIS" || c.protocol === "MONGODB") return { unsupported: `${c.protocol === "REDIS" ? "Redis" : "MongoDB"} passwords are not rotated yet.` };
   return { unsupported: "VNC passwords are not rotated." };
 }
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dbEngineLabel, dbEngineOf, dbEngineWire, dbMinConnector, dbParamsFrom, dbPublicPort, parseDbParams, sqlcmdCommand } from "./params";
+import { dbEngineLabel, dbEngineOf, dbEngineWire, dbMinConnector, dbParamsFrom, dbPublicPort, mongoshCommand, mongoUrl, parseDbParams, redisCliCommand, redisUrl, sqlcmdCommand } from "./params";
 
 describe("SQL Server database params", () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -19,5 +19,38 @@ describe("SQL Server database params", () => {
     vi.stubEnv("MSSQL_PUBLIC_PORT", "1433");
     expect(dbPublicPort("MSSQL")).toBe(1433);
     expect(sqlcmdCommand({ host: "acme.cloud.captivo.io", port: 11433, ticket: "tk", database: "crm" })).toBe("sqlcmd -S tcp:acme.cloud.captivo.io,11433 -U tk -P x -d crm");
+  });
+});
+
+describe("Redis and MongoDB database params", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("names and versions the engines", () => {
+    expect(dbEngineOf("REDIS")).toBe("REDIS");
+    expect(dbEngineOf("mongodb")).toBe("MONGODB");
+    expect(dbEngineWire("REDIS")).toBe("redis");
+    expect(dbEngineWire("MONGODB")).toBe("mongodb");
+    expect(dbEngineLabel("MONGODB")).toBe("MongoDB");
+    expect(dbMinConnector("REDIS")).toBe("2.64.0");
+    expect(dbMinConnector("MONGODB")).toBe("2.64.0");
+  });
+  it("takes a database number for Redis and any name or none for MongoDB", () => {
+    expect(dbParamsFrom({ database: "3" }, "REDIS")).toMatchObject({ database: "3", databases: [] });
+    expect(dbParamsFrom({ database: "" }, "REDIS")).toMatchObject({ database: "" });
+    expect(dbParamsFrom({ database: "crm" }, "REDIS")).toEqual({ error: "invalid_database" });
+    expect(dbParamsFrom({ database: "1234" }, "REDIS")).toEqual({ error: "invalid_database" });
+    expect(dbParamsFrom({ database: "", databases: "a" }, "MONGODB")).toMatchObject({ database: "", databases: [] });
+    expect(dbParamsFrom({ database: "admin" }, "MONGODB")).toMatchObject({ database: "admin" });
+    expect(parseDbParams({}, "REDIS").database).toBe("");
+  });
+  it("publishes their own ports and the client lines", () => {
+    expect(dbPublicPort("REDIS")).toBe(16380);
+    expect(dbPublicPort("MONGODB")).toBe(17017);
+    vi.stubEnv("REDIS_PUBLIC_PORT", "6380");
+    expect(dbPublicPort("REDIS")).toBe(6380);
+    const t = { host: "acme.cloud.captivo.io", port: 16380, ticket: "tk" };
+    expect(redisCliCommand(t)).toBe("redis-cli --tls -h acme.cloud.captivo.io -p 16380 --user tk --pass x");
+    expect(redisUrl(t)).toBe("rediss://tk:x@acme.cloud.captivo.io:16380");
+    expect(mongoUrl({ ...t, port: 17017 })).toBe("mongodb://tk:x@acme.cloud.captivo.io:17017/?tls=true&authMechanism=PLAIN&authSource=%24external");
+    expect(mongoshCommand({ ...t, port: 17017 })).toContain('mongosh "mongodb://tk:x@');
   });
 });

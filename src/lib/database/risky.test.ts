@@ -18,6 +18,19 @@ describe("riskyReason", () => {
     expect(riskyReason("SELECT * FROM users INTO OUTFILE '/tmp/u.csv'")).toBe("Writes a file on the server");
     expect(riskyReason("ALTER USER 'app'@'%' IDENTIFIED BY '***'")).toBe("Changes the schema or a role");
   });
+  it("marks the Redis and MongoDB commands that empty or drop data", () => {
+    expect(riskyReason("FLUSHALL", "redis")).toBe("Empties the database");
+    expect(riskyReason("flushdb", "redis")).toBe("Empties the database");
+    expect(riskyReason("dropDatabase shop", "mongodb")).toBe("Drops data");
+    expect(riskyReason("drop shop.orders", "mongodb")).toBe("Drops data");
+    expect(riskyReason("dropIndexes shop.orders", "mongodb")).toBe("Drops data");
+    expect(riskyReason("GET user:1", "redis")).toBeNull();
+    expect(riskyReason("find shop.orders", "mongodb")).toBeNull();
+    // The SQL rules do not read a command log: a MongoDB update has no WHERE in its text.
+    expect(riskyReason("update shop.orders", "mongodb")).toBeNull();
+    expect(riskyReason("delete shop.orders", "mongodb")).toBeNull();
+    expect(riskyReason("FLUSHALL")).toBeNull();
+  });
   it("leaves ordinary statements alone", () => {
     expect(riskyReason("SELECT * FROM users")).toBeNull();
     expect(riskyReason("DELETE FROM orders WHERE id = $1")).toBeNull();

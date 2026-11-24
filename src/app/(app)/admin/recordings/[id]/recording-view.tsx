@@ -177,7 +177,7 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
           {sql ? (
             rec.protocol === "kubernetes"
               ? <RequestLog events={keys} state={keysState} startedAt={rec.startedAt} />
-              : <QueryLog events={keys} state={keysState} startedAt={rec.startedAt} />
+              : <QueryLog events={keys} state={keysState} startedAt={rec.startedAt} engine={rec.protocol} />
           ) : empty ? (
             <div className="rv-empty">
               <b>Empty session</b>

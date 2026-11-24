@@ -19,10 +19,18 @@ const RULES: [RegExp, string][] = [
   [/\bsp_configure\b|^\s*reconfigure\b/i, "Changes the server's configuration"],
 ];
 
-/** Why a statement is risky, or null. Comments at the start are skipped. */
-export function riskyReason(sql: string): string | null {
+// Redis: a command's name and first key, as the proxy logs it.
+const REDIS_RULES: [RegExp, string][] = [[/^\s*flush(all|db)\b/i, "Empties the database"]];
+
+// MongoDB: a command's name and what it works on. The log keeps no filter, so
+// an update or delete cannot be told from one that matches everything.
+const MONGO_RULES: [RegExp, string][] = [[/^\s*(dropdatabase|drop|dropindexes)\s/i, "Drops data"]];
+
+/** Why a statement is risky, or null. Comments at the start are skipped. `engine` is the log's protocol: "redis" and "mongodb" read their own commands, anything else reads SQL. */
+export function riskyReason(sql: string, engine?: string | null): string | null {
   const s = sql.replace(/^(\s*(--[^\n]*\n|\/\*[\s\S]*?\*\/))+/, "").trim().replace(/[\s;]+$/, "");
-  for (const [re, why] of RULES) {
+  const rules = engine === "redis" ? REDIS_RULES : engine === "mongodb" ? MONGO_RULES : RULES;
+  for (const [re, why] of rules) {
     if (!re.test(s)) continue;
     if (/^\s*(delete|update)\b/i.test(s)) {
       if (/\bwhere\b/i.test(s)) continue;
