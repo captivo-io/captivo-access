@@ -230,7 +230,8 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 
 A resource's password does not have to live in Captivo. For a remote desktop,
 SSH, database or Kubernetes resource, **Where the credential lives** can be
-**HashiCorp Vault** or **CyberArk** instead of **Captivo**.
+**HashiCorp Vault**, **CyberArk**, **Azure Key Vault** or **AWS Secrets
+Manager** instead of **Captivo**.
 
 - **What is saved.** Not a password: a reference (where the secret is) and how
   the connector signs in to the vault. It is sealed in the admin's browser to
@@ -249,6 +250,24 @@ SSH, database or Kubernetes resource, **Where the credential lives** can be
   object (and folder), plus a client certificate and key when the provider asks
   for one. The connector calls `/AIMWebService/api/Accounts` and uses its
   `Content`.
+- **CyberArk's REST API (PVWA).** Besides the Central Credential Provider, the
+  connector can sign in to PVWA as a user (CyberArk, LDAP or RADIUS), find the
+  account in its safe (or take an account id), retrieve its password with a
+  reason that is logged in CyberArk, and sign out. The user needs the Retrieve
+  accounts permission; an account that needs dual control or a ticket cannot be
+  fetched unattended.
+- **Azure Key Vault.** The connector signs in as an app registration (tenant id,
+  client id and secret, the Key Vault Secrets User role) and reads the secret,
+  at its latest or a given version.
+- **AWS Secrets Manager.** The connector signs `GetSecretValue` itself
+  (Signature Version 4) with an access key in the reference, or the connector's
+  own `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (and `AWS_SESSION_TOKEN`)
+  when the reference has none. A JSON secret gives one field. A VPC endpoint
+  can replace the regional one. The instance metadata service (169.254.169.254)
+  is not used: the connector refuses link-local addresses.
+- **When Captivo keeps the secret** (the default) and the target supports it,
+  rotation is available as before; it is off for anything kept in a vault above,
+  which has its own rotation (CPM, Key Vault, Secrets Manager rotation).
 - **The vault's certificate** is checked against the public CAs, against a CA the
   admin pastes, or not checked (an explicit choice).
 - **Where it is allowed.** The vault's address must be reachable from the
@@ -259,7 +278,8 @@ SSH, database or Kubernetes resource, **Where the credential lives** can be
   resource's rotation panel asks the connector to fetch it once and says whether
   the vault answers (audited as `resource.vault_check`); the value is never sent
   back.
-- **Requirements:** a connector on 2.66.0 or later. Switching the resource back to
+- **Requirements:** a connector on 2.66.0 or later (2.67.0 for CyberArk's REST
+  API, Azure Key Vault and AWS Secrets Manager). Switching the resource back to
   **Captivo** and entering a password replaces the reference.
 
 ## Inviting someone into a live session
