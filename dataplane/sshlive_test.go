@@ -158,7 +158,7 @@ func TestRecordedSSHCanBeWatchedAndTellsTheUser(t *testing.T) {
 	live, notify := ls.termHooks()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		serveTermView(ls, live, notify, "admin1", w, req)
+		serveTermView(ls, live, notify, watcher{id: "admin1"}, w, req)
 	}))
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -268,7 +268,7 @@ func TestRecordedSSHCanBeTakenOver(t *testing.T) {
 	ls := r.hub.Get(list[0].SessionID)
 	live, notify := ls.termHooks()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		serveTermView(ls, live, notify, "admin1", w, req)
+		serveTermView(ls, live, notify, watcher{id: "admin1"}, w, req)
 	}))
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

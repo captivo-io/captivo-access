@@ -71,7 +71,8 @@ var usScancode = func() map[rune]uint16 {
 type rdpControl struct {
 	mu   sync.Mutex
 	w    *bufio.Writer // to the connector; nil until the relay starts
-	held bool          // an admin holds control
+	held bool          // an admin (or an invited guest) holds control
+	who  string        // who holds it (watcher.who), for the typed-text log
 
 	// What the user holds down, to release when an admin takes over.
 	userKeys    map[uint16]bool
@@ -134,7 +135,7 @@ func (c *rdpControl) inject(events [][]byte) {
 		if c.onKeys != nil {
 			if evs := c.adminObs.input(pdu, time.Now()); len(evs) > 0 {
 				for i := range evs {
-					evs[i].By = "admin"
+					evs[i].By = byOf(c.who)
 				}
 				c.onKeys(evs)
 			}
@@ -143,14 +144,37 @@ func (c *rdpControl) inject(events [][]byte) {
 	_ = c.w.Flush()
 }
 
-// setHeld is the session's onControl hook.
-func (c *rdpControl) setHeld(taken bool) {
+// byOf is the keyEvent.By of what a controller typed.
+func byOf(who string) string {
+	if who == adminWho || who == "" {
+		return "admin"
+	}
+	return "guest"
+}
+
+func (c *rdpControl) setHeld(taken bool) { c.setHeldBy(taken, adminWho) }
+
+// setHeldBy is the session's onControl hook. An admin taking control from a
+// guest (taken while held) lets go of what the guest held down.
+func (c *rdpControl) setHeldBy(taken bool, who string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if taken && c.held && who != c.who {
+		var evs [][]byte
+		for k := range c.adminKeys {
+			evs = append(evs, fpScancode(k, false))
+		}
+		evs = append(evs, c.buttonsUp(maskButtons(c.adminMask), c.adminX, c.adminY)...)
+		c.adminKeys, c.adminMask, c.mods = map[uint16]bool{}, 0, 0
+		c.who = who
+		c.inject(evs)
+		return
+	}
 	if taken == c.held {
 		return
 	}
 	c.held = taken
+	c.who = who
 	var evs [][]byte
 	if taken {
 		for k := range c.userKeys {

@@ -61,8 +61,8 @@ func serveKasmView(hub *SessionHub, ctrl *ControlClient, reg *Registry, w http.R
 	backendAddr := kasmAddr // static web client from the always-on hub
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		backendAddr = kasmSessionAddr(kasmAddr, kasmPort) // live RFB on the vendor's display
-		ls.addViewer()
-		defer ls.removeViewer()
+		_, done := ls.watch(r.Context(), watcher{id: viewerUserID})
+		defer done()
 	}
 	target, _ := url.Parse("http://" + backendAddr)
 	proxy := httputil.NewSingleHostReverseProxy(target)

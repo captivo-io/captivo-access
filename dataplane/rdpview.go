@@ -23,7 +23,8 @@ const rdpViewKeepalive = 5 * time.Second
 // The user is not told in their app (an RDP app has no place Captivo could
 // write to); the portal and the .rdp file say sessions may be watched or
 // taken over.
-func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w http.ResponseWriter, r *http.Request) {
+func serveRdpView(ls *liveSession, s *Session, watchID string, v watcher, w http.ResponseWriter, r *http.Request) {
+	viewerUserID := v.id
 	if s == nil || s.mux == nil {
 		http.Error(w, "the session's connector is offline", http.StatusBadGateway)
 		return
@@ -57,11 +58,9 @@ func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w h
 	}
 	defer c.CloseNow()
 	c.SetReadLimit(1 << 20)
-	ls.addViewer()
-	defer ls.removeViewer()
+	ctx, done := ls.watch(context.Background(), v)
+	defer done()
 	log.Printf("rdp-view session=%s viewer=%s: watching", ls.id, viewerUserID)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	if err := c.Write(ctx, websocket.MessageText, encodeInstruction("ready", "$"+watchID)); err != nil {
 		return
 	}
@@ -112,7 +111,14 @@ func serveRdpView(ls *liveSession, s *Session, watchID, viewerUserID string, w h
 		}
 	}()
 	// Why the view ended: the viewer left, or the connector's side stopped.
-	if err := <-errc; err != nil {
-		log.Printf("rdp-view session=%s viewer=%s: view ended: %v", ls.id, viewerUserID, err)
+	select {
+	case err := <-errc:
+		if err != nil {
+			log.Printf("rdp-view session=%s viewer=%s: view ended: %v", ls.id, viewerUserID, err)
+		}
+	case <-ctx.Done():
+		// A guest an admin removed, or whose invite ran out.
+		log.Printf("rdp-view session=%s viewer=%s: view closed: the invite ended", ls.id, viewerUserID)
+		_ = c.Close(websocket.StatusPolicyViolation, "the invite ended")
 	}
 }

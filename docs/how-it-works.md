@@ -221,6 +221,51 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 
 ---
 
+## Inviting someone into a live session
+
+An admin watching a live session can bring in someone from outside the console
+(a vendor's specialist, a colleague from another team) to watch it, or to take
+control too. They see that one session and nothing else.
+
+- **Invite.** In the watch window on `/admin/live`, **Invite someone**: an
+  e-mail address, *Watch* or *Watch and take control*, and how long (15 minutes,
+  an hour, or until the session ends; that last one still stops after 12 hours).
+  The link is mailed when the workspace has mail, and shown to copy either way.
+  Up to 5 open invites per session. Admins only (configure).
+- **Who can be invited into what.** Sessions whose view the data plane itself
+  gates: browser RDP, SSH and VNC, and recorded native SSH and RDP. Not an
+  isolated browser (its view-only is a setting of the viewer's own page, fine for
+  an admin, not for an outsider), a web app, a database session or an unrecorded
+  native one.
+- **Joining.** The link opens a page that says who invited them, into whose
+  session, for how long. They sign in with **Captivo ID** under the invited
+  address; anyone can make an account there. A workspace with its own sign-in
+  provider still uses Captivo ID for guests (its provider knows nobody from
+  outside); only a self-hosted console, which never talks to Captivo ID, uses its
+  own provider. Policy can require a second factor for guests. The sign-in is
+  always fresh (`prompt=login`), and an account under another address is refused.
+- **The pass.** Signing in spends the link (once) and gives that browser a
+  host-only, HTTP-only `ca_guest` cookie. It is not a console sign-in: no console
+  page or API takes it. The data plane asks the manager about it
+  (`/api/internal/gateway/guest-authz`) for each view it opens, and only for the
+  session and site the invite names. Only SHA-256 hashes of the link and the pass
+  are stored (`SessionInvite`).
+- **Control.** One holder at a time, as before. A guest takes control only when
+  the invite allows it; an admin's **Take control** takes it back from a guest at
+  any time (never from another admin), and what the guest held down is let go.
+- **Ending.** Withdrawing the invite (or **Remove** once they joined), its time
+  running out, or the session ending closes the guest's view at once.
+- **What the user is told.** The guest is named: "Ayşe Yılmaz (guest) is watching"
+  on the session page, a line in a native SSH terminal (each time, unlike the
+  once-a-minute admin notice), and the same when a guest takes control. A native
+  RDP app has nowhere to show it, as for admins.
+- **The record.** Invite, join (with the Captivo account and address), take and
+  give back control, and removal are in the admin audit log, the guest under
+  `guest:<invite id>`. A recording lists its invited guests under Details, with
+  when they joined and what they could do. The live activity feed names them.
+- **Policy.** *Session invitations* (on by default) and *Two-step verification
+  for invited guests* (off by default), under Session controls.
+
 ## The journey of a single request
 
 **Scenario:** a vendor types `jira.access.yourdomain.com` into their browser.

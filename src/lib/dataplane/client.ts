@@ -123,19 +123,39 @@ export async function setSessionControl(
   sessionId: string,
   ownerUserId: string,
   action: "take" | "release",
+  opts: {
+    /** An invited guest taking control (ownerUserId "guest:<invite>"), as the user is told. */
+    guestName?: string;
+    /** An admin's take: control an invited guest holds comes back to them. */
+    force?: boolean;
+  } = {},
 ): Promise<{ ok: boolean; reason?: string }> {
   if (!(await findOwnSession(sessionId))) return { ok: false, reason: "not_found" };
   try {
     const res = await fetchWithTimeout(`${BASE()}/sessions/control`, { timeoutMs: DP_TIMEOUT_MS,
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ sessionId, ownerUserId, action }),
+      body: JSON.stringify({ sessionId, ownerUserId, action, guestName: opts.guestName, force: opts.force === true }),
       cache: "no-store",
     });
     if (!res.ok) return { ok: false, reason: "unreachable" };
     return (await res.json()) as { ok: boolean; reason?: string };
   } catch {
     return { ok: false, reason: "unreachable" };
+  }
+}
+
+/** Close every view a viewer (an invited guest) has open on a live session of this workspace. */
+export async function kickViewer(sessionId: string, viewerId: string): Promise<boolean> {
+  if (!(await findOwnSession(sessionId))) return false;
+  try {
+    const res = await fetchWithTimeout(`${BASE()}/sessions/kick-viewer`, {
+      timeoutMs: DP_TIMEOUT_MS, method: "POST", headers: authHeaders(), cache: "no-store",
+      body: JSON.stringify({ sessionId, viewerId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -179,14 +199,25 @@ export async function sendSessionMessage(sessionId: string, text: string): Promi
   }
 }
 
-export async function getWatchStatus(userId: string, siteId: string): Promise<{ watching: boolean; controlHeld: boolean; ended?: string; message?: LiveMessage | null }> {
+export interface WatchStatus {
+  watching: boolean;
+  controlHeld: boolean;
+  /** Invited guests watching now, by name (2.59+). */
+  guests?: string[] | null;
+  /** Who holds control as the user is told it: "An admin", or "<name> (guest)" (2.59+). */
+  controlBy?: string;
+  ended?: string;
+  message?: LiveMessage | null;
+}
+
+export async function getWatchStatus(userId: string, siteId: string): Promise<WatchStatus> {
   try {
     const qs = `userId=${encodeURIComponent(userId)}&siteId=${encodeURIComponent(siteId)}`;
     const res = await fetchWithTimeout(`${BASE()}/sessions/watch-status?${qs}`, { timeoutMs: DP_TIMEOUT_MS, headers: authHeaders(), cache: "no-store" });
     if (!res.ok) return { watching: false, controlHeld: false };
     // ended: why the access recheck closed this vendor's session here (dataplane/recheck.go);
     // message: an admin's recent message for the session page to show.
-    return (await res.json()) as { watching: boolean; controlHeld: boolean; ended?: string; message?: LiveMessage | null };
+    return (await res.json()) as WatchStatus;
   } catch {
     return { watching: false, controlHeld: false };
   }

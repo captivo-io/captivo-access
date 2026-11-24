@@ -409,6 +409,11 @@ func main() {
 			SessionID   string `json:"sessionId"`
 			OwnerUserID string `json:"ownerUserId"`
 			Action      string `json:"action"`
+			// A guest invited into the session (ownerUserId "guest:<invite>"),
+			// named to the user; empty for an admin.
+			GuestName string `json:"guestName"`
+			// An admin's take: control a guest holds comes back to them.
+			Force bool `json:"force"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionID == "" || body.OwnerUserID == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "reason": "invalid_body"})
@@ -419,7 +424,11 @@ func main() {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			return
 		}
-		if err := hub.SetControl(body.SessionID, body.OwnerUserID); err != nil {
+		who := adminWho
+		if strings.HasPrefix(body.OwnerUserID, guestPrefix) {
+			who = guestWho(body.GuestName)
+		}
+		if err := hub.SetControlAs(body.SessionID, body.OwnerUserID, who, body.Force); err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "reason": err.Error()})
 			return
 		}
@@ -431,10 +440,27 @@ func main() {
 			return
 		}
 		uid, sid := r.URL.Query().Get("userId"), r.URL.Query().Get("siteId")
-		watching, controlHeld := hub.WatchStatus(uid, sid)
+		watching, guests, controlBy := hub.WatchStatus(uid, sid)
 		// "ended": why a recheck closed this vendor's session here, so the page can say so.
 		// "message": an admin's recent message, which the page shows once.
-		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlHeld, "ended": hub.EndedReason(uid, sid), "message": hub.PendingMessage(uid, sid, time.Now())})
+		// "guests": invited guests watching; "controlBy": who holds control.
+		writeJSON(w, http.StatusOK, map[string]any{"watching": watching, "controlHeld": controlBy != "", "guests": guests, "controlBy": controlBy, "ended": hub.EndedReason(uid, sid), "message": hub.PendingMessage(uid, sid, time.Now())})
+	})
+	// Close a viewer's views of a session: an admin removed an invited guest.
+	in.HandleFunc("/sessions/kick-viewer", func(w http.ResponseWriter, r *http.Request) {
+		if !dpAuthorized(r, secret) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var body struct {
+			SessionID string `json:"sessionId"`
+			ViewerID  string `json:"viewerId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionID == "" || body.ViewerID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "reason": "invalid_body"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "found": hub.KickViewer(body.SessionID, body.ViewerID)})
 	})
 	// A live session's recent events, newest first, for the console's watch panel.
 	in.HandleFunc("/sessions/feed", func(w http.ResponseWriter, r *http.Request) {

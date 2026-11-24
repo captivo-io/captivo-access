@@ -8,6 +8,7 @@ import { workspaceView } from "@/lib/mobile/views";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { humanBytes } from "@/lib/recording/format";
 import { RecordingView } from "./recording-view";
+import { guestsOfRecording } from "@/lib/live/invites";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recording" };
@@ -27,7 +28,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
   }
   const estimatedMs = rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0;
   const lengthMs = rec.durationMs ?? estimatedMs;
-  const [ws, user, site, retention, transfers, carrier] = await Promise.all([
+  const [ws, user, site, retention, transfers, carrier, guests] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } }),
     db.site.findUnique({ where: { id: rec.siteId }, select: { name: true, connector: { select: { version: true } } } }),
@@ -44,6 +45,8 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     }),
     // The connector that carried the session, and so keeps its recording.
     rec.connectorId ? db.connector.findUnique({ where: { id: rec.connectorId }, select: { name: true } }) : Promise.resolve(null),
+    // People invited into the session from outside while it ran.
+    guestsOfRecording({ siteId: rec.siteId, userId: rec.userId, startedAt: rec.startedAt, endedAt: new Date(rec.startedAt.getTime() + lengthMs) }).catch(() => []),
   ]);
   const startSec = Number(t);
   const view = {
@@ -58,6 +61,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     bytes: rec.bytes,
     host: rec.host,
     connector: carrier?.name ?? null,
+    guests,
     encrypted: rec.encrypted,
     purgePending: rec.purgePendingAt !== null,
   };

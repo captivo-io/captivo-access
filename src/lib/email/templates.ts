@@ -124,3 +124,27 @@ export function accessReviewEmail(input: {
   });
   return { subject, html, text };
 }
+
+export function sessionInviteEmail(input: {
+  inviter: string;
+  userLabel: string;
+  siteName: string;
+  canControl: boolean;
+  untilSessionEnds: boolean;
+  expiresAt: Date;
+  link: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `Join a live session on ${input.siteName}`;
+  const minutes = Math.max(1, Math.round((input.expiresAt.getTime() - Date.now()) / 60_000));
+  const lasts = input.untilSessionEnds ? "until the session ends" : minutes >= 60 ? `for ${Math.round(minutes / 60)} hour${Math.round(minutes / 60) === 1 ? "" : "s"}` : `for ${minutes} minutes`;
+  const { html, text } = renderEmail({
+    heading: escapeHtml(subject),
+    bodyLines: [
+      `${escapeHtml(input.inviter)} invited you to ${input.canControl ? "watch, and if needed take control of," : "watch"} ${escapeHtml(input.userLabel)}'s session on ${escapeHtml(input.siteName)}, as it happens.`,
+      `Sign in with Captivo under this address to join. The link works once, on the browser you open it in, ${lasts}.`,
+      "You see only this session. Everything in it is recorded, including that you joined.",
+    ],
+    button: { label: "Join the session", url: input.link },
+  });
+  return { subject, html, text };
+}

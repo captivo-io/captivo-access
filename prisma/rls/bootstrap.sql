@@ -29,7 +29,7 @@ BEGIN
     'DirectoryConfig','GroupMapping','SessionPolicy','CronRun','PlatformSettings',
     'UpdateCheckConfig','SessionRecording','RecordingChunk','SessionKeyEvent','AdminAuditEvent',
     'SupportHandoff','MobileDevice','ConnectorDay','ConnectorEvent','PasskeyReset',
-    'LogDestination','ConnectorGroup','ConnectorGroupMember','DbTicket','AccessReview','AccessReviewItem','TicketSystem','TicketNote'
+    'LogDestination','ConnectorGroup','ConnectorGroupMember','DbTicket','AccessReview','AccessReviewItem','TicketSystem','TicketNote','SessionInvite'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);

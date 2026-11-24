@@ -76,6 +76,7 @@ model Tenant {
   accessReviews      AccessReview[]
   ticketSystem       TicketSystem?
   ticketNotes        TicketNote[]
+  sessionInvites     SessionInvite[]
   accessReviewItems  AccessReviewItem[]
 }
 
@@ -795,6 +796,8 @@ model PlatformSettings {
   isolatedEgressDefault       String? // network access for isolated resources that inherit: internet | strict | open; null → internet
   isolatedFileTransferDefault String? // file transfer for isolated resources that inherit: allow | no_upload | no_download | none; null → none
   webAppFileTransferDefault   String? // file transfer for web apps that inherit: allow | no_upload | no_download | none; null → allow
+  sessionInvitesEnabled       Boolean? // admins may invite someone from outside into a live session; null = default on
+  guestRequireSecondFactor    Boolean? // invited guests must sign in with a second factor; null = default off
   /// When an admin hid the Console setup card ("Hide setup" / "Go to console"); null = not hidden.
   onboardingDismissedAt       DateTime?
   updatedAt                   DateTime  @updatedAt
@@ -1138,4 +1141,36 @@ model AccessReviewItem {
 
   @@index([tenantId])
   @@index([reviewId])
+}
+
+// A one-time link that lets someone outside the console watch ONE live session
+// and, when the invite allows it, take control of it. The person signs in with
+// Captivo ID under the invited address; the link then binds to that browser
+// (guestTokenHash) and works for nothing else: no console, no other session.
+// Only hashes of the link and the browser token are stored.
+model SessionInvite {
+  id               String    @id @default(cuid())
+  tenantId         String    @default("default")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessionId        String // the data plane's live session id
+  siteId           String
+  sessionUserId    String // whose session it is: recordings are matched on site + user + time
+  email            String
+  canControl       Boolean   @default(false)
+  untilSessionEnds Boolean   @default(false)
+  linkHash         String
+  expiresAt        DateTime // the link, and the guest's access, end here (or with the session)
+  createdById      String?
+  createdByEmail   String?
+  createdAt        DateTime  @default(now())
+  joinedAt         DateTime?
+  guestName        String?
+  guestSubject     String? // the Captivo ID account that opened it
+  guestTokenHash   String?
+  revokedAt        DateTime?
+  revokedByEmail   String?
+
+  @@index([tenantId])
+  @@index([sessionId])
+  @@index([siteId, sessionUserId, joinedAt])
 }

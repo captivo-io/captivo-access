@@ -31,6 +31,8 @@ export interface RecordingInfo {
   host: string;
   /** The connector that carried the session and keeps the recording. */
   connector?: string | null;
+  /** People an admin invited into the session while it ran. */
+  guests?: { name: string; email: string; joinedAt: string; canControl: boolean; invitedBy: string | null }[];
   encrypted: boolean;
   purgePending: boolean;
 }
@@ -226,6 +228,18 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
                   ["Resource", siteName],
                   ["Host", <span key="h" className="mono">{rec.host}</span>],
                   ...(rec.connector ? [["Connector", rec.connector] as [string, React.ReactNode]] : []),
+                  ...(rec.guests && rec.guests.length > 0 ? [["Invited guests", (
+                    <ul key="g" className="rv-guests">
+                      {rec.guests.map((g) => (
+                        <li key={g.email + g.joinedAt}>
+                          {g.name}{g.name !== g.email ? <span className="cell-sub"> {g.email}</span> : null}
+                          <div className="cell-sub">
+                            joined <span className="mono">{clockOf(Math.max(0, new Date(g.joinedAt).getTime() - new Date(rec.startedAt).getTime()))}</span> · {g.canControl ? "could take control" : "watch only"}{g.invitedBy ? ` · invited by ${g.invitedBy}` : ""}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )] as [string, React.ReactNode]] : []),
                   ["Protocol", protocolLabel(rec)],
                   ["Started", <span key="s" className="mono">{isoWithOffset(rec.startedAt, zone)}</span>],
                   ["Length", <span key="l" className="mono">{clockOf(rec.lengthMs)}{rec.measured ? "" : " (estimated)"}</span>],

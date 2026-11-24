@@ -490,7 +490,7 @@ func (t *rdpgwTunnel) open() func() {
 			if t.watchID != "" {
 				ls.setRdpWatch(t.watchID)
 				if t.ctl != nil { // an admin who watches can take it over
-					ls.setTakeover(t.ctl.fromAdmin, t.ctl.setHeld)
+					ls.setTakeover(t.ctl.fromAdmin, t.ctl.setHeldBy)
 				}
 			}
 		}

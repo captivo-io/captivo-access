@@ -72,6 +72,8 @@ async function PolicyPageImpl() {
     maxSessionHours: num(policy.maxSessionHours),
     maxConcurrentPerUser: num(policy.maxConcurrentPerUser),
     requireSecondFactor: policy.requireSecondFactor,
+    sessionInvitesEnabled: s.sessionInvitesEnabled ?? true,
+    guestRequireSecondFactor: s.guestRequireSecondFactor ?? false,
     maxGrantDays: num(s.maxGrantDays),
     inviteTtlHours: num(s.inviteTtlHours),
     requireRequestJustification: s.requireRequestJustification ?? true,

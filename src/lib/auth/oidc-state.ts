@@ -23,6 +23,12 @@ type OidcState = {
    * provider again" from "the provider was asked and the account has none".
    */
   stepUp?: boolean;
+  /**
+   * A guest signing in to join one live session: the invite link's token.
+   * The callback hands such a round trip to lib/live/guest-signin.ts; it never
+   * starts a console session.
+   */
+  guest?: string;
 };
 
 export async function setOidcState(data: OidcState): Promise<void> {
@@ -44,11 +50,11 @@ export async function readOidcState(): Promise<OidcState | null> {
   if (!c) return null;
   try {
     const { payload } = await jwtVerify(c, secret());
-    const { state, nonce, codeVerifier, returnTo, stepUp } = payload as Record<string, unknown>;
+    const { state, nonce, codeVerifier, returnTo, stepUp, guest } = payload as Record<string, unknown>;
     if (typeof state !== "string" || typeof nonce !== "string" || typeof codeVerifier !== "string" || typeof returnTo !== "string") {
       return null;
     }
-    return { state, nonce, codeVerifier, returnTo, stepUp: stepUp === true };
+    return { state, nonce, codeVerifier, returnTo, stepUp: stepUp === true, ...(typeof guest === "string" ? { guest } : {}) };
   } catch {
     return null;
   }

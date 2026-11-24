@@ -32,12 +32,22 @@ export function RecordingNotice({ active, expandedMs = 6000 }: { active: boolean
 }
 
 // Live-monitoring / control notice (an admin watching or driving the session).
-export function MonitorNotice({ watching, controlHeld }: { watching: boolean; controlHeld: boolean }) {
+// Invited guests are named: an admin let someone from outside in, and the
+// user is told who.
+export function MonitorNotice({ watching, controlHeld, guests, controlBy }: { watching: boolean; controlHeld: boolean; guests?: string[] | null; controlBy?: string }) {
   if (!watching && !controlHeld) return null;
+  const named = (guests ?? []).map((g) => `${g} (guest)`);
+  const text = controlHeld
+    ? controlBy && controlBy !== "An admin"
+      ? `${controlBy} has taken control of this session.`
+      : "An administrator has taken control of this session."
+    : named.length > 0
+      ? `This session is being watched live by ${named.join(", ")}.`
+      : "This session is being monitored live.";
   return (
     <div className={`ss-monitor${controlHeld ? " control" : ""}`} role="status">
       {Icon.eye(16)}
-      <span>{controlHeld ? "An administrator has taken control of this session." : "This session is being monitored live."}</span>
+      <span>{text}</span>
     </div>
   );
 }
