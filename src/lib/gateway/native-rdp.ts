@@ -113,7 +113,8 @@ export function rdpFile(o: { gatewayHost: string; targetHost: string; targetPort
     `gatewayaccesstoken:s:${oneLine(o.token)}`,
     "authentication level:i:2",
     `enablecredsspsupport:i:${o.recorded ? 0 : 1}`,
-    ...(o.recorded ? ["prompt for credentials:i:0"] : []),
+    // Recorded: no tiles from the app's disk cache, which the recording never sees (black regions).
+    ...(o.recorded ? ["prompt for credentials:i:0", "bitmapcachepersistenable:i:0"] : []),
     "screen mode id:i:2",
     "smart sizing:i:1",
     "dynamic resolution:i:1",
