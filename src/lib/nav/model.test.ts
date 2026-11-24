@@ -13,7 +13,12 @@ describe("buildNavModel", () => {
     const item = (label: string) => m.admin.flatMap((s) => s.items).find((i) => i.label === label);
     expect(item("Grants")).toMatchObject({ badge: 3, badgeTone: "warn" });
     expect(item("Sessions")).toMatchObject({ badge: 1, badgeTone: "ok" });
-    expect(item("Connectors")).toMatchObject({ badge: 2, badgeTone: "warn" });
+    expect(item("Connectors")).toMatchObject({ badge: 2, badgeTone: "warn", badgeTitle: "2 need an update" });
+    const conn = (offlineConnectors: number, outdatedConnectors: number) =>
+      buildNavModel("ADMIN", { pending: 0, unread: 0, offlineConnectors, outdatedConnectors }).admin[2].items[0];
+    expect(conn(1, 0)).toMatchObject({ badge: 1, badgeTone: "bad", badgeTitle: "1 offline" });
+    expect(conn(1, 0).badge2).toBeUndefined();
+    expect(conn(1, 2)).toMatchObject({ badge: 1, badgeTone: "bad", badge2: { n: 2, tone: "warn", title: "2 need an update" } });
     expect(item("Resources")?.badge, "a zero is not shown").toBeUndefined();
     expect(hrefs(m)).toEqual(expect.arrayContaining([
       "/", "/admin/insights", "/admin/grants", "/admin/live", "/admin/recordings", "/admin/audit",

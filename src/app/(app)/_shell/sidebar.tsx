@@ -127,6 +127,7 @@ export function Sidebar({ model, view, roleLabel, products, workspace, user, acc
                     <NavIcon name={it.icon} />
                     <span className="sb-link-label">{it.label}</span>
                     {n ? <span className={`sb-badge ${tone ?? "muted"}`} title={it.badgeTitle} aria-label={it.badgeTitle}>{n}</span> : null}
+                    {it.badge2 ? <span className={`sb-badge sb-badge2 ${it.badge2.tone}`} title={`${it.badge2.n} ${it.badge2.title}`} aria-label={`${it.badge2.n} ${it.badge2.title}`}>{it.badge2.n}</span> : null}
                   </Link>
                 );
               })}

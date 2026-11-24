@@ -11,7 +11,11 @@ export type NavIconKey =
 
 export type BadgeTone = "ok" | "warn" | "bad" | "muted" | "info";
 
-export interface NavItem { label: string; href: string; icon: NavIconKey; badge?: number; badgeTone?: BadgeTone; badgeTitle?: string }
+export interface NavItem {
+  label: string; href: string; icon: NavIconKey; badge?: number; badgeTone?: BadgeTone; badgeTitle?: string;
+  /** A second count beside the first, in its own tone (Connectors: offline, then out of date). */
+  badge2?: { n: number; tone: BadgeTone; title: string };
+}
 export interface NavSection { label: string; items: NavItem[] }
 export interface NavModel {
   /** The console's menu (admins, operators, auditors). Empty for vendors. */
@@ -32,8 +36,10 @@ export interface NavCounts {
   reviewPending?: number;
   /** Live sessions right now. */
   live?: number;
-  /** Connectors running an older version than this console. */
+  /** Online connectors running an older version than this console. */
   outdatedConnectors?: number;
+  /** Connectors that were connected and are not now (a new one waiting to be installed is not counted). */
+  offlineConnectors?: number;
   /** Resources the last probe could not reach. */
   unreachableResources?: number;
   /** The person's own requests still waiting for a decision. */
@@ -44,6 +50,13 @@ export interface NavCounts {
 
 const badge = (n: number | undefined, tone: BadgeTone, title?: string): Pick<NavItem, "badge" | "badgeTone" | "badgeTitle"> =>
   n && n > 0 ? { badge: n, badgeTone: tone, ...(title ? { badgeTitle: `${n} ${title}` } : {}) } : {};
+
+function connectorBadges(offline: number | undefined, outdated: number | undefined): Pick<NavItem, "badge" | "badgeTone" | "badgeTitle" | "badge2"> {
+  const down = badge(offline, "bad", "offline");
+  const old = badge(outdated, "warn", "need an update");
+  if (!down.badge) return old;
+  return old.badge ? { ...down, badge2: { n: old.badge, tone: "warn", title: old.badgeTitle! } } : down;
+}
 
 // The sidebar, grouped as the design hand-off lays it out. read_console gives
 // Overview, Grants, Sessions and Audit (plus search and notifications);
@@ -71,7 +84,8 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
   }
   if (config) {
     admin.push({ label: "Infrastructure", items: [
-      { label: "Connectors", href: "/admin/connectors", icon: "plug", ...badge(counts.outdatedConnectors, "warn", "out of date") },
+      // Offline is a fault (red); out of date is a chore (amber). Both show when both apply.
+      { label: "Connectors", href: "/admin/connectors", icon: "plug", ...connectorBadges(counts.offlineConnectors, counts.outdatedConnectors) },
       // Unreachable is a fault, not a total: red, and named on hover.
       { label: "Resources", href: "/admin/sites", icon: "server", ...badge(counts.unreachableResources, "bad", "unreachable") },
       // Self-host only: the operator runs DNS for the wildcard app domain. On

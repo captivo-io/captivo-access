@@ -28,7 +28,7 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
   const [pending, unread, connectors, unreachableResources, myPending, ws, reviewPending, moderationWaiting] = await Promise.all([
     grants ? soft(countPendingGrants(), 0) : 0,
     read ? soft(countUnreadNotifications(), 0) : 0,
-    config ? soft(db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { version: true } }), []) : [],
+    config ? soft(db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { version: true, status: true } }), []) : [],
     config ? soft(db.site.count({ where: { probeOk: false } }), 0) : 0,
     soft(db.accessGrant.count({ where: { userId: user.id, status: "ACTIVE", requiresApproval: true, approvedAt: null } }), 0),
     soft(workspaceView(), { name: "Captivo Access", slug: null, origin: "" }),
@@ -46,7 +46,9 @@ export async function getShellData(user: { id: string; role: Role }): Promise<{ 
       pending,
       unread,
       reviewPending,
-      outdatedConnectors: connectors.filter((c) => c.version && isConnectorOutdated(c.version, mgr)).length,
+      // An offline connector is counted once, as offline: it can't be updated until it is back.
+      outdatedConnectors: connectors.filter((c) => c.status === "ONLINE" && c.version && isConnectorOutdated(c.version, mgr)).length,
+      offlineConnectors: connectors.filter((c) => c.status === "OFFLINE").length,
       unreachableResources,
       myPending,
       moderationWaiting,
