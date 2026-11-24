@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       // GATEWAY sites have no upstreamUrl; probe their remote-desktop target
       // (VaultCredential.targetHost:targetPort) with the same TCP connect.
       gateways: await db.site.findMany({
-        where: { accessMode: { in: ["GATEWAY", "DATABASE"] } },
+        where: { accessMode: { in: ["GATEWAY", "DATABASE", "TUNNEL"] } },
         select: {
           id: true,
           name: true,
@@ -71,6 +71,9 @@ export async function POST(req: NextRequest) {
           connectorId: true,
           ...groupProbeSelect,
           vaultCredential: { select: { targetHost: true, targetPort: true } },
+          accessMode: true,
+          tunnelHost: true,
+          tunnelPort: true,
         },
       }),
     }));
@@ -80,7 +83,10 @@ export async function POST(req: NextRequest) {
     const toProbe = sites.filter(
       (s): s is typeof s & { upstreamUrl: string } => !!s.upstreamUrl,
     );
-    const gwToProbe = gateways.filter((g) => g.vaultCredential !== null);
+    // A TCP tunnel keeps its service on the site itself.
+    const targetOf = (g: (typeof gateways)[number]) =>
+      g.accessMode === "TUNNEL" ? (g.tunnelHost && g.tunnelPort ? { targetHost: g.tunnelHost, targetPort: g.tunnelPort } : null) : g.vaultCredential;
+    const gwToProbe = gateways.filter((g) => targetOf(g) !== null);
 
     type Outcome = {
       id: string;
@@ -128,7 +134,7 @@ export async function POST(req: NextRequest) {
       ...(await probeThrough(site, async (connectorId) => await probeSite({ connectorId, upstreamUrl: site.upstreamUrl }))),
     }));
     await runBatched(gwToProbe, async (site) => {
-      const vc = site.vaultCredential!;
+      const vc = targetOf(site)!;
       return {
         id: site.id,
         name: site.name,

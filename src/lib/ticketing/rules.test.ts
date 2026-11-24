@@ -93,6 +93,9 @@ describe("noteText", () => {
     expect(noteText({ ...base, reason: "session_open native_ssh_recorded" })?.body).toContain("with their own SSH client at 2026-11-22 20:05 UTC. Recordings:");
     expect(n?.body).toContain("with their own SSH client (not recorded)");
     expect(n?.body).not.toContain("Recordings:");
+    const t = noteText({ ...base, reason: "session_open native_tcp" });
+    expect(t?.body).toContain("through a TCP tunnel (not recorded)");
+    expect(t?.body).not.toContain("Recordings:");
   });
   it("says how long a session lasted", () => {
     expect(noteText({ ...base, reason: "session_close 42m" })?.body).toBe("Captivo Access: Ana (ana@vendor.com) closed the session to CRM at 2026-11-22 20:05 UTC after 42m.");

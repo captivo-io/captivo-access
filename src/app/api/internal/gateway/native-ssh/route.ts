@@ -21,7 +21,8 @@ async function tenantFromReq(req: NextRequest): Promise<string | null> {
 // with a ticket: is the grant still good, does the resource allow native
 // clients, and where is its server. For a recorded resource also the account
 // the connector signs in with, its secret sealed to each connector (only a
-// connector opens it), the pinned host key and the session's rules.
+// connector opens it), the pinned host key and the session's rules. A TCP
+// tunnel resource answers with its service and `tunnel`.
 async function handler(req: NextRequest) {
   if (!dpAuthorized(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -38,6 +39,7 @@ async function handler(req: NextRequest) {
     connectors: t.connectors,
     targetHost: t.targetHost,
     targetPort: t.targetPort,
+    ...(t.mode === "tunnel" ? { tunnel: true } : {}),
     ...(t.mode === "recorded" ? {
       record: true,
       keystrokeLogging: t.keystrokeLogging,

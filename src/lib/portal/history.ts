@@ -35,7 +35,7 @@ function siteFields(s: SiteRow, native: boolean): Pick<HistoryRowJSON, "siteId" 
     siteId: s.id, name: s.name, kind: t.remote ? "remote" : "web", proto: t.proto,
     via: native ? "native" : s.accessMode === "ISOLATED" ? "isolated" : s.accessMode === "GATEWAY" ? "gateway" : null,
     tile: { icon: t.icon, color: t.color, logoUrl: t.logoUrl, logoBg: t.logoBg },
-    href: (s.accessMode === "TRANSPARENT" && !s.hostname) || s.accessMode === "DATABASE" ? null : launchHref(s.accessMode, s.id, s.hostname ?? ""),
+    href: (s.accessMode === "TRANSPARENT" && !s.hostname) || s.accessMode === "DATABASE" || s.accessMode === "TUNNEL" ? null : launchHref(s.accessMode, s.id, s.hostname ?? ""),
   };
 }
 

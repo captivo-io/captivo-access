@@ -25,7 +25,7 @@ const MODE_SUB: Record<TicketMode, string> = {
   required: "Every request and grant names a ticket; an approver still decides.",
   itsm: "A ticket approved in the ticket system opens access at once; otherwise an approver decides.",
 };
-const TYPE: Record<string, string> = { TRANSPARENT: "Web app", ISOLATED: "Isolated", GATEWAY: "Remote", DATABASE: "Database" };
+const TYPE: Record<string, string> = { TRANSPARENT: "Web app", ISOLATED: "Isolated", GATEWAY: "Remote", DATABASE: "Database", TUNNEL: "TCP tunnel" };
 
 type Form = Omit<SystemView, "lastOkAt" | "lastError" | "lastErrorAt" | "saved" | "hasSecret"> & { secret: string };
 type Found = {

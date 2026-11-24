@@ -19,11 +19,13 @@ type SiteFacts = {
   id: string; name: string; accessMode: string; upstreamUrl: string | null;
   iconName?: string | null; iconColor?: string | null; logoBg?: string | null; logoType?: string | null;
   vaultCredential: { targetHost: string; targetPort: number | null; protocol: string } | null;
+  /** TUNNEL: the service (absent in callers that predate tunnels). */
+  tunnelHost?: string | null; tunnelPort?: number | null;
 };
 
 export function siteTile(s: SiteFacts): SiteTile {
-  const remote = s.accessMode === "GATEWAY" || s.accessMode === "DATABASE";
-  const v = s.vaultCredential;
+  const remote = s.accessMode === "GATEWAY" || s.accessMode === "DATABASE" || s.accessMode === "TUNNEL";
+  const v = s.accessMode === "TUNNEL" ? (s.tunnelHost ? { targetHost: s.tunnelHost, targetPort: s.tunnelPort ?? null, protocol: "TCP" } : null) : s.vaultCredential;
   const target = remote ? v?.targetHost ?? null : s.upstreamUrl;
   const ic = resolveIcon({ name: s.name, target, kind: kindOf({ accessMode: s.accessMode, protocol: v?.protocol }), iconName: s.iconName, iconColor: s.iconColor });
   const look = { icon: ic.name, color: ic.color, logoUrl: s.logoType ? `/api/sites/${s.id}/logo` : null, logoBg: s.logoBg ?? null };
@@ -37,6 +39,7 @@ export function siteTile(s: SiteFacts): SiteTile {
 export const SITE_TILE_SELECT = {
   id: true, name: true, accessMode: true, upstreamUrl: true, iconName: true, iconColor: true, logoBg: true, logoType: true,
   vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } },
+  tunnelHost: true, tunnelPort: true,
 } as const;
 
 export interface GrantRowJSON {

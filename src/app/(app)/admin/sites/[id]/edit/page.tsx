@@ -22,7 +22,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
     select: {
       id: true, connectorId: true, connectorGroupId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true,
       keystrokeLogging: true, nativeRdp: true, nativeSsh: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true,
-      domainVerifiedAt: true, egressMode: true, egressHosts: true, createdAt: true, iconName: true, iconColor: true, logoBg: true,
+      domainVerifiedAt: true, egressMode: true, egressHosts: true, createdAt: true, iconName: true, iconColor: true, logoBg: true, tunnelHost: true, tunnelPort: true,
     },
   });
   if (!site) {
@@ -73,6 +73,8 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
           egressHosts: site.egressHosts,
           egressReportOnlyUntil: egressReportOnlyUntil({ ...site, upstreamUrl: site.upstreamUrl })?.toISOString() ?? null,
           accessMode: site.accessMode,
+          tunnelHost: site.tunnelHost,
+          tunnelPort: site.tunnelPort,
           hasLogo: site.logoType != null,
           customDomain: site.customDomain,
           domainVerifiedAt: site.domainVerifiedAt?.toISOString() ?? null,

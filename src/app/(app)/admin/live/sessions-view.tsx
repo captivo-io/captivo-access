@@ -28,9 +28,11 @@ type FeedEvent = { at: string; type: string; text: string };
 
 const TERMINAL = ["ssh", "telnet"];
 const keyOf = (r: LiveRow) => (r.kind === "web" ? `web:${r.liveKey ?? `${r.userId}:${r.siteId}`}` : r.sessionId);
-const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" | "sql" => (r.database ? "sql" : r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
+// A TCP tunnel (dataplane/sshtunnel.go) carries the user's own app: no screen, nothing recorded.
+const isTunnel = (r: LiveRow) => r.kind === "gateway" && r.protocol === "tcp";
+const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" | "sql" => (r.database || isTunnel(r) ? "sql" : r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
 const nativeApp = (r: LiveRow) => (r.kind === "gateway" && r.protocol === "ssh" ? "SSH" : "Remote Desktop");
-const labelOf = (r: LiveRow) => (r.database ? (r.kind === "gateway" && r.protocol === "mysql" ? "MYSQL" : r.kind === "gateway" && r.protocol === "mssql" ? "SQL SERVER" : "POSTGRESQL") : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
+const labelOf = (r: LiveRow) => (isTunnel(r) ? "TCP TUNNEL" : r.database ? (r.kind === "gateway" && r.protocol === "mysql" ? "MYSQL" : r.kind === "gateway" && r.protocol === "mssql" ? "SQL SERVER" : "POSTGRESQL") : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
 const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native && !r.watchable ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);
@@ -204,7 +206,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
   const src = watchSrc(r);
   return (
     <article className={watching ? "sv-card on" : "sv-card"}>
-      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : r.native ? (r.recording ? `This session in the user's own ${nativeApp(r)} app is recorded; it can't be watched live` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
+      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : isTunnel(r) ? "A TCP tunnel carries the user's own app; it can't be watched" : r.native ? (r.recording ? `This session in the user's own ${nativeApp(r)} app is recorded; it can't be watched live` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
         {tail.length ? (
           <span className="rc-art ssh sv-term" aria-hidden="true">
             {tail.map((t, i) => <span key={i} className="mono">{r.database ? "›" : "$"} {t}</span>)}
@@ -225,7 +227,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded }: {
         </div>
         <div className="sv-line">
           <span className="cell-sub">Started {hm(r.startedAt, zone)}</span>
-          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native && r.recording ? <><Sparkline values={r.activity} /><span className="cell-sub">Own {nativeApp(r)} app · recorded</span></> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
+          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : isTunnel(r) ? <span className="cell-sub">TCP tunnel · not recorded</span> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native && r.recording ? <><Sparkline values={r.activity} /><span className="cell-sub">Own {nativeApp(r)} app · recorded</span></> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
         </div>
         <Actions r={r} canTerminate={canTerminate} onWatch={src ? onWatch : undefined} onEnded={onEnded} />
       </div>

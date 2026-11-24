@@ -159,6 +159,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .chip{font-family:var(--mono);font-size:11px;font-weight:500;color:var(--p);background:rgba(var(--p-rgb),.12);border-radius:6px;padding:3px 7px;display:inline-flex;align-items:center;gap:.4rem;line-height:1.2;letter-spacing:.02em;}
 .chip.neutral{color:var(--muted);background:rgba(var(--ink-rgb),.06);}
 .chip.violet{color:var(--a);background:rgba(var(--a-rgb),.14);}
+.chip.cyan{color:#12b5dc;background:rgba(22,199,240,.14);}
 .chip.ok{color:var(--ok);background:rgba(var(--ok-rgb),.12);}
 .chip.warn{color:var(--warn);background:rgba(var(--warn-rgb),.16);}
 .chip.bad{color:var(--bad);background:rgba(var(--bad-rgb),.12);}
@@ -2072,6 +2073,11 @@ button.rs-cell{cursor:pointer;}
 .ssh-err{margin:0;font-size:13.5px;color:var(--bad);}
 .ssh-notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);}
 .ssh-fp{overflow-wrap:anywhere;}
+/* TCP tunnel: where the user's app connects (access/tunnel-command.tsx) */
+.tun-to{display:flex;flex-direction:column;gap:6px;}
+.tun-addr{display:flex;align-items:center;gap:10px;}
+.tun-addr code{font-family:var(--mono);font-size:15px;font-weight:600;}
+.ssh-field .input.bad{border-color:var(--bad);}
 /* Database connection details (portal) */
 .chip.green{color:var(--ok);background:rgba(var(--ok-rgb),.14);}
 .db-fields{margin:0;display:grid;gap:6px;}

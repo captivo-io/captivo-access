@@ -92,6 +92,21 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     return NextResponse.json({ ok: true });
   }
 
+  if (v.mode === "TUNNEL") {
+    // A TCP tunnel: the service's address only. A saved account from an earlier type goes.
+    await db.$transaction(async (tx) => {
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, tunnelHost: v.targetHost, tunnelPort: v.targetPort, recordSessions: false, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, accessMode: "TUNNEL", ...logoData } });
+      await tx.vaultCredential.deleteMany({ where: { siteId: id } });
+    });
+    await recordAdminAction({
+      actor: { id: admin.id, email: admin.email },
+      action: "resource.update", targetType: "resource", targetId: id,
+      summary: `Updated resource "${v.name}"`,
+      clientIp: clientIp(req.headers) ?? null,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
   if (v.mode === "DATABASE") {
     const prev = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true, targetHost: true, targetPort: true } });
     // A credential of another kind (a remote desktop's) is not kept for a database;

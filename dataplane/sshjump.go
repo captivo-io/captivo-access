@@ -182,7 +182,7 @@ func handleSSHJump(c net.Conn, d sshJumpDeps, cfg *ssh.ServerConfig, handshook f
 	// No global requests are served: remote forwarding (-R) and the like are refused.
 	go ssh.DiscardRequests(reqs)
 	tk := sshTicket{TenantID: sc.Permissions.Extensions["tenant"], SiteID: sc.Permissions.Extensions["site"], UserID: sc.Permissions.Extensions["user"]}
-	j := &sshJumpConn{d: d, sc: sc, tk: tk, clientIP: clientIP, client: string(sc.ClientVersion())}
+	j := &sshJumpConn{d: d, sc: sc, tk: tk, clientIP: clientIP, client: string(sc.ClientVersion()), via: "native_ssh"}
 	var wg sync.WaitGroup
 	for nc := range chans {
 		switch nc.ChannelType() {
@@ -193,12 +193,13 @@ func handleSSHJump(c net.Conn, d sshJumpDeps, cfg *ssh.ServerConfig, handshook f
 				j.forward(nc)
 			}(nc)
 		case "session":
-			go j.explain(nc)
+			go j.session(nc)
 		default:
 			_ = nc.Reject(ssh.Prohibited, "only jumps to your resource are allowed here")
 		}
 	}
 	wg.Wait()
+	j.endTunnel()
 }
 
 type sshJumpConn struct {
@@ -207,6 +208,11 @@ type sshJumpConn struct {
 	tk       sshTicket
 	clientIP string
 	client   string
+	// What audit reasons name the connection by: native_ssh, or native_tcp
+	// once the ticket's resource turns out to be a TCP tunnel.
+	via    string
+	tunMu  sync.Mutex
+	tunnel *sshTunnel // the tunnel session, from its first use (sshtunnel.go)
 }
 
 // RFC 4254 7.2.
@@ -231,14 +237,14 @@ func (j *sshJumpConn) forward(nc ssh.NewChannel) {
 	}
 	if !allow {
 		log.Printf("ssh jump: site=%s user=%s refused (%s)", j.tk.SiteID, j.tk.UserID, why)
-		j.auditDeny("native_ssh_" + strings.ReplaceAll(why, " ", "_"))
+		j.auditDeny(j.kind() + "_" + strings.ReplaceAll(why, " ", "_"))
 		_ = nc.Reject(ssh.Prohibited, "your access to this resource is not active")
 		return
 	}
 	target, err := j.d.ctrl.NativeSshTarget(j.tk.UserID, j.tk.SiteID)
 	if err != nil || target.TenantID != j.tk.TenantID {
 		log.Printf("ssh jump: site=%s user=%s native target refused: %v", j.tk.SiteID, j.tk.UserID, err)
-		j.auditDeny("native_ssh_not_allowed")
+		j.auditDeny(j.kind() + "_not_allowed")
 		_ = nc.Reject(ssh.Prohibited, "this resource can't be opened with your own SSH app")
 		return
 	}
@@ -248,6 +254,11 @@ func (j *sshJumpConn) forward(nc ssh.NewChannel) {
 	}
 	if j.d.pick != nil && len(target.Candidates) > 0 {
 		target.ConnectorID = j.d.pick(target.Candidates).ID
+	}
+	if target.Tunnel {
+		// A TCP tunnel: one more connection of the user's app (sshtunnel.go).
+		j.tunnelForward(nc, target)
+		return
 	}
 	if target.Record {
 		// A recorded resource: the session ends here and is carried on (sshrec.go).

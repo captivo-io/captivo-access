@@ -24,13 +24,14 @@ export const ICON_PATHS: Record<string, string> = {
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/>',
   cloud: '<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5a4 4 0 0 1-.5 8.5z"/>',
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
+  plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
 };
 export const ICON_NAMES = Object.keys(ICON_PATHS);
 
 export const ICON_LABELS: Record<string, string> = {
   desktop: "Desktop", terminal: "Terminal", globe: "Web app", server: "Server", firewall: "Firewall", shield: "Security",
   router: "Network device", database: "Database", layers: "Virtualization", mail: "Mail", storage: "Storage / NAS",
-  camera: "Camera / NVR", printer: "Printer", chart: "Monitoring", code: "Development", cube: "Container",
+  camera: "Camera / NVR", plug: "TCP service", printer: "Printer", chart: "Monitoring", code: "Development", cube: "Container",
   directory: "Directory / AD", key: "Vault / Secrets", cloud: "Cloud", phone: "PBX / VoIP",
 };
 
@@ -60,17 +61,17 @@ const KEYWORDS: [RegExp, string, boolean?][] = [
 ];
 
 /** What a resource is, for the automatic icon and its default colour. */
-export type ResourceKind = "web" | "isolated" | "rdp" | "ssh" | "vnc" | "database";
+export type ResourceKind = "web" | "isolated" | "rdp" | "ssh" | "vnc" | "database" | "tunnel";
 
 export function autoIcon(text: string, kind: ResourceKind): string {
   const remote = kind === "rdp" || kind === "ssh" || kind === "vnc";
   const hit = KEYWORDS.find(([re, , weak]) => (!weak || !remote) && re.test(text));
   if (hit) return hit[1];
-  return kind === "database" ? "database" : kind === "ssh" ? "terminal" : remote ? "desktop" : kind === "isolated" ? "shield" : "globe";
+  return kind === "database" ? "database" : kind === "tunnel" ? "plug" : kind === "ssh" ? "terminal" : remote ? "desktop" : kind === "isolated" ? "shield" : "globe";
 }
 
 export function defaultColor(kind: ResourceKind): IconColor {
-  return kind === "database" ? "green" : kind === "rdp" || kind === "ssh" || kind === "vnc" ? "violet" : "blue";
+  return kind === "database" ? "green" : kind === "tunnel" ? "cyan" : kind === "rdp" || kind === "ssh" || kind === "vnc" ? "violet" : "blue";
 }
 
 export interface TileIcon {
@@ -87,9 +88,10 @@ export function resolveIcon(s: { name: string; target?: string | null; kind: Res
   return { name: picked ?? autoIcon(`${s.name} ${s.target ?? ""}`, s.kind), color, auto: !picked };
 }
 
-/** From the stored site: web / isolated / rdp / ssh / vnc / database. */
+/** From the stored site: web / isolated / rdp / ssh / vnc / database / tunnel. */
 export function kindOf(s: { accessMode: string; protocol?: string | null }): ResourceKind {
   if (s.accessMode === "ISOLATED") return "isolated";
+  if (s.accessMode === "TUNNEL") return "tunnel";
   if (s.accessMode === "DATABASE") return "database";
   if (s.accessMode === "GATEWAY") {
     const p = (s.protocol ?? "").toUpperCase();
@@ -101,6 +103,7 @@ export function kindOf(s: { accessMode: string; protocol?: string | null }): Res
 /** Protocol shown under the name: HTTPS / HTTP / RDP / SSH / VNC / PostgreSQL (the resource form names a MySQL or SQL Server one itself). */
 export function protoLabel(kind: ResourceKind, target: string | null | undefined): string {
   if (kind === "database") return "PostgreSQL";
+  if (kind === "tunnel") return "TCP";
   if (kind === "rdp" || kind === "ssh" || kind === "vnc") return kind.toUpperCase();
   return (target ?? "").startsWith("http://") ? "HTTP" : "HTTPS";
 }
