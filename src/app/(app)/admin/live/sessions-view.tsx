@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
@@ -316,15 +316,18 @@ function WatchWindow({ r, now, workspace, canAct, onClose, onEnded, onToast }: {
   const [sending, setSending] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // Focus is taken once, on opening: the parent passes a new onClose each
+  // render (every second in Live sessions), which must not pull focus back.
+  const close = useEffectEvent(onClose);
   const newest = useRef<string | null>(null);
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("keydown", onKey); prev?.focus?.(); };
-  }, [onClose]);
+  }, []);
 
   useEffect(() => {
     if (!id) return;
