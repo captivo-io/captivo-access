@@ -9,6 +9,7 @@ import { withRequestTenant } from "@/lib/tenant/request";
 import { humanBytes } from "@/lib/recording/format";
 import { RecordingView } from "./recording-view";
 import { guestsOfRecording } from "@/lib/live/invites";
+import { connectorForRecording } from "@/lib/recording/connector-of";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recording" };
@@ -43,8 +44,9 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
       take: 200,
       select: { timestamp: true, method: true, path: true, bytesOut: true },
     }),
-    // The connector that carried the session, and so keeps its recording.
-    rec.connectorId ? db.connector.findUnique({ where: { id: rec.connectorId }, select: { name: true } }) : Promise.resolve(null),
+    // The connector that keeps its recording: the one that carried the session, or,
+    // for an older recording of a deleted resource, the one found holding it.
+    connectorForRecording(rec).then((cid) => (cid ? db.connector.findUnique({ where: { id: cid }, select: { name: true } }) : null)),
     // People invited into the session from outside while it ran.
     guestsOfRecording({ siteId: rec.siteId, userId: rec.userId, startedAt: rec.startedAt, endedAt: new Date(rec.startedAt.getTime() + lengthMs) }).catch(() => []),
   ]);
@@ -72,7 +74,13 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
   });
 
   // Said before the replay, so it does not read as the session ending there.
-  const notice = rec.truncated ? (
+  const notice = !carrier ? (
+        <div className="warn" role="status">
+          This recording can&apos;t be played: the resource it came from was deleted, and none of
+          this workspace&apos;s online connectors holds it. If the connector that carried the session
+          is offline, open the recording again once it is back.
+        </div>
+      ) : rec.truncated ? (
         <div className="warn" role="status">
           This recording is incomplete. Capture stopped when it reached the size limit set on the
           data plane (<code>RECORDING_MAX_BYTES</code>) while the session continued, so the replay
