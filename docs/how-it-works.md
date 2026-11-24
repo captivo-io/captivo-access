@@ -659,35 +659,41 @@ flowchart LR
 
 ## Database resources (your own client, every query logged)
 
-A **Database** Resource is a PostgreSQL, MySQL (and MariaDB) or SQL Server
-that users reach with their own client (psql, mysql, sqlcmd, SSMS, Azure Data
-Studio, DBeaver, DataGrip, pgAdmin, MySQL Workbench) through the data plane's
-**database proxy**: port 15432 for PostgreSQL, 13306 for MySQL, 11433 for SQL
-Server (each engine opens its own way, so they can't share a port). **Connect** on the resource in My access gives the connection
+A **Database** Resource is a PostgreSQL, MySQL (and MariaDB), SQL Server, Redis
+or MongoDB server that users reach with their own client (psql, mysql, sqlcmd,
+SSMS, Azure Data Studio, redis-cli, RedisInsight, mongosh, Compass, DBeaver,
+DataGrip, pgAdmin, MySQL Workbench) through the data plane's **database
+proxy**: port 15432 for PostgreSQL, 13306 for MySQL, 11433 for SQL Server,
+16380 for Redis, 17017 for MongoDB (each engine opens its own way, so they can't
+share a port). **Connect** on the resource in My access gives the connection
 details; the user name is a **ticket**:
 
 ```
 psql "host=<console host> port=15432 user=<ticket> dbname=<database> sslmode=require"
 mysql -h <console host> -P 13306 -u <ticket> --ssl-mode=REQUIRED <database>
 sqlcmd -S tcp:<console host>,11433 -U <ticket> -P x -d <database>
+redis-cli --tls -h <console host> -p 16380 --user <ticket> --pass x
+mongosh "mongodb://<ticket>:x@<console host>:17017/?tls=true&authMechanism=PLAIN&authSource=%24external"
 ```
 
 ```mermaid
 flowchart LR
     F["My access<br/>Connect · ticket"] --> C["User's client<br/>psql · DBeaver"]
-    C -->|"TLS · 15432 / 13306 / 11433"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
+    C -->|"TLS · 15432 / 13306 / 11433 / 16380 / 17017"| D["Data-plane proxy<br/>ticket · grant · allowlist<br/>query log"]
     D -->|outbound tunnel| CN["Connector<br/>signs in with the saved account"]
-    CN -->|"5432 / 3306 / 1433 · TLS per resource"| S["PostgreSQL · MySQL · SQL Server"]
+    CN -->|"5432 / 3306 / 1433 / 6379 / 27017 · TLS per resource"| S["PostgreSQL · MySQL · SQL Server · Redis · MongoDB"]
 ```
 
 - **The password never leaves the connector.** The saved account's password is
   sealed to the connectors that serve the resource, like a remote desktop's. The
   connector signs in (PostgreSQL: SCRAM-SHA-256, md5 or password; MySQL:
   caching_sha2_password, mysql_native_password, sha256_password, or a cleartext
-  password over TLS, as the server asks; SQL Server: a SQL Server login) and
+  password over TLS, as the server asks; SQL Server: a SQL Server login; Redis:
+  `AUTH` and `SELECT`; MongoDB: SCRAM-SHA-256, or SCRAM-SHA-1 on a server that
+  only has it) and
   hands the proxy a connection already past authentication. The user never needs
-  or sees it; if a client asks for one, it is left empty (SQL Server clients
-  want one: anything will do).
+  or sees it; if a client asks for one, it is left empty (SQL Server, Redis and
+  MongoDB clients want one: anything will do).
 - **The ticket** starts connections for up to eight hours, never past the grant's
   end or the browser sign-in that asked for it: signing out ends it. It is stored
   hashed. A client's connections from one ticket and address are one session in
@@ -745,14 +751,47 @@ flowchart LR
   knows the server; `SELECT VERSION()` gives the real one, and the session's
   feed names it. Changing the user on an open connection (`COM_CHANGE_USER`) is
   refused.
+- **Redis specifics.** The proxy takes the ticket from `AUTH`: the user name of
+  Redis 6's `AUTH <user> <password>`, or the password of the old one-argument
+  form. It speaks RESP2 only: a client that asks for RESP3 (`HELLO 3`) is told
+  to fall back, which every common client does. TLS is required on the proxy
+  port. Commands are logged by name and first argument (`GET user:1`,
+  `HSET cart:7`); values, scripts and everything after the first argument stay
+  out, and `FLUSHALL` and `FLUSHDB` are marked for review. A command that signs
+  in as someone else, reads or changes the server's configuration, starts
+  replication, monitors other clients or changes access rules (`AUTH`, `RESET`,
+  `CONFIG`, `DEBUG`, `SHUTDOWN`, `MODULE`, `MIGRATE`, `MONITOR`, `SYNC`,
+  `PSYNC`, `REPLICAOF`, `SLAVEOF`, `FAILOVER`, `ACL` except `WHOAMI` and `CAT`,
+  `CLIENT REPLY`) is refused by the proxy and never reaches the server
+  (`CONFIG GET requirepass` would show the saved password). After
+  `SUBSCRIBE` the replies no longer pair with commands, so logging stops for
+  that connection (the session's feed says so). The resource's database number
+  is selected at sign-in; a client can `SELECT` another one, so the account's
+  ACL decides what it reaches. Redis passwords are not rotated yet.
+- **MongoDB specifics.** A driver signs in with `authMechanism=PLAIN` and
+  `authSource=$external` over TLS: the ticket is the user name. (SCRAM would
+  need a password the client knows; a client left on its default sign-in is
+  told what to change.) The proxy answers the driver's handshake itself
+  (wire version 17, no compression) and the connector signs in to the server
+  with the saved account against the resource's authentication database
+  (`admin` when empty). Commands are logged by name and `database.collection`
+  (`find shop.orders`, `insert shop.orders`) with their duration, the number of
+  documents returned or written, and the server's error; filters and documents
+  stay out. `drop`, `dropDatabase` and `dropIndexes` are marked for review.
+  Signing in again, managing users and roles, `shutdown`, `setParameter`,
+  `getCmdLineOpts` and replica set administration are refused by the proxy.
+  Compressed messages and the legacy opcodes (except the first `isMaster`) are
+  not relayed. MongoDB passwords are not rotated yet.
 - **Requirements:** a connector on 2.46.0 or later (2.51.0 for MySQL, 2.56.0
-  for SQL Server; it signs in), the database's `host:port` in the connector's
-  `ALLOWED_TARGETS` if that is set, and port 15432 (13306 for MySQL, 11433 for
-  SQL Server) reachable on the console's host. Self-hosted installs publish them
+  for SQL Server, 2.64.0 for Redis and MongoDB; it signs in), the database's
+  `host:port` in the connector's `ALLOWED_TARGETS` if that is set, and port
+  15432 (13306 for MySQL, 11433 for SQL Server, 16380 for Redis, 17017 for
+  MongoDB) reachable on the console's host. Self-hosted installs publish them
   from the data-plane (`DB_PUBLIC_PORT` / `MYSQL_PUBLIC_PORT` /
-  `MSSQL_PUBLIC_PORT` change the published port, `DB_PUBLIC_HOST` the name in
-  the details, `DB_ADDR=off` / `MYSQL_ADDR=off` / `MSSQL_ADDR=off` turn one
-  off). Without `DB_TLS_CERT`/`DB_TLS_KEY` the proxy keeps a self-signed
+  `MSSQL_PUBLIC_PORT` / `REDIS_PUBLIC_PORT` / `MONGODB_PUBLIC_PORT` change the
+  published port, `DB_PUBLIC_HOST` the name in the details, `DB_ADDR=off` /
+  `MYSQL_ADDR=off` / `MSSQL_ADDR=off` / `REDIS_ADDR=off` / `MONGO_ADDR=off` turn
+  one off). Without `DB_TLS_CERT`/`DB_TLS_KEY` the proxy keeps a self-signed
   certificate in the data-plane's `/data` volume, which `sslmode=require` and
   `--ssl-mode=REQUIRED` accept; SQL Server clients need Trust server
   certificate for it.

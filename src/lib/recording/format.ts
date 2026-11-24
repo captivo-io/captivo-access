@@ -11,7 +11,7 @@ export interface RecordingLike {
 export function protocolLabel(r: { format: string; protocol: string | null }): string {
   if (r.format === "RRWEB") return "WEB";
   if (r.format === "VIDEO") return "BROWSER";
-  if (r.format === "SQL") return r.protocol === "kubernetes" ? "K8S" : "SQL";
+  if (r.format === "SQL") return r.protocol === "kubernetes" ? "K8S" : r.protocol === "redis" ? "REDIS" : r.protocol === "mongodb" ? "MONGODB" : "SQL";
   if (r.format === "TERM") return r.protocol === "kubernetes" ? "KUBECTL" : "SSH";
   return (r.protocol ?? "rdp").toUpperCase();
 }

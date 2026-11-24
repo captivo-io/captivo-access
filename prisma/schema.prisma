@@ -441,6 +441,8 @@ enum VaultProtocol {
   POSTGRES
   MYSQL
   MSSQL
+  REDIS
+  MONGODB
   KUBERNETES // a service account token
 }
 

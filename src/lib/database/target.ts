@@ -8,7 +8,7 @@ import { databaseBlock, dbEngineOf, dbEngineWire, dbMinConnector, parseDbParams,
 
 export type DatabaseTarget =
   | {
-      ok: true; siteName: string; engine: "postgres" | "mysql" | "mssql"; targetHost: string; targetPort: number; username: string;
+      ok: true; siteName: string; engine: ReturnType<typeof dbEngineWire>; targetHost: string; targetPort: number; username: string;
       params: DbParams; connectors: RouteCandidate[]; record: boolean;
     }
   | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | DbBlock; reason?: string };

@@ -57,7 +57,7 @@ function protocolOf(s: SiteRow): string {
   if (s.accessMode === "GATEWAY") return s.protocol ?? "REMOTE";
   if (s.accessMode === "TUNNEL") return "TCP";
   if (s.accessMode === "KUBERNETES") return "K8S";
-  if (s.accessMode === "DATABASE") return s.protocol === "MYSQL" ? "MYSQL" : s.protocol === "MSSQL" ? "SQL SERVER" : "POSTGRESQL";
+  if (s.accessMode === "DATABASE") return s.protocol === "MYSQL" ? "MYSQL" : s.protocol === "MSSQL" ? "SQL SERVER" : s.protocol === "REDIS" ? "REDIS" : s.protocol === "MONGODB" ? "MONGODB" : "POSTGRESQL";
   const u = s.upstreamUrl ?? "";
   return u.startsWith("http://") ? "HTTP" : "HTTPS";
 }

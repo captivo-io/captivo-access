@@ -100,7 +100,7 @@ export function PortalHome(props: {
             ) : (
               <div className="cx-rows">
                 {recent.map((r) => (
-                  <div key={r.id} className="ma-up"><b>{r.name}</b><span className="mono t-muted">{r.protocol ? `${r.protocol === "mssql" ? "SQL SERVER" : r.protocol.toUpperCase()} · ` : ""}{r.durationText}</span></div>
+                  <div key={r.id} className="ma-up"><b>{r.name}</b><span className="mono t-muted">{r.protocol ? `${r.protocol === "mssql" ? "SQL SERVER" : r.protocol === "mongodb" ? "MONGODB" : r.protocol.toUpperCase()} · ` : ""}{r.durationText}</span></div>
                 ))}
               </div>
             )}

@@ -16,13 +16,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Whether the data plane runs the proxy for this engine (it needs a certificate). */
-async function proxyOn(engine: "postgres" | "mysql" | "mssql"): Promise<boolean> {
+async function proxyOn(engine: string): Promise<boolean> {
   const secret = process.env.DATAPLANE_SECRET;
   if (!secret) return false;
   const base = process.env.DATAPLANE_URL || "http://access-dataplane:3102";
   const res = await fetchWithTimeout(`${base}/db-info`, { timeoutMs: 4_000, method: "POST", headers: { "x-dataplane-secret": secret } }).catch(() => null);
-  const j = res?.ok ? ((await res.json().catch(() => ({}))) as { enabled?: boolean; mysql?: boolean; mssql?: boolean }) : null;
-  return engine === "mysql" ? !!j?.mysql : engine === "mssql" ? !!j?.mssql : !!j?.enabled;
+  const j = res?.ok ? ((await res.json().catch(() => ({}))) as Record<string, boolean | undefined>) : null;
+  return engine === "postgres" ? !!j?.enabled : !!j?.[engine];
 }
 
 // Connection details for the signed-in user's own database client: the

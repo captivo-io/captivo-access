@@ -14,7 +14,7 @@ import { NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR } from "@/l
 import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/lib/gateway/native-ssh";
 import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
-import { dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
+import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import type { KeystrokeMode } from "@/lib/settings/platform";
@@ -131,7 +131,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
   }
 }
 
-const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : p === "MSSQL" ? 1433 : p === "KUBERNETES" ? 6443 : 3389);
+const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : p === "MSSQL" ? 1433 : p === "REDIS" ? 6379 : p === "MONGODB" ? 27017 : p === "KUBERNETES" ? 6443 : 3389);
 const WEB_RE = /^https?:\/\/[^\s/:]+(:\d{1,5})?(\/\S*)?$/i;
 const HOSTPORT_RE = /^(\[[0-9a-f:]+\]|[^\s/:[\]]+)(:\d{1,5})?$/i;
 
@@ -262,7 +262,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const kubeGroupsOk = kubeGroupList.length <= 20 && kubeGroupList.every(validGroup);
   const kubeNsOk = kubeNsList.length <= 50 && kubeNsList.every(validNamespace);
   const kubeCaOk = !kubeCa.trim() || kubeCa.includes("BEGIN CERTIFICATE");
-  const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine !== "POSTGRES" && dbName.trim() === "");
+  const dbNameOk = engine === "REDIS" ? /^\d{0,3}$/.test(dbName.trim()) : /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine !== "POSTGRES" && dbName.trim() === "");
   const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
   // The connectors that would carry this resource, and the keys its password is sealed to.
@@ -311,7 +311,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
   const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
-  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES" && vault.protocol !== "MYSQL" && vault.protocol !== "MSSQL") || (isKube && vault.protocol !== "KUBERNETES") || (!isKube && vault.protocol === "KUBERNETES"));
+  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && !(DB_ENGINES as readonly string[]).includes(vault.protocol)) || (isKube && vault.protocol !== "KUBERNETES") || (!isKube && vault.protocol === "KUBERNETES"));
 
   function pickKind(k: Kind) {
     if (k === kind) return;
@@ -544,8 +544,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             {kind === "database" && (
               <div className="rf-inline">
                 <span className="cell-sub">Engine</span>
-                <div className="seg" role="radiogroup" aria-label="Engine">
-                  {(["POSTGRES", "MYSQL", "MSSQL"] as const).map((e) => <button key={e} type="button" role="radio" aria-checked={engine === e} className={engine === e ? "seg-opt on" : "seg-opt"} onClick={() => changeEngine(e)}>{e === "MYSQL" ? "MySQL / MariaDB" : e === "MSSQL" ? "SQL Server" : "PostgreSQL"}</button>)}
+                <div className="seg wrap" role="radiogroup" aria-label="Engine">
+                  {DB_ENGINES.map((e) => <button key={e} type="button" role="radio" aria-checked={engine === e} className={engine === e ? "seg-opt on" : "seg-opt"} onClick={() => changeEngine(e)}>{e === "MYSQL" ? "MySQL / MariaDB" : dbEngineLabel(e)}</button>)}
                 </div>
               </div>
             )}
@@ -657,7 +657,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               {isKube ? (
                 <p className="rf-hint rf-wide">Users never see the token; the connector signs every request in with it. It is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved token was encrypted for the previous address, account or connector, so paste it again." : ""}</p>
               ) : (
-              <p className="rf-hint rf-wide">Users never see these; {isDb ? "the connector signs in to the database for them" : "the gateway signs in for them"}. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}{isDb ? " What users can do is what this account can do: for read-only access, save an account with only SELECT rights." : ""}</p>
+              <p className="rf-hint rf-wide">Users never see these; {isDb ? "the connector signs in to the database for them" : "the gateway signs in for them"}. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}{isDb ? ` What users can do is what this account can do: for read-only access, save an account ${engine === "REDIS" ? "whose ACL allows only read commands (+@read)" : engine === "MONGODB" ? "that has only the read role" : "with only SELECT rights"}.` : ""}</p>
               )}
               {!needSecret && unsealedMembers.length > 0 && (
                 <p className="rf-msg warn rf-wide">{unsealedMembers.map((m) => m.name).join(", ")} {unsealedMembers.length === 1 ? "has" : "have"} no copy of the saved password yet, so sessions skip {unsealedMembers.length === 1 ? "it" : "them"} for now. A member on 2.44 or later that has it copies it over within a few minutes; entering the password again includes {unsealedMembers.length === 1 ? "it" : "them"} at once.</p>
@@ -667,9 +667,13 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
           {isDb && (
             <div className="rf-creds">
-              <label className="rq-sec"><span className="rq-label"><span>Default database{engine !== "POSTGRES" && <span className="t-muted rf-opt"> (optional)</span>}</span></span>
-                <input className={dbName && !dbNameOk ? "input mono bad" : "input mono"} value={dbName} onChange={(e) => setDbName(e.target.value)} autoComplete="off" placeholder="crm" /></label>
-              {engine === "MSSQL" ? (
+              <label className="rq-sec"><span className="rq-label"><span>{engine === "REDIS" ? "Database number" : engine === "MONGODB" ? "Authentication database" : "Default database"}{engine !== "POSTGRES" && <span className="t-muted rf-opt"> (optional)</span>}</span></span>
+                <input className={dbName && !dbNameOk ? "input mono bad" : "input mono"} value={dbName} onChange={(e) => setDbName(e.target.value)} autoComplete="off" placeholder={engine === "REDIS" ? "0" : engine === "MONGODB" ? "admin" : "crm"} inputMode={engine === "REDIS" ? "numeric" : undefined} /></label>
+              {engine === "REDIS" ? (
+                <p className="rf-hint rf-wide">Redis has no per-account databases: a connection starts in this one (SELECT), and a client can SELECT another. What the account may touch is set by its ACL on the server, so give it only the keys and commands users need. CONFIG, MONITOR, replication and ACL changes are refused by the proxy.</p>
+              ) : engine === "MONGODB" ? (
+                <p className="rf-hint rf-wide">The database the account was created in (admin when empty). A command can name any database the account has a role in, so limit what users reach with the account&apos;s roles. Users and roles can&apos;t be managed through Captivo.</p>
+              ) : engine === "MSSQL" ? (
                 <p className="rf-hint rf-wide">A client that names no database lands in the default one, or in the login&apos;s own. A statement can name any database the login can open (crm.dbo.orders), so to limit which ones users reach, map the login only to those. Use a SQL Server login: Windows and Entra ID sign-in are not supported.</p>
               ) : engine === "MYSQL" ? (
                 <p className="rf-hint rf-wide">A client that names no database lands in the default one, or in none. A statement can name any database the account can open (crm.orders), so to limit which ones users reach, grant the account only those.</p>
@@ -686,7 +690,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 {dbTls === "verify-full" && (
                   <textarea className="textarea mono" rows={3} value={dbCa} onChange={(e) => setDbCa(e.target.value)} placeholder={"-----BEGIN CERTIFICATE-----\n(the server's CA; empty = the system's)"} />
                 )}
-                <p className="rf-hint">{dbTls === "disable" ? (engine === "MSSQL" ? "Only the sign-in is encrypted (SQL Server's minimum); queries and results cross your network in the clear, unless the server forces encryption." : "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires.") : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
+                <p className="rf-hint">{dbTls === "disable" ? (engine === "REDIS" ? "A plain connection to the server's regular port; the password crosses your network in the clear." : engine === "MSSQL" ? "Only the sign-in is encrypted (SQL Server's minimum); queries and results cross your network in the clear, unless the server forces encryption." : "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires.") : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
               </div>
               {dbOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; {dbEngineLabel(engine)} access needs {dbMinConnector(engine)} or later. Update it before users connect.</p>}
             </div>
@@ -727,7 +731,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {tunnelLocked && <p className="rf-msg bad">The Policy page requires every session to be recorded, so users can&apos;t open this tunnel until that changes.</p>}
           {tunnelOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; TCP tunnels need {TUNNEL_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {ctx.recordingEnabled && !isTunnel && (
-            <Row title={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored." : isKube ? "Every request is kept with its verb, resource, namespace and result, on the connector; request bodies and what secrets hold are never stored. kubectl exec and attach are recorded as terminals and can be watched live." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
+            <Row title={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? (engine === "REDIS" || engine === "MONGODB" ? "Every command is kept with its time and duration, on the connector, with its first argument (Redis) or collection (MongoDB). Values, filters, documents and results are never stored." : "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored.") : isKube ? "Every request is kept with its verb, resource, namespace and result, on the connector; request bodies and what secrets hold are never stored. kubectl exec and attach are recorded as terminals and can be watched live." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
               <button type="button" role="switch" aria-checked={effRecord} aria-label={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
             </Row>
           )}

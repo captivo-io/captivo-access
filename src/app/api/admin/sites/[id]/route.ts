@@ -9,6 +9,7 @@ import { keptSecretStillOpens, rotationColumnsForNewSecret, sealLegacyCredential
 import { resolveConnectorChoice } from "@/lib/connector/groups";
 import { Prisma } from "@/generated/prisma/client";
 import { validateSiteInput } from "@/lib/site/validate";
+import { DB_ENGINES } from "@/lib/database/params";
 import { capabilityAllowed } from "@/lib/tenant/envelope";
 import { siteHostSuffix } from "@/lib/site/host-suffix";
 import { crossTenantHostnameTaken } from "@/lib/site/hostname";
@@ -148,7 +149,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     const prev = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { protocol: true, targetHost: true, targetPort: true } });
     // A credential of another kind (a remote desktop's) is not kept for a database;
     // one for the other engine is, as its password is sealed to the address, not the engine.
-    const hadDb = prev?.protocol === "POSTGRES" || prev?.protocol === "MYSQL" || prev?.protocol === "MSSQL";
+    const hadDb = (DB_ENGINES as readonly string[]).includes(prev?.protocol ?? "");
     if (!hadDb && !v.secret) return NextResponse.json({ error: "remote_desktop_fields_required" }, { status: 400 });
     const target = { host: v.targetHost, port: v.targetPort, username: v.username };
     if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });

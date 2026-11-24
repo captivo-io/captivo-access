@@ -1,7 +1,7 @@
 import { isEgressMode, parseEgressHosts, type EgressMode } from "@/lib/isolation/egress";
 import { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
-import { dbParamsFrom, type DbEngine, type DbParams } from "@/lib/database/params";
+import { DB_ENGINES, dbParamsFrom, type DbEngine, type DbParams } from "@/lib/database/params";
 import { kubeParamsFrom, parseApiServer, type KubeParams } from "@/lib/kubernetes/params";
 
 const CLIP = ["allow", "no_copy", "no_paste", "none"];
@@ -150,8 +150,9 @@ export function validateSiteInput(
 
   if (mode === "DATABASE") {
     if (!opts.nativeGateway) return { ok: false, error: "native_gateway_disabled" };
-    const engine = str(body.engine).toUpperCase() || "POSTGRES";
-    if (engine !== "POSTGRES" && engine !== "MYSQL" && engine !== "MSSQL") return { ok: false, error: "invalid_engine" };
+    const engineName = str(body.engine).toUpperCase() || "POSTGRES";
+    const engine = DB_ENGINES.find((e) => e === engineName);
+    if (!engine) return { ok: false, error: "invalid_engine" };
     const targetHost = str(body.targetHost);
     const targetPort = typeof body.targetPort === "number" ? body.targetPort : Number(str(body.targetPort));
     const username = str(body.username);

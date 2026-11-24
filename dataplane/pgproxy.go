@@ -131,19 +131,26 @@ func (c *certReloader) get(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return c.cert, nil
 }
 
-// startDbProxy listens for PostgreSQL clients on pgAddr, MySQL clients on
-// myAddr (mysqlproxy.go) and SQL Server clients on msAddr (mssqlproxy.go);
-// "" or "off" leaves one out. The certificate is
+// dbAddrs are the listen addresses of the database proxies; "" or "off"
+// leaves one out.
+type dbAddrs struct{ pg, my, ms, redis, mongo string }
+
+// dbOn says which proxies are listening.
+type dbOn struct{ pg, my, ms, redis, mongo bool }
+
+// startDbProxy listens for PostgreSQL clients, MySQL clients (mysqlproxy.go),
+// SQL Server clients (mssqlproxy.go), Redis clients (redisproxy.go) and
+// MongoDB clients (mongoproxy.go) on their own ports. The certificate is
 // newEdgeCert's: a self-signed one is taken by clients that connect with
 // sslmode=require (ssl-mode=REQUIRED), which encrypts without checking it; set
 // DB_TLS_CERT/DB_TLS_KEY (the console's own) for clients that verify it.
-func startDbProxy(pgAddr, myAddr, msAddr string, cr *certReloader, d pgProxyDeps) (pgOn, myOn, msOn bool, err error) {
+func startDbProxy(a dbAddrs, cr *certReloader, d pgProxyDeps) (on dbOn, err error) {
 	off := func(a string) bool { return a == "" || a == "off" }
-	if off(pgAddr) && off(myAddr) && off(msAddr) {
-		return false, false, false, nil
+	if off(a.pg) && off(a.my) && off(a.ms) && off(a.redis) && off(a.mongo) {
+		return on, nil
 	}
 	if cr == nil {
-		return false, false, false, errors.New("no certificate")
+		return on, errors.New("no certificate")
 	}
 	p := &pgProxy{
 		d: d, sessions: map[string]*dbSession{}, cancels: map[uint64]dbCancel{}, myConns: map[uint32]myConnRef{},
@@ -153,37 +160,28 @@ func startDbProxy(pgAddr, myAddr, msAddr string, cr *certReloader, d pgProxyDeps
 		msTLS: &tls.Config{GetCertificate: cr.get, MinVersion: tls.VersionTLS12, MaxVersion: tls.VersionTLS12, SessionTicketsDisabled: true},
 	}
 	var errs []error
-	if !off(pgAddr) {
-		if ln, err := net.Listen("tcp", pgAddr); err != nil {
-			errs = append(errs, fmt.Errorf("postgresql: %w", err))
-		} else {
-			go p.serve(ln, p.handle)
-			pgOn = true
-			log.Printf("db proxy: listening on %s", pgAddr)
+	listen := func(addr, name string, handle func(net.Conn, func())) bool {
+		if off(addr) {
+			return false
 		}
-	}
-	if !off(myAddr) {
-		if ln, err := net.Listen("tcp", myAddr); err != nil {
-			errs = append(errs, fmt.Errorf("mysql: %w", err))
-		} else {
-			go p.serve(ln, p.handleMySQL)
-			myOn = true
-			log.Printf("db proxy: mysql listening on %s", myAddr)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			return false
 		}
+		go p.serve(ln, handle)
+		log.Printf("db proxy: %s listening on %s", name, addr)
+		return true
 	}
-	if !off(msAddr) {
-		if ln, err := net.Listen("tcp", msAddr); err != nil {
-			errs = append(errs, fmt.Errorf("mssql: %w", err))
-		} else {
-			go p.serve(ln, p.handleMSSQL)
-			msOn = true
-			log.Printf("db proxy: mssql listening on %s", msAddr)
-		}
-	}
-	if pgOn || myOn || msOn {
+	on.pg = listen(a.pg, "postgresql", p.handle)
+	on.my = listen(a.my, "mysql", p.handleMySQL)
+	on.ms = listen(a.ms, "mssql", p.handleMSSQL)
+	on.redis = listen(a.redis, "redis", p.handleRedis)
+	on.mongo = listen(a.mongo, "mongodb", p.handleMongo)
+	if on.pg || on.my || on.ms || on.redis || on.mongo {
 		go p.recheck()
 	}
-	return pgOn, myOn, msOn, errors.Join(errs...)
+	return on, errors.Join(errs...)
 }
 
 func (p *pgProxy) serve(ln net.Listener, handle func(net.Conn, func())) {
@@ -665,6 +663,10 @@ func dialDb(s *Session, req tunnel.DbDialRequest) (net.Conn, tunnel.DbDialRespon
 			need = myMinConnector
 		case "mssql":
 			need = msMinConnector
+		case "redis":
+			need = redisMinConnector
+		case "mongodb":
+			need = mongoMinConnector
 		}
 		return nil, resp, errors.New("the connector did not answer; it may need an update to " + need)
 	}
