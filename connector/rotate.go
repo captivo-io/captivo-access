@@ -37,7 +37,7 @@ const (
 )
 
 // accountTarget is one way of reaching an account: SSH for a Linux account,
-// LDAP for a directory account.
+// SMB for a local Windows account, LDAP for a directory account.
 type accountTarget interface {
 	// check signs in with pw (and signs out).
 	check(ctx context.Context, pw string) authResult
@@ -292,7 +292,8 @@ func newAccountTarget(k *ecdh.PrivateKey, allow *TargetMatcher, req tunnel.Rotat
 	if req.Reconcile != nil {
 		r := req.Reconcile
 		// The reconcile account is bound to where it is used: the resource's
-		// own host for a Linux account, the domain controller for AD.
+		// own host for a Linux, Windows or database account, the domain
+		// controller for AD.
 		wantHost, wantPort := req.Host, req.Port
 		if req.Method == "ad" && req.Directory != nil {
 			wantHost, wantPort = req.Directory.Host, req.Directory.Port
@@ -331,6 +332,21 @@ func newAccountTarget(k *ecdh.PrivateKey, allow *TargetMatcher, req tunnel.Rotat
 			db = *req.DB
 		}
 		t := &dbAccountTarget{engine: req.Method, host: req.Host, port: req.Port, username: req.Username, db: db, reconcile: rec}
+		return t, func() string { return "" }, nil
+	case "windows":
+		addr := windowsAddr(req.Host)
+		if !egressAllowed(allow, addr) {
+			denied()
+			logDenied("rotate", addr)
+			return nil, nil, errors.New("target not allowed")
+		}
+		if rec != nil && rec.isKey {
+			return nil, nil, errors.New("a Windows reconcile account signs in with a password")
+		}
+		t, err := newWindowsTarget(req.Host, req.Username, rec)
+		if err != nil {
+			return nil, nil, err
+		}
 		return t, func() string { return "" }, nil
 	case "ad":
 		if req.Directory == nil {

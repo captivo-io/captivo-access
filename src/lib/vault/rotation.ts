@@ -31,6 +31,8 @@ import { consoleBaseUrl } from "@/lib/tenant/console-url";
 export const ROTATION_MIN_CONNECTOR = "2.45.0";
 /** Database accounts (PostgreSQL, MySQL) rotate from this release on; SQL Server logins from MSSQL_MIN_CONNECTOR, the release that has it. */
 export const DB_ROTATION_MIN_CONNECTOR = "2.54.0";
+/** Local Windows accounts (over SMB) rotate from this release on. */
+export const WINDOWS_ROTATION_MIN_CONNECTOR = "2.63.0";
 
 /** After the last session ends, before the password changes (a quick reconnect keeps it). */
 export const AFTER_SESSION_DELAY_MS = 60_000;
@@ -43,13 +45,13 @@ export function retryDelayMs(failures: number): number {
   return failures <= 0 ? 0 : steps[failures - 1] ?? 6 * 60 * 60_000;
 }
 
-export type RotationMethod = "linux" | "ad" | "postgres" | "mysql" | "mssql";
+export type RotationMethod = "linux" | "windows" | "ad" | "postgres" | "mysql" | "mssql";
 
 export const isDbMethod = (m: RotationMethod | null | undefined) => m === "postgres" || m === "mysql" || m === "mssql";
 
 /** The connector release a method needs. */
 export function rotationMinConnector(m?: RotationMethod | null): string {
-  return m === "mssql" ? MSSQL_MIN_CONNECTOR : isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
+  return m === "mssql" ? MSSQL_MIN_CONNECTOR : isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : m === "windows" ? WINDOWS_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
 }
 
 export type DirectoryForRotation = {
@@ -57,12 +59,33 @@ export type DirectoryForRotation = {
   resetUsername: string; resetSeals: unknown;
 };
 
+export type WindowsAccount = "local" | "domain";
+
+/**
+ * Whose account an RDP resource signs in with, when the admin has not said:
+ * "name@domain", "DOMAIN\name" or a resource domain mean Active Directory;
+ * a bare name or ".\name" is the server's own.
+ */
+export function windowsAccountOf(c: { username: string; guacParams?: unknown; rotationAccount?: string | null }): { account: WindowsAccount; chosen: boolean } {
+  if (c.rotationAccount === "local" || c.rotationAccount === "domain") return { account: c.rotationAccount, chosen: true };
+  const u = c.username.trim();
+  const g = (c.guacParams ?? {}) as Record<string, unknown>;
+  const domain = typeof g.domain === "string" ? g.domain.trim() : "";
+  if (u.startsWith(".\\")) return { account: "local", chosen: false };
+  if (u.includes("@") || u.includes("\\") || domain) return { account: "domain", chosen: false };
+  return { account: "local", chosen: false };
+}
+
 /** How this resource's account is rotated, or why it cannot be. */
-export function rotationMethod(c: { protocol: string; secretKind: string }, dir: DirectoryForRotation | null): { method: RotationMethod } | { unsupported: string } {
+export function rotationMethod(c: { protocol: string; secretKind: string; username?: string; guacParams?: unknown; rotationAccount?: string | null }, dir: DirectoryForRotation | null): { method: RotationMethod } | { unsupported: string } {
   if (c.secretKind !== "PASSWORD") return { unsupported: "Only passwords are rotated, not SSH keys." };
   if (c.protocol === "SSH") return { method: "linux" };
   if (c.protocol === "RDP") {
-    if (!dir || !dir.host || !dir.baseDN) return { unsupported: "An RDP account is rotated in Active Directory. Set up the directory first (Settings › Directory)." };
+    if (windowsAccountOf({ ...c, username: c.username ?? "" }).account === "local") {
+      if ((c.username ?? "").includes("@")) return { unsupported: "A local Windows account is named NAME, .\\NAME or COMPUTER\\NAME." };
+      return { method: "windows" };
+    }
+    if (!dir || !dir.host || !dir.baseDN) return { unsupported: "A domain account is rotated in Active Directory. Set up the directory first (Settings › Directory), or mark it as a local account of the server." };
     if (dir.security !== "LDAPS" && dir.security !== "STARTTLS") return { unsupported: "Active Directory changes passwords only over an encrypted connection. Set the directory to LDAPS or StartTLS." };
     return { method: "ad" };
   }
@@ -138,7 +161,7 @@ export type RotationSkip = { siteId: string; siteName: string; reason: string };
 const credSelect = {
   id: true, secret: true, sealedTo: true, extraSeals: true, protocol: true, secretKind: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true,
   rotateAfterSession: true, rotateEveryDays: true, rotateVerifyDaily: true, rotateDueAt: true, rotatedAt: true, verifiedAt: true,
-  rotationFailures: true, pendingSeals: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true,
+  rotationFailures: true, pendingSeals: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true, rotationAccount: true,
   site: {
     select: {
       id: true, name: true,
@@ -179,9 +202,9 @@ export function planJob(r: CredRow, dir: DirectoryForRotation | null, now: Date,
   const recipients = [...new Set(live.map((c) => c.vaultPublicKey!))];
 
   const target = { host: r.targetHost, port: r.targetPort, username: r.username };
-  // The reconcile account: this server's (Linux, a database), or the directory's (AD).
+  // The reconcile account: this server's (Linux, Windows, a database), or the directory's (AD).
   let reconcileHost: { host: string; port: number; username: string; seals: Record<string, string>; secretKey: boolean } | null = null;
-  if ((m.method === "linux" || isDbMethod(m.method)) && r.reconcileUsername && r.reconcileSeals) {
+  if (m.method !== "ad" && r.reconcileUsername && r.reconcileSeals) {
     reconcileHost = { host: r.targetHost, port: r.targetPort, username: r.reconcileUsername, seals: sealMap(r.reconcileSeals), secretKey: r.reconcileKind === "KEY" };
   } else if (m.method === "ad" && dir?.resetUsername && dir.resetSeals) {
     reconcileHost = { host: dir.host, port: dir.port, username: dir.resetUsername, seals: sealMap(dir.resetSeals), secretKey: false };

@@ -7,8 +7,9 @@ import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { Modal } from "@/app/(app)/_shell/modal";
 import type { RotationStatus } from "@/lib/vault/rotation-status";
 
-// Password rotation for one resource (lib/vault/rotation.ts): when it rotates,
-// the reconcile account that resets it, "Rotate now" and "Reveal".
+// Password rotation for one resource (lib/vault/rotation.ts): whose account it
+// is (RDP), when it rotates, the reconcile account that resets it, "Rotate now"
+// and "Reveal".
 
 const STATE: Record<string, [string, string]> = {
   ok: ["ok", "Rotated"],
@@ -20,7 +21,7 @@ const STATE: Record<string, [string, string]> = {
 const ERRORS: Record<string, string> = {
   rotation_with_native: "Turn off the native RDP/SSH client first: a native client needs a password the user knows. On a recorded resource it works with rotation, as Captivo signs in for the user.",
   reason_required: "Say why you need it (at least 10 characters). The reason goes into the audit log.",
-  invalid_reconcile_user: "Use a user name without spaces or quotes (on Linux: letters, digits, . _ -).",
+  invalid_reconcile_user: "Use a user name without spaces or quotes (on Linux: letters, digits, . _ -; on Windows: Administrator or DOMAIN\\name).",
   vault_key_changed: "None of this resource's connectors has a key yet. Reload the page and try again.",
   invalid_interval: "Pick an interval between 1 and 365 days.",
 };
@@ -37,8 +38,9 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
   const [everyDays, setEveryDays] = useState<number | null>(initial.everyDays);
   const [verifyDaily, setVerifyDaily] = useState(initial.verifyDaily);
   const [recOpen, setRecOpen] = useState(false);
-  const dbAccount = initial.method === "postgres" || initial.method === "mysql" || initial.method === "mssql";
-  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : initial.method === "mssql" ? "sa" : "root"));
+  const dbAccount = s.method === "postgres" || s.method === "mysql" || s.method === "mssql";
+  const winAccount = s.method === "windows";
+  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : initial.method === "mssql" ? "sa" : initial.method === "windows" ? "Administrator" : "root"));
   const [recKind, setRecKind] = useState<"PASSWORD" | "KEY">(initial.reconcile?.kind ?? "PASSWORD");
   const [recSecret, setRecSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -132,6 +134,21 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
   }
 
   const st = s.state ? STATE[s.state] : null;
+  const accountRow = s.windowsAccount && (
+    <div className="rf-row">
+      <span className="rf-row-t"><b>Whose account</b><span className="cell-sub">{s.windowsAccount.account === "local"
+        ? "An account of this server itself: the connector changes it over SMB (port 445)."
+        : "A domain account: the connector changes it in Active Directory."}{s.windowsAccount.chosen ? "" : " Read from the user name; pick one if that is wrong."}</span></span>
+      <div className="rf-row-c">
+        <div className="seg" role="radiogroup" aria-label="Whose account">
+          {([["local", "This server"], ["domain", "Domain"]] as const).map(([v, l]) => (
+            <button key={v} type="button" role="radio" aria-checked={s.windowsAccount?.account === v} className={s.windowsAccount?.account === v ? "seg-opt on" : "seg-opt"} disabled={!!busy}
+              onClick={() => { if (s.windowsAccount?.account !== v || !s.windowsAccount?.chosen) void save({ account: v }); }}>{l}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
   return (
     <section className="rot" aria-labelledby="rot-h">
       <div className="rot-head">
@@ -142,14 +159,15 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
         <span className={`rot-pill ${s.on ? (st?.[0] ?? "ok") : "off"}`}><i aria-hidden="true" />{s.on ? st?.[1] ?? "On" : "Off"}</span>
       </div>
 
-      {s.unsupported ? <p className="rf-msg warn">{s.unsupported}</p> : (
+      {s.unsupported ? <>{accountRow}<p className="rf-msg warn">{s.unsupported}</p>{msg && <p className={`rf-msg ${msg.tone}`} role="status">{msg.text}</p>}</> : (
         <>
           <dl className="rot-facts">
-            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : s.method === "mssql" ? " · SQL Server" : " · SSH"}</dd></div>
+            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "windows" ? " · Windows (SMB)" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : s.method === "mssql" ? " · SQL Server" : " · SSH"}</dd></div>
             <div><dt>Last rotated</dt><dd>{s.rotatedAt ? <LocalTime iso={s.rotatedAt} /> : "Never"}</dd></div>
             <div><dt>Next</dt><dd>{s.dueAt ? <LocalTime iso={s.dueAt} /> : s.afterSession ? "After the next session" : "—"}</dd></div>
             {s.verifyDaily && <div><dt>Last checked</dt><dd>{s.verifiedAt ? <LocalTime iso={s.verifiedAt} /> : "Not yet"}</dd></div>}
           </dl>
+          {accountRow}
           {s.detail && s.state !== "ok" && <p className={s.state === "unknown" ? "rf-msg warn" : "rf-msg bad"}>{s.detail}{s.state === "unknown" ? " Both passwords are kept until the next attempt finds out which one the target uses." : ""}</p>}
           {s.state === "ok" && s.detail && <p className="rf-msg ok">{s.detail}</p>}
           {s.waiting && <p className="rf-msg warn">{s.waiting}</p>}
@@ -192,7 +210,9 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
                   ? <>Signs in as <b className="mono">{s.reconcile.username}</b> ({s.reconcile.kind === "KEY" ? "SSH key" : "password"}) to reset the password when the account cannot change its own or when it no longer matches.{s.reconcile.missingFor.length ? ` ${s.reconcile.missingFor.join(", ")} has no copy yet; it is copied within a few minutes.` : ""}</>
                   : dbAccount
                     ? `Optional: a database account on this server that may change other accounts' passwords (${s.method === "postgres" ? "CREATEROLE, or a superuser" : s.method === "mssql" ? "ALTER ANY LOGIN, such as sa" : "CREATE USER, such as root"}). Used only when the account cannot change its own password or when it no longer matches; never for a session.`
-                    : "Optional: root, or a sudo account, on this server. Used only when the account cannot change its own password or when it no longer matches; never for a session."}</p>
+                    : winAccount
+                      ? "Optional: the built-in Administrator of this server, or a domain account in its Administrators group. Used only when the account cannot change its own password (a minimum password age, the history rule) or when it no longer matches; never for a session."
+                      : "Optional: root, or a sudo account, on this server. Used only when the account cannot change its own password or when it no longer matches; never for a session."}</p>
                 {!recOpen ? (
                   <div className="rot-actions">
                     <button type="button" className="btn sm" onClick={() => setRecOpen(true)}>{s.reconcile ? "Change" : "Add reconcile account"}</button>
@@ -202,7 +222,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
                   <div className="rot-rec-form">
                     <label className="rq-sec"><span className="rq-label"><span>User</span></span>
                       <input className="input mono" value={recUser} onChange={(e) => setRecUser(e.target.value)} autoComplete="off" /></label>
-                    {!dbAccount && (
+                    {!dbAccount && !winAccount && (
                       <div className="rq-sec"><span className="rq-label"><span>Signs in with</span></span>
                         <div className="seg" role="radiogroup" aria-label="Signs in with">
                           {(["PASSWORD", "KEY"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={recKind === k} className={recKind === k ? "seg-opt on" : "seg-opt"} onClick={() => setRecKind(k)}>{k === "KEY" ? "SSH key" : "Password"}</button>)}
@@ -212,7 +232,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
                       {recKind === "KEY"
                         ? <textarea className="textarea mono" rows={4} value={recSecret} onChange={(e) => setRecSecret(e.target.value)} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" spellCheck={false} />
                         : <input className="input mono" type="password" value={recSecret} onChange={(e) => setRecSecret(e.target.value)} autoComplete="new-password" />}</label>
-                    <p className="rf-hint rot-wide">Sealed in this browser to {s.keys.map((k) => k.name).join(", ")}.{dbAccount ? (s.method === "mysql" ? " It reads mysql.user to find the account's host; with several accounts of this name it stops and says so." : "") : ` A user other than root needs sudo for chpasswd${recKind === "KEY" ? " without a password" : ""}.`}</p>
+                    <p className="rf-hint rot-wide">Sealed in this browser to {s.keys.map((k) => k.name).join(", ")}.{dbAccount ? (s.method === "mysql" ? " It reads mysql.user to find the account's host; with several accounts of this name it stops and says so." : "") : winAccount ? " Windows strips the administrator right from other local administrators over the network (remote UAC), so another local admin is refused." : ` A user other than root needs sudo for chpasswd${recKind === "KEY" ? " without a password" : ""}.`}</p>
                     <div className="rot-actions rot-wide">
                       <button type="button" className="btn sm" onClick={() => { setRecOpen(false); setRecSecret(""); }}>Cancel</button>
                       <button type="button" className="btn sm ink" disabled={!recUser.trim() || !recSecret || !!busy} onClick={() => void saveReconcile()}>{busy === "reconcile" ? "Saving…" : "Save account"}</button>
