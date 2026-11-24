@@ -47,25 +47,35 @@ type mcsChunk struct {
 	chunk []byte
 }
 
-func mcsChannelData(pdu []byte, mcsType byte) (mcsChunk, bool) {
+// mcsUserData returns the user data of a slow-path MCS Send Data Request
+// (mcsType 25) or Indication (26).
+func mcsUserData(pdu []byte, mcsType byte) ([]byte, bool) {
 	// TPKT (4) + X.224 Data (02 F0 80) + MCS Send Data Request/Indication.
 	if len(pdu) < 4+3+6+1 || pdu[0] != 3 || pdu[4] != 2 || pdu[5] != 0xF0 || pdu[7]>>2 != mcsType {
-		return mcsChunk{}, false
+		return nil, false
 	}
 	i := 7 + 6
 	n := int(pdu[i])
 	i++
 	if n&0x80 != 0 {
 		if i >= len(pdu) {
-			return mcsChunk{}, false
+			return nil, false
 		}
 		n = (n&0x7f)<<8 | int(pdu[i])
 		i++
 	}
-	if i+n != len(pdu) || n < 8 {
+	if i+n != len(pdu) {
+		return nil, false
+	}
+	return pdu[i:], true
+}
+
+func mcsChannelData(pdu []byte, mcsType byte) (mcsChunk, bool) {
+	u, ok := mcsUserData(pdu, mcsType)
+	if !ok || len(u) < 8 {
 		return mcsChunk{}, false
 	}
-	return mcsChunk{head: pdu[:7+6], flags: binary.LittleEndian.Uint32(pdu[i+4:]), chunk: pdu[i+8:]}, true
+	return mcsChunk{head: pdu[:7+6], flags: binary.LittleEndian.Uint32(u[4:]), chunk: u[8:]}, true
 }
 
 // dvcHeader reads a dynamic channel PDU's command, channel id and, for

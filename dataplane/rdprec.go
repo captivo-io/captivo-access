@@ -149,11 +149,12 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 	closeBoth := func() { once.Do(func() { tc.Close(); up.Close() }) }
 	done := make(chan struct{}, 2)
 	var offer *gfxCacheOffer
+	paused := false
 	if rec != nil {
 		offer = newGfxCacheOffer(rec.siteID, rec.key)
 	}
 	go func() {
-		// The client's PDUs go on as they are (but for its cache offer, see gfxCacheOffer); client (the keystroke log)
+		// The client's PDUs go on as they are (but for its cache offer and a minimised app's pause, see gfxCacheOffer and isSuppressOutputOff); client (the keystroke log)
 		// sees each first. While an admin holds control, ctl drops the
 		// client's input and writes the admin's between its PDUs.
 		r := bufio.NewReaderSize(tc, 64<<10)
@@ -165,6 +166,13 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 			}
 			if offer != nil {
 				if pdu = offer.client(pdu); pdu == nil {
+					continue
+				}
+				if isSuppressOutputOff(pdu) {
+					if !paused {
+						paused = true
+						log.Printf("rdp recording site=%s key=%s: the app was minimised; the server keeps drawing for the recording", rec.siteID, rec.key)
+					}
 					continue
 				}
 			}
