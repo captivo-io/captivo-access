@@ -36,7 +36,7 @@ const (
 var providerAllow *TargetMatcher
 
 type secretRef struct {
-	Provider string `json:"provider"` // "hashicorp" | "cyberark"
+	Provider string `json:"provider"` // "hashicorp" | "cyberark" | "azure" | "aws"
 	Address  string `json:"address"`  // https://vault.corp:8200
 	CAPem    string `json:"caPem,omitempty"`
 	Insecure bool   `json:"insecure,omitempty"` // encrypted, certificate not checked
@@ -60,6 +60,29 @@ type secretRef struct {
 	Folder     string `json:"folder,omitempty"`
 	ClientCert string `json:"clientCert,omitempty"` // PEM certificate chain
 	ClientKey  string `json:"clientKey,omitempty"`  // PEM private key
+	// CyberArk Password Vault Web Access (REST): sign in as a user, find the account, retrieve its password
+	Mode      string `json:"mode,omitempty"`      // "ccp" (default) | "pvwa"
+	LogonType string `json:"logonType,omitempty"` // "cyberark" (default) | "ldap" | "radius"
+	User      string `json:"user,omitempty"`
+	Password  string `json:"password,omitempty"`
+	AccountID string `json:"accountId,omitempty"` // skips the search
+	Reason    string `json:"reason,omitempty"`    // what the retrieval is logged as in CyberArk
+
+	// Azure Key Vault (Address is the vault's URL, https://name.vault.azure.net)
+	TenantID      string `json:"tenantId,omitempty"`
+	ClientID      string `json:"clientId,omitempty"`
+	ClientSecret  string `json:"clientSecret,omitempty"`
+	SecretName    string `json:"secretName,omitempty"`
+	SecretVersion string `json:"secretVersion,omitempty"`
+	Authority     string `json:"authority,omitempty"` // default https://login.microsoftonline.com
+
+	// AWS Secrets Manager (Address, when set, replaces the regional endpoint)
+	Region          string `json:"region,omitempty"`
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+	AWSSecretID     string `json:"awsSecretId,omitempty"` // name or ARN
+	JSONKey         string `json:"jsonKey,omitempty"`     // a field of a JSON secret
 }
 
 // parseSecretRef reads a sealed value's plaintext: a reference, or (ok=false) an ordinary secret.
@@ -76,11 +99,18 @@ func parseSecretRef(plain string) (*secretRef, bool, error) {
 }
 
 func (r *secretRef) validate() error {
+	if r.Provider == "aws" && r.Address == "" {
+		r.Address = awsEndpoint(r.Region)
+	}
 	u, err := url.Parse(r.Address)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return errors.New("the vault's address must be http(s)://host[:port]")
 	}
 	switch r.Provider {
+	case "azure":
+		return r.validateAzure()
+	case "aws":
+		return r.validateAWS()
 	case "hashicorp":
 		if strings.Trim(r.Path, " /") == "" {
 			return errors.New("the vault reference has no secret path")
@@ -101,6 +131,9 @@ func (r *secretRef) validate() error {
 			return errors.New("the KV version is 1 or 2")
 		}
 	case "cyberark":
+		if r.Mode == "pvwa" {
+			return r.validatePVWA()
+		}
 		if r.AppID == "" || r.Safe == "" || r.Object == "" {
 			return errors.New("a CyberArk reference needs the application id, the safe and the object")
 		}
@@ -186,8 +219,16 @@ func resolveSecretRef(ctx context.Context, r *secretRef) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
 	defer cancel()
-	if r.Provider == "cyberark" {
+	switch r.Provider {
+	case "cyberark":
+		if r.Mode == "pvwa" {
+			return r.fromPVWA(ctx, c)
+		}
 		return r.fromCyberArk(ctx, c)
+	case "azure":
+		return r.fromAzure(ctx, c)
+	case "aws":
+		return r.fromAWS(ctx, c)
 	}
 	return r.fromHashiCorp(ctx, c)
 }

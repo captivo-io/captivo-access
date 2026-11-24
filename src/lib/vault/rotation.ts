@@ -1,3 +1,4 @@
+import { providerLabel } from "@/lib/vault/providers";
 import { dbEngineOf, MSSQL_MIN_CONNECTOR, parseDbParams } from "@/lib/database/params";
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
@@ -78,7 +79,7 @@ export function windowsAccountOf(c: { username: string; guacParams?: unknown; ro
 
 /** How this resource's account is rotated, or why it cannot be. */
 export function rotationMethod(c: { protocol: string; secretKind: string; username?: string; guacParams?: unknown; rotationAccount?: string | null; secretSource?: string | null }, dir: DirectoryForRotation | null): { method: RotationMethod } | { unsupported: string } {
-  if (c.secretSource) return { unsupported: `This credential lives in ${c.secretSource === "cyberark" ? "CyberArk" : "HashiCorp Vault"}: rotate it there. Captivo asks the vault each time a session needs it.` };
+  if (c.secretSource) return { unsupported: `This credential lives in ${providerLabel(c.secretSource) ?? "your own vault"}: rotate it there. Captivo asks the vault each time a session needs it.` };
   if (c.secretKind !== "PASSWORD") return { unsupported: "Only passwords are rotated, not SSH keys." };
   if (c.protocol === "SSH") return { method: "linux" };
   if (c.protocol === "RDP") {

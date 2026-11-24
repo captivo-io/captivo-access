@@ -15,7 +15,6 @@ import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/l
 import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
 import { CredentialSource, type CredentialSource as CredentialSourceKind } from "./vault-ref-fields";
-import { VAULT_PROVIDER_MIN_CONNECTOR } from "@/lib/vault/providers";
 import { platformLabel } from "@/lib/connector/platform-label";
 import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
@@ -667,7 +666,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <div className="rf-creds">
               <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Service account" : "Username"}</span></span>
                 <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : isDb ? "app_readonly" : isKube ? "captivo-access" : "Administrator"} /></label>
-              {vaultKey && <CredentialSource source={source} onSource={setSource} saved={!!vault?.secretSource && vault.secretSource === source} onRef={onRef} minConnector={VAULT_PROVIDER_MIN_CONNECTOR} />}
+              {vaultKey && <CredentialSource source={source} onSource={setSource} saved={!!vault?.secretSource && vault.secretSource === source} onRef={onRef} />}
               {source === "local" && <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Token" : "Password"}</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>}

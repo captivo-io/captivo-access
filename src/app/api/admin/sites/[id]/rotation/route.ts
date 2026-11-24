@@ -13,7 +13,7 @@ import { kickRotation } from "@/lib/vault/rotation-pass";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { sealsOf } from "@/lib/vault/store";
 import { compareSemver } from "@/lib/updates/semver";
-import { VAULT_PROVIDER_MIN_CONNECTOR } from "@/lib/vault/providers";
+import { providerLabel, VAULT_PROVIDER_MIN_CONNECTOR, VAULT_PROVIDER_MIN_CONNECTOR_MORE } from "@/lib/vault/providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -141,13 +141,13 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     const c = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { secret: true, sealedTo: true, extraSeals: true } });
     const seals = c ? sealsOf(c) : {};
     const holders = await db.connector.findMany({ where: { id: { in: s.keys.map((k) => k.connectorId) } }, select: { id: true, name: true, status: true, version: true, vaultPublicKey: true }, orderBy: { id: "asc" } });
-    const pick = holders.find((h) => h.status === "ONLINE" && h.vaultPublicKey && seals[h.vaultPublicKey] && compareSemver(h.version, VAULT_PROVIDER_MIN_CONNECTOR) !== -1);
+    const pick = holders.find((h) => h.status === "ONLINE" && h.vaultPublicKey && seals[h.vaultPublicKey] && compareSemver(h.version, s.vaultSource === "hashicorp" || s.vaultSource === "cyberark" ? VAULT_PROVIDER_MIN_CONNECTOR : VAULT_PROVIDER_MIN_CONNECTOR_MORE) !== -1);
     if (!c || !pick) return NextResponse.json({ error: "rotation_waiting", detail: `Needs a connector on ${VAULT_PROVIDER_MIN_CONNECTOR} or later that holds the reference and is online.` }, { status: 409 });
     const ans = await callConnector(pick.id, { op: "verify", method: "ref", host: s.target.host, port: String(s.target.port), username: s.target.username, current: seals[pick.vaultPublicKey!] });
     const ok = ans.outcome === "ok" && !ans.error;
     await recordAdminAction({
       actor, action: "resource.vault_check", targetType: "resource", targetId: id,
-      summary: `Checked the ${s.vaultSource === "cyberark" ? "CyberArk" : "HashiCorp Vault"} credential of ${s.target.username}@${s.target.host}: ${ok ? "the vault hands it out" : "failed"}`,
+      summary: `Checked the ${providerLabel(s.vaultSource) ?? "external vault"} credential of ${s.target.username}@${s.target.host}: ${ok ? "the vault hands it out" : "failed"}`,
       metadata: { connectorId: pick.id, ok },
       clientIp: clientIp(req.headers) ?? null,
     });
