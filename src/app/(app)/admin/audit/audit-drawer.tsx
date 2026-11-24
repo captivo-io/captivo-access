@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 /** The side panel for one audit record: Esc, the backdrop or × closes it. */
 export function AuditDrawer({ title, onClose, children, footer }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
   const ref = useRef<HTMLElement>(null);
+  // Focus is taken once, on opening: the parent passes a new onClose each
+  // render (every second in Live sessions), which must not pull focus back.
+  const close = useEffectEvent(onClose);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("keydown", onKey); prev?.focus?.(); };
-  }, [onClose]);
+  }, []);
   return (
     <>
       <div className="au-scrim" onClick={onClose} />
