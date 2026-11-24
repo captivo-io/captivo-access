@@ -15,6 +15,7 @@ import { moderationRequired } from "@/lib/moderation/rules";
 import { nativeSshMode } from "@/lib/gateway/native-ssh";
 import { tunnelBlock } from "@/lib/gateway/tcp-tunnel";
 import { databaseBlock, dbEngineOf } from "@/lib/database/params";
+import { kubeBlock } from "@/lib/kubernetes/params";
 import { resolvedRequireRequestJustification, resolvedRecordingMode } from "@/lib/settings/platform";
 import { PortalHome, type CardVM, type RecentVM } from "./portal-home";
 import { withRequestTenant } from "@/lib/tenant/request";
@@ -85,6 +86,7 @@ async function AccessPageImpl() {
       sshHref: sshMode === "recorded" || (!moderated && sshMode === "direct") ? `/api/portal/ssh/${g.site.id}` : null,
       sshRecorded: sshMode === "recorded",
       tunnelHref: g.site.accessMode === "TUNNEL" && tunnelBlock({ accessMode: g.site.accessMode, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/ssh/${g.site.id}` : null,
+      kubeHref: kubeBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/kube/${g.site.id}` : null,
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,
       recorded,
       moderated,

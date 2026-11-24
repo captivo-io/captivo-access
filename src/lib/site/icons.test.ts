@@ -25,6 +25,9 @@ describe("resource icons", () => {
     expect(kindOf({ accessMode: "ISOLATED" })).toBe("isolated");
     expect(kindOf({ accessMode: "TUNNEL" })).toBe("tunnel");
     expect(protoLabel("tunnel", null)).toBe("TCP");
+    expect(kindOf({ accessMode: "KUBERNETES" })).toBe("kubernetes");
+    expect(protoLabel("kubernetes", null)).toBe("K8S");
+    expect(autoIcon("Prod cluster", "kubernetes")).toBe("cube");
     expect(protoLabel("web", "http://10.0.0.1:8080")).toBe("HTTP");
     expect(protoLabel("vnc", null)).toBe("VNC");
   });

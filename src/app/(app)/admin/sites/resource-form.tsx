@@ -15,11 +15,13 @@ import { NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR } from "@/l
 import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
 import { dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
+import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
+import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
 import { IconPicker, lookBody, type Look } from "./icon-picker";
 
-type Kind = "web" | "isolated" | "remote" | "ssh" | "database" | "tunnel";
+type Kind = "web" | "isolated" | "remote" | "ssh" | "database" | "tunnel" | "kubernetes";
 type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: string };
 
 export interface ResourceContext {
@@ -68,7 +70,7 @@ export interface ResourceInitial {
   egressMode: string | null;
   egressHosts: string[];
   egressReportOnlyUntil: string | null;
-  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE" | "TUNNEL";
+  accessMode: "TRANSPARENT" | "GATEWAY" | "ISOLATED" | "DATABASE" | "TUNNEL" | "KUBERNETES";
   /** TUNNEL: the service inside the network. */
   tunnelHost?: string | null;
   tunnelPort?: number | null;
@@ -79,7 +81,7 @@ export interface ResourceInitial {
   iconColor: string | null;
   logoBg: string | null;
 }
-export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[]; sshHostKey?: string | null }
+export interface VaultMeta { protocol: string; targetHost: string; targetPort: number; username: string; hasSecret: boolean; guacParams?: unknown; dbParams?: unknown; kubeParams?: unknown; sealed?: boolean; stale?: boolean; sealedKeys?: string[]; sshHostKey?: string | null }
 export type EgressEvent = { dest: string; blocked: boolean; reason: string; count: number; last: string };
 
 const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: string; color: IconColor }[] = [
@@ -88,8 +90,10 @@ const KINDS: { kind: Kind; title: string; tag: string; desc: string; icon: strin
   { kind: "remote", title: "Remote desktop", tag: "RDP", desc: "A Windows desktop in the browser; no client install.", icon: "desktop", color: "violet" },
   { kind: "ssh", title: "SSH terminal", tag: "SSH", desc: "A terminal in the browser; credentials are never shown to the user.", icon: "terminal", color: "violet" },
   { kind: "database", title: "Database", tag: "SQL", desc: "Users connect with their own client (psql, mysql, SSMS, DBeaver); every query is logged.", icon: "database", color: "green" },
+  { kind: "kubernetes", title: "Kubernetes", tag: "K8S", desc: "A cluster for the user's own kubectl, Lens or k9s. Every request is logged; kubectl exec is recorded.", icon: "cube", color: "amber" },
   { kind: "tunnel", title: "TCP tunnel", tag: "TCP", desc: "Any other TCP service (Redis, MongoDB, a vendor's console) for the user's own app, through an ssh port forward. Not recorded.", icon: "plug", color: "cyan" },
 ];
+const KUBE_IDENTITY: [KubeIdentity, string][] = [["impersonate", "Each user, by name"], ["service_account", "The service account"]];
 const DB_TLS: [string, string][] = [["require", "Encrypted"], ["verify-full", "Encrypted + verified"], ["disable", "Off"]];
 const CLIP: [string, string][] = [["allow", "Copy & paste"], ["no_copy", "Paste only"], ["no_paste", "Copy only"], ["none", "Block"]];
 const FT: [string, string][] = [["allow", "Upload & download"], ["no_download", "Upload only"], ["no_upload", "Download only"], ["none", "Block"]];
@@ -114,14 +118,20 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "invalid_logo_type": case "invalid_logo": return "Use a PNG, SVG, JPG or WebP logo.";
     case "invalid_database": return "Database names can't have spaces or quotes, at most 63 characters, at most 50 of them.";
     case "invalid_ca_cert": return "Paste the CA certificate in PEM form (-----BEGIN CERTIFICATE-----).";
-    case "vault_connector_key_required": return "A database password is sealed to its connector, and this connector has no vault key yet. Update it to 2.46.0 or later.";
+    case "vault_connector_key_required": return "The secret is sealed to its connector, and this connector has no vault key yet. Update the connector.";
     case "tunnel_target_required": return "Enter the service's address as host:port.";
+    case "invalid_api_server": return "Enter the API server as host:port, as kubectl cluster-info shows it.";
+    case "kube_token_required": return "Paste the service account's token.";
+    case "invalid_kube_group": return "Groups are names like captivo-users, at most 20; system: groups can't be used.";
+    case "invalid_namespace": return "Namespaces are lowercase names (letters, digits, hyphens), at most 50.";
+    case "invalid_server_name": return "The certificate name must be a host name.";
+    case "invalid_username": return "The service account name can have letters, digits, dots, hyphens and colons.";
     case "limit_reached": return "Your plan's resource limit is reached. Ask your platform operator to raise it.";
     default: return edit ? "Couldn't save the resource. Try again." : "Couldn't add the resource. Try again.";
   }
 }
 
-const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : p === "MSSQL" ? 1433 : 3389);
+const defaultPort = (p: string) => (p === "SSH" ? 22 : p === "VNC" ? 5900 : p === "POSTGRES" ? 5432 : p === "MYSQL" ? 3306 : p === "MSSQL" ? 1433 : p === "KUBERNETES" ? 6443 : 3389);
 const WEB_RE = /^https?:\/\/[^\s/:]+(:\d{1,5})?(\/\S*)?$/i;
 const HOSTPORT_RE = /^(\[[0-9a-f:]+\]|[^\s/:[\]]+)(:\d{1,5})?$/i;
 
@@ -130,6 +140,7 @@ function kindOfInitial(site: ResourceInitial | undefined, vault: VaultMeta | und
   if (site.accessMode === "ISOLATED") return { kind: "isolated", protocol: "RDP" };
   if (site.accessMode === "DATABASE") return { kind: "database", protocol: "RDP" };
   if (site.accessMode === "TUNNEL") return { kind: "tunnel", protocol: "RDP" };
+  if (site.accessMode === "KUBERNETES") return { kind: "kubernetes", protocol: "RDP" };
   if (site.accessMode === "GATEWAY") {
     const p = (vault?.protocol ?? "RDP").toUpperCase();
     return p === "SSH" ? { kind: "ssh", protocol: "SSH" } : { kind: "remote", protocol: p === "VNC" ? "VNC" : "RDP" };
@@ -186,7 +197,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [hostState, setHostState] = useState<{ host: string; available: boolean } | null>(null);
   // Internal address.
   const [address, setAddress] = useState(
-    (site?.accessMode === "GATEWAY" || site?.accessMode === "DATABASE") && vault ? `${vault.targetHost}${vault.targetPort === defaultPort(vault.protocol.toUpperCase()) ? "" : `:${vault.targetPort}`}`
+    site?.accessMode === "KUBERNETES" && vault ? `${vault.targetHost.includes(":") ? `[${vault.targetHost}]` : vault.targetHost}:${vault.targetPort}`
+    : (site?.accessMode === "GATEWAY" || site?.accessMode === "DATABASE") && vault ? `${vault.targetHost}${vault.targetPort === defaultPort(vault.protocol.toUpperCase()) ? "" : `:${vault.targetPort}`}`
     : site?.accessMode === "TUNNEL" && site.tunnelHost ? `${site.tunnelHost.includes(":") ? `[${site.tunnelHost}]` : site.tunnelHost}:${site.tunnelPort}`
     : site?.upstreamUrl ?? "",
   );
@@ -221,6 +233,16 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [dbList, setDbList] = useState(initDb.databases.join(", "));
   const [dbTls, setDbTls] = useState<string>(initDb.tls);
   const [dbCa, setDbCa] = useState(initDb.caCertPem ?? "");
+  // Kubernetes resources.
+  const initKube = parseKubeParams(vault?.kubeParams);
+  const [kubeCa, setKubeCa] = useState(initKube.caCertPem ?? "");
+  const [kubeServerName, setKubeServerName] = useState(initKube.serverName ?? "");
+  const [kubeIdentity, setKubeIdentity] = useState<KubeIdentity>(initKube.identity);
+  const [kubeGroups, setKubeGroups] = useState(initKube.groups.join(", "));
+  const [kubeNamespaces, setKubeNamespaces] = useState(initKube.namespaces.join(", "));
+  const [kubeReadOnly, setKubeReadOnly] = useState(initKube.readOnly);
+  const [kubePortForward, setKubePortForward] = useState(initKube.portForward);
+  const [kubeSetup, setKubeSetup] = useState(false);
   const [description, setDescription] = useState(site?.description ?? "");
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -230,10 +252,16 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const remote = kind === "remote" || kind === "ssh";
   const isDb = kind === "database";
   const isTunnel = kind === "tunnel";
-  // A saved account the connector signs in with: remote desktops and databases.
-  const cred = remote || isDb;
-  const portProto = isDb ? engine : protocol;
-  const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : isDb ? dbEngineLabel(engine) : isTunnel ? "TCP" : protoLabel(rkind, address.trim());
+  const isKube = kind === "kubernetes";
+  // A saved account the connector signs in with: remote desktops, databases and clusters (a service account's token).
+  const cred = remote || isDb || isKube;
+  const portProto = isDb ? engine : isKube ? "KUBERNETES" : protocol;
+  const proto = kind === "ssh" ? "SSH" : kind === "remote" ? protocol : isDb ? dbEngineLabel(engine) : isTunnel ? "TCP" : isKube ? "K8S" : protoLabel(rkind, address.trim());
+  const kubeGroupList = kubeGroups.split(/[\s,]+/).filter(Boolean);
+  const kubeNsList = kubeNamespaces.split(/[\s,]+/).filter(Boolean);
+  const kubeGroupsOk = kubeGroupList.length <= 20 && kubeGroupList.every(validGroup);
+  const kubeNsOk = kubeNsList.length <= 50 && kubeNsList.every(validNamespace);
+  const kubeCaOk = !kubeCa.trim() || kubeCa.includes("BEGIN CERTIFICATE");
   const dbNameOk = /^[^\s\0"]{1,63}$/.test(dbName.trim()) || (engine !== "POSTGRES" && dbName.trim() === "");
   const group = groupId ? (ctx.groups ?? []).find((g) => g.id === groupId) ?? null : null;
   const connector = ctx.connectors.find((c) => c.id === connectorId);
@@ -283,15 +311,16 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
   const unsealedMembers = group && vault?.sealed && !secret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
-  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES" && vault.protocol !== "MYSQL" && vault.protocol !== "MSSQL"));
+  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && vault.protocol !== "POSTGRES" && vault.protocol !== "MYSQL" && vault.protocol !== "MSSQL") || (isKube && vault.protocol !== "KUBERNETES") || (!isKube && vault.protocol === "KUBERNETES"));
 
   function pickKind(k: Kind) {
     if (k === kind) return;
     setKind(k);
     if (k === "ssh") setProtocol("SSH");
     else if (k === "remote" && protocol === "SSH") setProtocol("RDP");
-    // A new database resource logs its queries unless the admin turns it off.
-    if (k === "database" && !edit) setRecord(true);
+    // A new database or cluster logs what it is asked unless the admin turns it off.
+    if ((k === "database" || k === "kubernetes") && !edit) setRecord(true);
+    if (k === "kubernetes" && !username.trim()) setUsername("captivo-access");
     setAddress("");
     setAddrTouched(false);
     setProbe({ state: "idle" });
@@ -342,9 +371,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (!addrOk) missing.push("internal address");
   if (kind === "web" && !(customDomain ? domainOk : labelOk || !suffix)) missing.push("public address");
   if (kind === "web" && hostState && hostState.host === publicHost && !hostState.available) missing.push("a free public address");
-  if (cred && !username.trim()) missing.push("username");
-  if (cred && needSecret && !secret) missing.push("password");
+  if (cred && !username.trim()) missing.push(isKube ? "service account" : "username");
+  if (cred && needSecret && !secret) missing.push(isKube ? "token" : "password");
   if (isDb && !dbNameOk) missing.push("database name");
+  if (isKube && !kubeCaOk) missing.push("a PEM CA certificate");
+  if (isKube && kubeIdentity === "impersonate" && !kubeGroupsOk) missing.push("valid groups");
+  if (isKube && !kubeNsOk) missing.push("valid namespaces");
   const ready = missing.length === 0 && (kind !== "isolated" || ctx.isolationEnabled) && (!(cred || isTunnel) || ctx.nativeGateway);
   const kindTitle = KINDS.find((k) => k.kind === kind)!.title;
   const summary = ready
@@ -354,7 +386,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const recordLock = recordToggleLock(ctx.recordingMode);
   const effRecord = recordLock.locked ? !!recordLock.forcedValue : record;
   const showKeystrokes = ctx.recordingEnabled && effRecord && ctx.keystrokeMode !== "off" && kind !== "database" && !isTunnel;
-  const keystrokes = keystrokeChoice ?? remote;
+  // Remote desktops, SSH and clusters (what is typed into kubectl exec) log keystrokes unless turned off.
+  const keystrokesDefault = remote || isKube;
+  const keystrokes = keystrokeChoice ?? keystrokesDefault;
   const keystrokesOn = showKeystrokes && (ctx.keystrokeMode === "required" || keystrokes);
   // Native RDP, through the RD Gateway. On a recorded resource Captivo signs in
   // and records the session (connector 2.52.0); an older connector leaves it
@@ -384,6 +418,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const tunnelLocked = isTunnel && ctx.recordingEnabled && ctx.recordingMode === "required";
   const tunnelOldConnector = isTunnel && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, TUNNEL_MIN_CONNECTOR) === -1);
   const dbOldConnector = isDb && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, dbMinConnector(engine)) === -1);
+  const kubeOldConnector = isKube && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, KUBERNETES_MIN_CONNECTOR) === -1);
   const ftMode = remote ? guacFtMode(guac) : ftWeb;
   const ftPolicy = remote ? guacPolicyFt(ctx.guacDefaults) : kind === "isolated" ? ctx.fileTransferDefault : ctx.webFileTransferDefault;
 
@@ -405,7 +440,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           return;
         }
       }
-      const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : isDb ? "DATABASE" : isTunnel ? "TUNNEL" : "GATEWAY";
+      const accessMode = kind === "web" ? "TRANSPARENT" : kind === "isolated" ? "ISOLATED" : isDb ? "DATABASE" : isTunnel ? "TUNNEL" : isKube ? "KUBERNETES" : "GATEWAY";
       const body: Record<string, unknown> = {
         connectorId, connectorGroupId: groupId ?? undefined, name: name.trim(), accessMode,
         hostname: customDomain ? domain.trim().toLowerCase() : label, customDomain,
@@ -422,6 +457,11 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         ...(kind === "isolated" ? { egressMode, egressHosts } : {}),
         ...(remote && hostPort ? { protocol, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, guacParams: guacFieldsToParams(guac) } : {}),
         ...(isTunnel && hostPort ? { targetHost: hostPort.host, targetPort: hostPort.port } : {}),
+        ...(isKube && hostPort ? {
+          apiServer: `${hostPort.host.includes(":") ? `[${hostPort.host}]` : hostPort.host}:${hostPort.port}`, username: username.trim(), ...secretBody,
+          caCertPem: kubeCa.trim(), serverName: kubeServerName.trim(), kubeIdentity, kubeGroups: kubeGroupList, namespaces: kubeNsList,
+          readOnly: kubeReadOnly, portForward: kubePortForward && !kubeReadOnly,
+        } : {}),
         ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
       };
@@ -443,7 +483,13 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
   const chips: { text: string; tone: string }[] = [];
   if (isTunnel) chips.push(tunnelLocked ? { text: "Blocked: the Policy requires recording", tone: "warn" } : { text: "Not recorded", tone: "warn" });
-  else if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : "Recording on", tone: "bad" });
+  else if (effRecord && ctx.recordingEnabled) chips.push({ text: isDb ? "Queries logged" : isKube ? "Requests logged · exec recorded" : "Recording on", tone: "bad" });
+  if (isKube) {
+    if (kubeReadOnly) chips.push({ text: "Read only", tone: "p" });
+    if (kubeNsList.length) chips.push({ text: `Namespaces: ${kubeNsList.slice(0, 3).join(", ")}${kubeNsList.length > 3 ? "…" : ""}`, tone: "p" });
+    if (kubePortForward && !kubeReadOnly) chips.push({ text: "Port forwarding", tone: "warn" });
+    chips.push(kubeIdentity === "impersonate" ? { text: "Acts as each user", tone: "p" } : { text: "Acts as the service account", tone: "warn" });
+  }
   if (isDb && dbTls === "disable") chips.push({ text: "No TLS to the server", tone: "warn" });
   if (showKeystrokes) chips.push(keystrokesOn ? { text: "Keystrokes logged", tone: "p" } : { text: "Keystrokes not logged", tone: "warn" });
   if (nativeRdpOn) {
@@ -458,9 +504,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   }
   if (moderatedOn) chips.push({ text: "Moderator required", tone: "warn" });
   if (https && insecure) chips.push({ text: "TLS verification off", tone: "warn" });
-  if (!isDb && !isTunnel && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
-  if (!isDb && !isTunnel && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
-  if (!isDb && !isTunnel && ftMode !== "inherit") chips.push({ text: `Files: ${FT.find(([v]) => v === ftMode)?.[1]}`, tone: "p" });
+  if (!isDb && !isTunnel && !isKube && (watermark === "on" || (watermark === "inherit" && ctx.watermarkDefault))) chips.push({ text: "Watermark", tone: "violet" });
+  if (!isDb && !isTunnel && !isKube && clipboard !== "inherit") chips.push({ text: `Clipboard: ${CLIP.find(([v]) => v === clipboard)?.[1]}`, tone: "p" });
+  if (!isDb && !isTunnel && !isKube && ftMode !== "inherit") chips.push({ text: `Files: ${FT.find(([v]) => v === ftMode)?.[1]}`, tone: "p" });
   const logoUrl = look.logo === "keep" ? storedLogoUrl : look.logo === null ? null : look.logo.previewUrl;
   const tile = <ResourceIcon name={look.iconName ?? autoName} color={look.iconColor} logoUrl={logoUrl} logoBg={look.logoBg} size={42} />;
 
@@ -477,7 +523,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <span className="rq-label"><span>Resource type</span></span>
             <div className="rf-kinds" role="radiogroup" aria-label="Resource type">
               {KINDS.map((k) => {
-                const off = (k.kind === "isolated" && !ctx.isolationEnabled) || ((k.kind === "remote" || k.kind === "ssh" || k.kind === "database" || k.kind === "tunnel") && !ctx.nativeGateway);
+                const off = (k.kind === "isolated" && !ctx.isolationEnabled) || ((k.kind === "remote" || k.kind === "ssh" || k.kind === "database" || k.kind === "tunnel" || k.kind === "kubernetes") && !ctx.nativeGateway);
                 return (
                   <button key={k.kind} type="button" role="radio" aria-checked={kind === k.kind} disabled={off} title={off ? "Not enabled on this installation" : undefined}
                     className={kind === k.kind ? "rf-kind on" : "rf-kind"} onClick={() => pickKind(k.kind)}>
@@ -561,14 +607,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               )}
             </div>
           ) : (
-            <p className="rf-dotnote"><span aria-hidden="true" />No public address: users reach it through {kind === "isolated" ? "the Captivo portal" : isDb ? "Captivo's database proxy, with a ticket from the portal" : isTunnel ? "an ssh port forward on Captivo's jump host, with a command from the portal" : "the Captivo gateway"}.</p>
+            <p className="rf-dotnote"><span aria-hidden="true" />No public address: users reach it through {kind === "isolated" ? "the Captivo portal" : isDb ? "Captivo's database proxy, with a ticket from the portal" : isTunnel ? "an ssh port forward on Captivo's jump host, with a command from the portal" : isKube ? "Captivo's Kubernetes proxy on this console's address, with a kubeconfig from the portal" : "the Captivo gateway"}.</p>
           )}
           <div className="rq-sec">
-            <span className="rq-label"><span>Internal address</span><span className="mono t-muted">{kind === "web" || kind === "isolated" ? "http(s)://ip:port" : isTunnel ? "host:port" : `ip:${defaultPort(portProto)}`}</span></span>
+            <span className="rq-label"><span>{isKube ? "API server" : "Internal address"}</span><span className="mono t-muted">{kind === "web" || kind === "isolated" ? "http(s)://ip:port" : isTunnel ? "host:port" : `ip:${defaultPort(portProto)}`}</span></span>
             <div className="rf-addr">
               <input className={addrTouched && addr && !addrOk ? "input mono bad" : probe.state === "ok" ? "input mono good" : "input mono"} value={address}
                 onChange={(e) => changeAddress(e.target.value)} onBlur={() => setAddrTouched(true)}
-                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : isTunnel ? "10.0.0.2:6379" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? `:${defaultPort(engine)}` : ""}`} aria-label="Internal address" />
+                placeholder={kind === "web" || kind === "isolated" ? "http://10.0.5.20:8080" : isTunnel ? "10.0.0.2:6379" : isKube ? "10.0.0.5:6443" : `10.0.0.2${kind === "ssh" ? ":22" : isDb ? `:${defaultPort(engine)}` : ""}`} aria-label={isKube ? "API server" : "Internal address"} />
               <button type="button" className="btn rf-probe" disabled={!addrOk || !connectorId || probe.state === "busy"} onClick={() => void runProbe()}>
                 {probe.state === "busy" ? <span className="rf-spin" aria-hidden="true" /> : <PulseIcon />}Test connection
               </button>
@@ -585,14 +631,34 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 <span className="cell-sub">{insecure ? "Certificate checks are off for this resource. You're not protected against a man in the middle." : "Only for an internal app whose certificate isn't from a public authority."}</span></span>
             </label>
           )}
+          {isKube && (
+            <div className="rq-sec">
+              <button type="button" className="rf-adv-t" aria-expanded={kubeSetup} onClick={() => setKubeSetup(!kubeSetup)}>
+                Set up the cluster <span aria-hidden="true">{kubeSetup ? "▾" : "▸"}</span>
+              </button>
+              {kubeSetup && (
+                <div className="rf-kube-setup">
+                  <p className="rf-hint">Apply this once with an admin&apos;s kubectl. It makes a <span className="mono">captivo-access</span> service account{kubeIdentity === "impersonate" ? ` that may act as Captivo users in the groups below, and gives the ${kubeGroupList[0] ?? "captivo-users"} group the built-in "${kubeReadOnly ? "view" : "edit"}" role` : ` with the built-in "${kubeReadOnly ? "view" : "edit"}" role`}. Narrow the roles as you like.</p>
+                  <div className="rf-code"><pre className="mono">{kubeSetupYaml({ identity: kubeIdentity, groups: kubeGroupList, readOnly: kubeReadOnly })}</pre><CopyButton value={kubeSetupYaml({ identity: kubeIdentity, groups: kubeGroupList, readOnly: kubeReadOnly })} /></div>
+                  <p className="rf-hint">Save it as captivo.yaml and run <code>kubectl apply -f captivo.yaml</code>. Then read the token and the CA:</p>
+                  <div className="rf-code"><pre className="mono">{KUBE_TOKEN_COMMAND}</pre><CopyButton value={KUBE_TOKEN_COMMAND} /></div>
+                  <div className="rf-code"><pre className="mono">{KUBE_CA_COMMAND}</pre><CopyButton value={KUBE_CA_COMMAND} /></div>
+                </div>
+              )}
+            </div>
+          )}
           {cred && (
             <div className="rf-creds">
-              <label className="rq-sec"><span className="rq-label"><span>Username</span></span>
-                <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : isDb ? "app_readonly" : "Administrator"} /></label>
-              <label className="rq-sec"><span className="rq-label"><span>Password</span></span>
+              <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Service account" : "Username"}</span></span>
+                <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : isDb ? "app_readonly" : isKube ? "captivo-access" : "Administrator"} /></label>
+              <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Token" : "Password"}</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>
+              {isKube ? (
+                <p className="rf-hint rf-wide">Users never see the token; the connector signs every request in with it. It is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved token was encrypted for the previous address, account or connector, so paste it again." : ""}</p>
+              ) : (
               <p className="rf-hint rf-wide">Users never see these; {isDb ? "the connector signs in to the database for them" : "the gateway signs in for them"}. The password is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved password was encrypted for the previous address, username or connector, so enter it again." : ""}{isDb ? " What users can do is what this account can do: for read-only access, save an account with only SELECT rights." : ""}</p>
+              )}
               {!needSecret && unsealedMembers.length > 0 && (
                 <p className="rf-msg warn rf-wide">{unsealedMembers.map((m) => m.name).join(", ")} {unsealedMembers.length === 1 ? "has" : "have"} no copy of the saved password yet, so sessions skip {unsealedMembers.length === 1 ? "it" : "them"} for now. A member on 2.44 or later that has it copies it over within a few minutes; entering the password again includes {unsealedMembers.length === 1 ? "it" : "them"} at once.</p>
               )}
@@ -626,6 +692,31 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             </div>
           )}
 
+          {isKube && (
+            <div className="rf-creds">
+              <label className="rq-sec rf-wide"><span className="rq-label"><span>Cluster CA certificate <span className="t-muted rf-opt">(empty = a public certificate)</span></span></span>
+                <textarea className={kubeCaOk ? "textarea mono" : "textarea mono bad"} rows={3} value={kubeCa} onChange={(e) => setKubeCa(e.target.value)} placeholder={"-----BEGIN CERTIFICATE-----\n(the ca.crt from the token's Secret)"} /></label>
+              <label className="rq-sec"><span className="rq-label"><span>Certificate name <span className="t-muted rf-opt">(optional)</span></span></span>
+                <input className="input mono" value={kubeServerName} onChange={(e) => setKubeServerName(e.target.value)} autoComplete="off" placeholder="kubernetes.default" /></label>
+              <p className="rf-hint">Only when the API server&apos;s certificate doesn&apos;t name the address above.</p>
+              <div className="rq-sec rf-wide">
+                <span className="rq-label"><span>Requests act as</span></span>
+                <Pills value={kubeIdentity} onChange={(v) => setKubeIdentity(v as KubeIdentity)} options={KUBE_IDENTITY} label="Requests act as" />
+                <p className="rf-hint">{kubeIdentity === "impersonate"
+                  ? "Each request acts as the Captivo user's e-mail address in the groups below, so the cluster's roles and audit log see the person. The service account needs the right to impersonate (the setup above gives it)."
+                  : "Every request acts as the service account itself, so the cluster's audit log shows one account; Captivo's request log still names the person."}</p>
+              </div>
+              {kubeIdentity === "impersonate" && (
+                <label className="rq-sec rf-wide"><span className="rq-label"><span>Groups</span></span>
+                  <input className={kubeGroupsOk ? "input mono" : "input mono bad"} value={kubeGroups} onChange={(e) => setKubeGroups(e.target.value)} autoComplete="off" placeholder="captivo-users" /></label>
+              )}
+              <label className="rq-sec rf-wide"><span className="rq-label"><span>Namespaces <span className="t-muted rf-opt">(optional)</span></span></span>
+                <input className={kubeNsOk ? "input mono" : "input mono bad"} value={kubeNamespaces} onChange={(e) => setKubeNamespaces(e.target.value)} autoComplete="off" placeholder="all namespaces" /></label>
+              <p className="rf-hint rf-wide">With a list, Captivo refuses requests for any other namespace and anything across all of them; cluster-wide objects (nodes, namespaces) can still be read, never changed.</p>
+              {kubeOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; Kubernetes access needs {KUBERNETES_MIN_CONNECTOR} or later. Update it before users connect.</p>}
+            </div>
+          )}
+
           <Sec n="03" title="Session rules" />
           <p className="rf-sub">Every setting left on “Policy” follows the Policy page.</p>
           {isTunnel && (
@@ -636,12 +727,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {tunnelLocked && <p className="rf-msg bad">The Policy page requires every session to be recorded, so users can&apos;t open this tunnel until that changes.</p>}
           {tunnelOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; TCP tunnels need {TUNNEL_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {ctx.recordingEnabled && !isTunnel && (
-            <Row title={isDb ? "Query log" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
-              <button type="button" role="switch" aria-checked={effRecord} aria-label={isDb ? "Query log" : "Record sessions"} disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
+            <Row title={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored." : isKube ? "Every request is kept with its verb, resource, namespace and result, on the connector; request bodies and what secrets hold are never stored. kubectl exec and attach are recorded as terminals and can be watched live." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
+              <button type="button" role="switch" aria-checked={effRecord} aria-label={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
             </Row>
           )}
           {showKeystrokes && (
-            <Row title="Keystroke log" custom={ctx.keystrokeMode !== "required" && keystrokes !== remote} desc={ctx.keystrokeMode === "required" ? "Required by the Policy page." : "Typed text, searchable later; password prompts stay hidden."}>
+            <Row title="Keystroke log" custom={ctx.keystrokeMode !== "required" && keystrokes !== keystrokesDefault} desc={ctx.keystrokeMode === "required" ? "Required by the Policy page." : "Typed text, searchable later; password prompts stay hidden."}>
               <button type="button" role="switch" aria-checked={ctx.keystrokeMode === "required" || keystrokes} aria-label="Keystroke log" disabled={ctx.keystrokeMode === "required"}
                 className={ctx.keystrokeMode === "required" || keystrokes ? "toggle on" : "toggle"} onClick={() => setKeystrokeChoice(!keystrokes)}><span /></button>
             </Row>
@@ -675,7 +766,19 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             : "Only one person may moderate, and nobody moderates their own session: they can't use this resource themselves. Add another admin or operator on the Users page if they need to."}</p>}
           {moderatedOn && nativeRdpOn && <p className="rf-msg">A moderator can&apos;t watch the user&apos;s own Remote Desktop app yet, so users see only Open in the browser while a moderator is required.</p>}
           {moderatedOn && nativeSshOn && !nativeSshRecorded && <p className="rf-msg">A moderator can watch only a recorded session, so users can&apos;t use their own SSH app here until recording is on.</p>}
-          {!isDb && !isTunnel && (
+          {isKube && (
+            <>
+              <Row title="Read only" custom={kubeReadOnly} desc="Only get, list and watch: no changes, no kubectl exec or attach, and secrets can't be read. Captivo refuses the rest before it reaches the cluster.">
+                <button type="button" role="switch" aria-checked={kubeReadOnly} aria-label="Read only" className={kubeReadOnly ? "toggle on" : "toggle"} onClick={() => setKubeReadOnly(!kubeReadOnly)}><span /></button>
+              </Row>
+              {!kubeReadOnly && (
+                <Row title="Port forwarding" custom={kubePortForward} desc="kubectl port-forward and the API server's proxy to pods and services. What crosses them is not recorded; each one is logged.">
+                  <button type="button" role="switch" aria-checked={kubePortForward} aria-label="Port forwarding" className={kubePortForward ? "toggle on" : "toggle"} onClick={() => setKubePortForward(!kubePortForward)}><span /></button>
+                </Row>
+              )}
+            </>
+          )}
+          {!isDb && !isTunnel && !isKube && (
             <>
           <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
             <Pills value={clipboard} onChange={setClipboard} options={[["inherit", `Policy (${CLIP.find(([v]) => v === ctx.clipboardDefault)?.[1] ?? ctx.clipboardDefault})`], ...CLIP]} label="Clipboard" />
@@ -754,7 +857,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           <div className="rf-portal">
             <ResourceIcon name={look.iconName ?? autoName} color={look.iconColor} logoUrl={logoUrl} logoBg={look.logoBg} size={44} />
             <span className="rf-portal-t"><b>{name || "New resource"}</b><span className="cell-sub">{description.trim() || "No description"}</span></span>
-            <span className="rf-open">{isDb || isTunnel ? "Connect" : "Open"}</span>
+            <span className="rf-open">{isDb || isTunnel || isKube ? "Connect" : "Open"}</span>
           </div>
           <p className="rf-hint">The icon, name and description show in the portal of the people who get access.</p>
         </aside>

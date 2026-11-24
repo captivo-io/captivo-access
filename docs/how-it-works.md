@@ -798,7 +798,8 @@ while that moderator watches.
 
 A **TCP tunnel** resource is any TCP service inside the network that has no
 path of its own in Captivo: Redis, MongoDB, Oracle, Elasticsearch, a license
-server, a vendor's desktop console, a Kubernetes API. The admin adds it with
+server, a vendor's desktop console (a Kubernetes cluster has a type of its own,
+below). The admin adds it with
 **Add resource → TCP tunnel**, the service's `host:port` and a connector; there
 is no saved account. Under **My access** the user presses **Connect** and gets a
 command for the SSH client every computer already has (OpenSSH, built into
@@ -846,7 +847,90 @@ flowchart LR
   the next step if customers need one).
 
 Prefer a resource's own type when there is one: a browser session, native SSH
-or RDP, or a database resource records what the tunnel can't.
+or RDP, a database or a Kubernetes resource records what the tunnel can't.
+
+## Kubernetes (your own kubectl, every request logged)
+
+A **Kubernetes** resource is a cluster's API server, reached with the user's
+own `kubectl`, Lens, k9s or Helm. The admin adds it with **Add resource →
+Kubernetes**: the API server's `host:port` as `kubectl cluster-info` shows it,
+a connector, and a service account's token. **Set up the cluster** in the form
+shows the YAML to apply once: a `captivo-access` service account with a
+long-lived token Secret, the right to impersonate users and only the groups the
+resource names, and a starting role (`edit`, or `view` for a read-only
+resource) for the first group. The token and the cluster's CA come out of that
+Secret.
+
+Under **My access** the user presses **Connect** and downloads a kubeconfig:
+
+```yaml
+clusters:
+- name: captivo-prod-cluster
+  cluster:
+    server: https://acme.cloud.captivo.io/k8s/<resource id>
+users:
+- name: captivo-prod-cluster
+  user:
+    token: k7f3q9wz2m4xh8c2r6v5n9pa
+```
+
+```mermaid
+flowchart LR
+    K["kubectl · Lens · k9s<br/>kubeconfig (ticket, 8 h)"] -->|"HTTPS 443 · /k8s/"| D["Data-plane Kubernetes proxy<br/>ticket · grant · allowlist · rules · log"]
+    D -->|outbound tunnel| CN["Connector<br/>signs in as the service account<br/>Impersonate-User: the person"]
+    CN -->|"HTTPS 6443 · CA pinned"| A["API server"]
+```
+
+- **The address is the console's own.** The front proxy sends `/k8s/` to the
+  data plane (nginx: buffering off, no body size limit, long timeouts); no new
+  port or certificate. The token is a connection ticket like a database
+  resource's: up to eight hours, never past the grant's end, ended by signing
+  out, stored only hashed. Each **Connect** makes a new one.
+- **Captivo signs in, the cluster sees the person.** The data plane drops the
+  request's `Authorization` and any `Impersonate-*` header; the connector opens
+  the token (sealed to its own key for this API server and account, like a
+  database password), checks the API server's certificate against the saved CA
+  and sends `Authorization: Bearer <token>` with `Impersonate-User: <the user's
+  e-mail>` and `Impersonate-Group` for each group on the resource. The cluster's
+  RBAC and its own audit log see the person; bind roles to their address or a
+  group to narrow what they may do. `system:` groups can't be named. With
+  **Requests act as → The service account**, requests act as the account
+  itself (one identity in the cluster's log; Captivo's log still names the
+  person).
+- **The resource's rules hold before the cluster's.** The data plane reads each
+  request's verb, resource and namespace the way the API server does
+  (`dataplane/kubereq.go`) and refuses with a `Status` kubectl prints:
+  - *Read only*: get, list and watch only; no changes, no `exec`/`attach`, no
+    secrets. (`kubectl auth can-i` still answers with the cluster's roles; these
+    rules apply on top.)
+  - *Namespaces*: only those; a request across all namespaces is refused;
+    cluster-wide kinds (nodes, namespaces, CRDs, storage classes) can be read,
+    never changed.
+  - *Port forwarding* (off unless turned on): `kubectl port-forward` and the API
+    server's proxy to pods, services and nodes. What crosses them is not
+    recorded; each is logged.
+- **Every request is logged.** A ticket's requests from one address are one
+  session in **Live sessions** (the feed shows them as they come) and one
+  recording: the request log, kept on the connector, with each request's verb,
+  resource, namespace, answer and time (`list pods`, `patch deployments.apps/api`,
+  refused ones marked). Request bodies and what secrets hold are never stored.
+  Discovery requests are only counted. The session ends five minutes after the
+  last request finishes; access and the resource's rules are checked again every
+  minute (a change applies without reconnecting), and Terminate ends every
+  request in flight.
+- **kubectl exec and attach are recorded.** The data plane reads the stream
+  kubectl chose (WebSocket `v5.channel.k8s.io`, kubectl 1.30 and later, or
+  SPDY/3.1 for older clients and libraries) without changing it, and records the
+  container's terminal like recorded SSH: each exec is a session of its own,
+  watchable live, with typed commands in the keystroke log when the resource logs
+  them, the terminal size and the exit code. On a recorded resource an exec over
+  a stream it can't read is refused, never relayed unrecorded. `kubectl cp` runs
+  as an exec, so its file is in that recording.
+- **Connector 2.62.0 or later**, and its `ALLOWED_TARGETS` applies to the API
+  server. Managed clusters (EKS, GKE, AKS) work with a service account token
+  like any other; their cloud sign-in plugins are not used.
+- **Not in this version:** a kubectl in the browser, moderated exec sessions,
+  Captivo ID groups as cluster groups, and finding clusters in a cloud account.
 
 ## The isolated-browser path (isolated)
 

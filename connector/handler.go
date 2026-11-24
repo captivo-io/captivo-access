@@ -122,6 +122,8 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleDbCancel(cst, allow, reqBytes)
 	case "ssh":
 		handleSsh(cst, allow, reqBytes)
+	case "k8s":
+		handleKube(cst, allow, reqBytes)
 	case "guacd":
 		handleGuacd(cst, allow, reqBytes)
 	case "recwrite":

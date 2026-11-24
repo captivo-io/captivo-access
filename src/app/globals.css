@@ -2099,6 +2099,16 @@ button.rs-cell{cursor:pointer;}
 .ssh-field .input.bad{border-color:var(--bad);}
 /* Database connection details (portal) */
 .chip.green{color:var(--ok);background:rgba(var(--ok-rgb),.14);}
+.chip.amber{color:var(--warn);background:rgba(var(--warn-rgb),.16);}
+/* Kubernetes: the kubeconfig dialog and the cluster setup in the resource form. */
+.kube-get{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.kube-use{white-space:pre-wrap;}
+.kube-raw summary{cursor:pointer;font-size:13px;color:var(--muted);}
+.kube-raw[open] summary{margin-bottom:8px;}
+.kube-raw .ssh-box{max-height:260px;overflow:auto;}
+.rf-kube-setup{display:flex;flex-direction:column;gap:8px;margin-top:8px;}
+.rf-code{display:flex;align-items:flex-start;gap:10px;padding:10px 10px 10px 12px;border-radius:10px;background:rgba(var(--ink-rgb),.05);border:1px solid var(--line-strong);}
+.rf-code pre{flex:1;min-width:0;margin:0;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;}
 .db-fields{margin:0;display:grid;gap:6px;}
 .db-fields > div{display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center;}
 .db-fields dt{font-size:13px;color:var(--muted);}
@@ -2122,6 +2132,9 @@ button.rs-cell{cursor:pointer;}
 .ql-sql.open{display:block;-webkit-line-clamp:unset;}
 .ql-tag{margin-top:6px;display:inline-block;}
 .ql-err{display:block;margin-top:4px;font-size:12.5px;color:var(--bad);}
+/* The Kubernetes request log: the request column takes the room and wraps; the rest stay narrow. */
+.kl-table td:nth-child(2){white-space:normal;width:100%;}
+
 .ql-sys td{font-size:12.5px;color:var(--muted);}
 .ql-empty{display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;min-height:240px;color:var(--muted);text-align:center;}
 .ql-empty b{color:var(--fg);}

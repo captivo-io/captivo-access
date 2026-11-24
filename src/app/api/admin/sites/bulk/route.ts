@@ -66,7 +66,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     await db.site.updateMany({ where: { id: { in: plan.move } }, data: { connectorId: dest.connectorId, connectorGroupId: dest.connectorGroupId } });
     for (const s of sites.filter((x) => plan.move.includes(x.id))) {
       // A legacy server-side secret is sealed to the new connector right away, as an edit does.
-      if (s.accessMode === "GATEWAY" || s.accessMode === "DATABASE") await sealLegacyCredentials({ siteId: s.id });
+      if (s.accessMode === "GATEWAY" || s.accessMode === "DATABASE" || s.accessMode === "KUBERNETES") await sealLegacyCredentials({ siteId: s.id });
       await recordAdminAction({ actor, action: "resource.update", targetType: "resource", targetId: s.id, summary: `Moved resource "${s.name}" to ${dest.name}`, clientIp: ip });
     }
     // Moved onto a group, a password sealed for one member is copied to the others.

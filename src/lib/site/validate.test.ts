@@ -20,6 +20,17 @@ describe("validateSiteInput", () => {
     expect(validateSiteInput({ ...body, targetHost: "http://redis" }, base)).toMatchObject({ ok: false, error: "tunnel_target_required" });
     expect(validateSiteInput(body, { ...base, nativeGateway: false })).toMatchObject({ ok: false, error: "native_gateway_disabled" });
   });
+  it("kubernetes: the API server, a service account and its token, the rules", () => {
+    const body = { accessMode: "KUBERNETES", connectorId: "c", name: "Prod", apiServer: "https://10.0.0.5:6443", secret: "tok", namespaces: "web", readOnly: true, recordSessions: true, keystrokeLogging: true };
+    expect(validateSiteInput(body, base)).toMatchObject({
+      ok: true, mode: "KUBERNETES", targetHost: "10.0.0.5", targetPort: 6443, username: "captivo-access", recordSessions: true,
+      kubeParams: { identity: "impersonate", namespaces: ["web"], readOnly: true, portForward: false },
+    });
+    expect(validateSiteInput({ ...body, apiServer: "10.0.0.5:6443/x" }, base)).toMatchObject({ ok: false, error: "invalid_api_server" });
+    expect(validateSiteInput({ ...body, kubeGroups: "system:masters" }, base)).toMatchObject({ ok: false, error: "invalid_kube_group" });
+    expect(validateSiteInput({ ...body, secret: undefined }, base)).toMatchObject({ ok: false, error: "kube_token_required" });
+    expect(validateSiteInput(body, { ...base, nativeGateway: false })).toMatchObject({ ok: false, error: "native_gateway_disabled" });
+  });
   it("self-host: appends .<accessDomain> to a bare label", () => {
     const r = validateSiteInput({ accessMode: "TRANSPARENT", connectorId: "c", name: "n", hostname: "WIKI", upstreamUrl: "http://10.0.0.5:80" }, selfHost);
     expect(r).toMatchObject({ ok: true, hostname: "wiki.access.example.com" });

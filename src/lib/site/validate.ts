@@ -2,6 +2,7 @@ import { isEgressMode, parseEgressHosts, type EgressMode } from "@/lib/isolation
 import { secretInputFrom, type SecretInput } from "@/lib/vault/secret-input";
 import { parseGuacParams, type GuacParams } from "@/lib/gateway/guac-params";
 import { dbParamsFrom, type DbEngine, type DbParams } from "@/lib/database/params";
+import { kubeParamsFrom, parseApiServer, type KubeParams } from "@/lib/kubernetes/params";
 
 const CLIP = ["allow", "no_copy", "no_paste", "none"];
 const FT = ["allow", "no_upload", "no_download", "none"];
@@ -76,6 +77,20 @@ export type SiteValidation =
     }
   | {
       ok: true;
+      mode: "KUBERNETES";
+      connectorId: string;
+      name: string;
+      description: string | null;
+      targetHost: string; // the API server
+      targetPort: number;
+      username: string; // the service account, as the admin names it
+      secret: SecretInput | null; // its token
+      recordSessions: boolean; // the request log and kubectl exec
+      keystrokeLogging: boolean;
+      kubeParams: KubeParams;
+    }
+  | {
+      ok: true;
       mode: "TUNNEL";
       connectorId: string;
       name: string;
@@ -103,7 +118,7 @@ export function validateSiteInput(
   const connectorId = str(body.connectorId);
   const name = str(body.name);
   const description = str(body.description) || null;
-  const mode = body.accessMode === "GATEWAY" ? "GATEWAY" : body.accessMode === "ISOLATED" ? "ISOLATED" : body.accessMode === "DATABASE" ? "DATABASE" : body.accessMode === "TUNNEL" ? "TUNNEL" : "TRANSPARENT";
+  const mode = body.accessMode === "GATEWAY" ? "GATEWAY" : body.accessMode === "ISOLATED" ? "ISOLATED" : body.accessMode === "DATABASE" ? "DATABASE" : body.accessMode === "TUNNEL" ? "TUNNEL" : body.accessMode === "KUBERNETES" ? "KUBERNETES" : "TRANSPARENT";
   if (!connectorId || !name) return { ok: false, error: "connector_name_required" };
 
   if (mode === "TUNNEL") {
@@ -114,6 +129,23 @@ export function validateSiteInput(
     if (!targetHost || /[\s/]/.test(targetHost)) return { ok: false, error: "tunnel_target_required" };
     if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) return { ok: false, error: "invalid_port" };
     return { ok: true, mode: "TUNNEL", connectorId, name, description, targetHost, targetPort };
+  }
+
+  if (mode === "KUBERNETES") {
+    if (!opts.nativeGateway) return { ok: false, error: "native_gateway_disabled" };
+    const api = parseApiServer(str(body.apiServer) || (str(body.targetHost) && `${str(body.targetHost)}:${str(body.targetPort) || "443"}`));
+    if (!api) return { ok: false, error: "invalid_api_server" };
+    const username = str(body.username) || "captivo-access";
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(username)) return { ok: false, error: "invalid_username" };
+    const secret = secretInputFrom(body);
+    if (opts.requireSecret && !secret) return { ok: false, error: "kube_token_required" };
+    const kubeParams = kubeParamsFrom(body);
+    if ("error" in kubeParams) return { ok: false, error: kubeParams.error };
+    const recordSessions = opts.recordingEnabled && body.recordSessions === true;
+    return {
+      ok: true, mode: "KUBERNETES", connectorId, name, description, targetHost: api.host, targetPort: api.port, username, secret,
+      recordSessions, keystrokeLogging: recordSessions && body.keystrokeLogging === true, kubeParams,
+    };
   }
 
   if (mode === "DATABASE") {

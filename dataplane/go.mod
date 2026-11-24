@@ -7,6 +7,7 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.14
 	github.com/hashicorp/yamux v0.1.2
 	github.com/kurtserdar/captivo-access/tunnel v0.0.0
+	github.com/moby/spdystream v0.5.0
 	golang.org/x/crypto v0.54.0
 )
 

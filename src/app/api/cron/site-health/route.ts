@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
       // GATEWAY sites have no upstreamUrl; probe their remote-desktop target
       // (VaultCredential.targetHost:targetPort) with the same TCP connect.
       gateways: await db.site.findMany({
-        where: { accessMode: { in: ["GATEWAY", "DATABASE", "TUNNEL"] } },
+        where: { accessMode: { in: ["GATEWAY", "DATABASE", "TUNNEL", "KUBERNETES"] } },
         select: {
           id: true,
           name: true,

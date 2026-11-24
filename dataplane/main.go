@@ -581,6 +581,12 @@ func main() {
 	rdpgwHandler := rlGuard(func(w http.ResponseWriter, r *http.Request) { serveRdpGateway(rdpgw, w, r) })
 	mux.HandleFunc(rdpgwPath, rdpgwHandler)
 	mux.HandleFunc(strings.TrimSuffix(rdpgwPath, "/"), rdpgwHandler)
+	// Kubernetes API for the user's own kubectl (kubeproxy.go); the front
+	// proxy forwards /k8s/ on the console host here.
+	mux.Handle(kubePrefix, newKubeProxy(kubeProxyDeps{
+		ctrl: ctrl, hub: hub, audit: audit, now: time.Now, recIndex: ctrl.SendRecording, session: reg.Get,
+		pick: func(c []routeCandidate) routeCandidate { p, _ := pickLeastLoaded(reg, hub, c); return p },
+	}))
 	mux.Handle("/", proxy)
 	log.Fatal(http.ListenAndServe(env("PROXY_ADDR", ":3103"), mux))
 }

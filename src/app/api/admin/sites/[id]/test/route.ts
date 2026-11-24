@@ -42,7 +42,7 @@ export const POST = withTenantRoute(async (_req: NextRequest, { params }: { para
     // alive, never proxy to a connector we've already revoked.
     return NextResponse.json({ error: "connector_revoked" });
   }
-  if (site.accessMode === "GATEWAY" || site.accessMode === "DATABASE" || site.accessMode === "TUNNEL") {
+  if (site.accessMode === "GATEWAY" || site.accessMode === "DATABASE" || site.accessMode === "TUNNEL" || site.accessMode === "KUBERNETES") {
     // A TCP tunnel keeps its service on the site; the others on their credential.
     const target = site.accessMode === "TUNNEL"
       ? (site.tunnelHost && site.tunnelPort ? { targetHost: site.tunnelHost, targetPort: site.tunnelPort } : null)

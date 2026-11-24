@@ -28,13 +28,16 @@ export interface RecentRecording {
 
 type FeedEvent = { at: string; type: string; text: string };
 
-const TERMINAL = ["ssh", "telnet"];
+const TERMINAL = ["ssh", "telnet", "kubectl"];
 const keyOf = (r: LiveRow) => (r.kind === "web" ? `web:${r.liveKey ?? `${r.userId}:${r.siteId}`}` : r.sessionId);
 // A TCP tunnel (dataplane/sshtunnel.go) carries the user's own app: no screen, nothing recorded.
 const isTunnel = (r: LiveRow) => r.kind === "gateway" && r.protocol === "tcp";
+// kubectl exec / attach on a Kubernetes resource: a terminal of its own (dataplane/kubeexec.go).
+const isKubectl = (r: LiveRow) => r.kind === "gateway" && r.protocol === "kubectl";
+const isKube = (r: LiveRow) => r.kind === "gateway" && r.protocol === "kubernetes";
 const kindOf = (r: LiveRow): "ssh" | "rdp" | "web" | "sql" => (r.database || isTunnel(r) ? "sql" : r.kind === "gateway" ? (TERMINAL.includes(r.protocol.toLowerCase()) ? "ssh" : "rdp") : "web");
-const nativeApp = (r: LiveRow) => (r.kind === "gateway" && r.protocol === "ssh" ? "SSH" : "Remote Desktop");
-const labelOf = (r: LiveRow) => (isTunnel(r) ? "TCP TUNNEL" : r.database ? (r.kind === "gateway" && r.protocol === "mysql" ? "MYSQL" : r.kind === "gateway" && r.protocol === "mssql" ? "SQL SERVER" : "POSTGRESQL") : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
+const nativeApp = (r: LiveRow) => (isKubectl(r) ? "kubectl" : r.kind === "gateway" && r.protocol === "ssh" ? "SSH" : "Remote Desktop");
+const labelOf = (r: LiveRow) => (isTunnel(r) ? "TCP TUNNEL" : isKubectl(r) ? "KUBECTL EXEC" : isKube(r) ? "KUBERNETES" : r.database ? (r.kind === "gateway" && r.protocol === "mysql" ? "MYSQL" : r.kind === "gateway" && r.protocol === "mssql" ? "SQL SERVER" : "POSTGRESQL") : r.kind === "gateway" ? (r.native ? `${r.protocol.toUpperCase()} · NATIVE` : r.protocol.toUpperCase()) : r.kind === "isolated" ? "BROWSER" : "WEB");
 const hostOf = (r: LiveRow) => (r.kind === "gateway" ? "" : r.host);
 const watchSrc = (r: LiveRow) => (r.kind === "web" ? (r.liveKey ? `/live/web/${encodeURIComponent(r.liveKey)}` : null) : r.native && !r.watchable ? null : `/live/${r.sessionId}`);
 const sessionIdOf = (r: LiveRow) => (r.kind === "web" ? null : r.sessionId);
@@ -233,7 +236,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded, canTakeOver, o
   const src = watchSrc(r);
   return (
     <article className={watching ? "sv-card on" : "sv-card"}>
-      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : r.database ? "A database session has no screen; its latest queries show here" : isTunnel(r) ? "A TCP tunnel carries the user's own app; it can't be watched" : r.native ? (r.recording ? `This session in the user's own ${nativeApp(r)} app is recorded; it can't be watched live` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
+      <button type="button" className="sv-thumb" onClick={onWatch} disabled={!src} aria-label={src ? `Watch ${r.userLabel} on ${r.siteName}` : isKube(r) ? "A Kubernetes session has no screen; its latest requests show here" : r.database ? "A database session has no screen; its latest queries show here" : isTunnel(r) ? "A TCP tunnel carries the user's own app; it can't be watched" : r.native ? (r.recording ? `This session in the user's own ${nativeApp(r)} app is recorded; it can't be watched live` : `A session in the user's own ${nativeApp(r)} app can't be watched`) : "This web app does not record, so it can't be watched"}>
         {tail.length ? (
           <span className="rc-art ssh sv-term" aria-hidden="true">
             {tail.map((t, i) => <span key={i} className="mono">{r.database ? "›" : "$"} {t}</span>)}
@@ -254,7 +257,7 @@ function Card({ r, now, watching, canTerminate, onWatch, onEnded, canTakeOver, o
         </div>
         <div className="sv-line">
           <span className="cell-sub">Started {hm(r.startedAt, zone)}</span>
-          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "Queries logged" : "Queries not logged"}</span></> : isTunnel(r) ? <span className="cell-sub">TCP tunnel · not recorded</span> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : r.native && r.recording ? <><Sparkline values={r.activity} /><span className="cell-sub">Own {nativeApp(r)} app · recorded</span></> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
+          {r.database ? <><Sparkline values={r.activity} /><span className="cell-sub">{isKube(r) ? (r.recording ? "Requests logged" : "Requests not logged") : r.recording ? "Queries logged" : "Queries not logged"}</span></> : isTunnel(r) ? <span className="cell-sub">TCP tunnel · not recorded</span> : r.kind !== "web" && !r.native ? <Sparkline values={r.activity} /> : isKubectl(r) ? <><Sparkline values={r.activity} /><span className="cell-sub">{r.recording ? "kubectl exec · recorded" : "kubectl exec · not recorded"}</span></> : r.native && r.recording ? <><Sparkline values={r.activity} /><span className="cell-sub">Own {nativeApp(r)} app · recorded</span></> : r.native ? <span className="cell-sub">Own {nativeApp(r)} app · not recorded</span> : null}
         </div>
         {r.moderation && <ModerationLine m={r.moderation} now={now} canTakeOver={canTakeOver} onTakeOver={onTakeOver} mine={moderatingMine} />}
         <Actions r={r} canTerminate={canTerminate} onWatch={src ? onWatch : undefined} onEnded={onEnded} />
@@ -457,7 +460,7 @@ function WatchWindow({ r, now, workspace, canAct, canInvite = canAct, moderating
               {banner && <span className="sv-banner"><b>ADMIN</b>{banner}</span>}
             </div>
             {moderating && <p className="sv-mod-note" role="status"><b>You moderate this session.</b> The user can work only while this window is open; closing it pauses their keyboard and mouse, and the session ends 2 minutes later unless a moderator joins.</p>}
-            <p className="sv-note"><i aria-hidden="true" />{r.native && r.kind === "gateway" && r.protocol === "rdp" ? (r.controllable ? "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched or taken over. Take control in the view: their input is paused while you have it. The screen and typed text keep being recorded." : "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched. You can't control it. The screen and typed text keep being recorded.") : r.native ? (r.controllable ? "A line in the user's terminal tells them an admin is watching, and when you take or give back control; their typing is paused while you have it. The terminal and commands keep being recorded." : "A line in the user's terminal tells them an admin is watching. You can't type into it. The terminal and commands keep being recorded.") : "The user is told that this session is being watched. The screen and commands keep being recorded."}</p>
+            <p className="sv-note"><i aria-hidden="true" />{isKubectl(r) ? "kubectl doesn't tell the user that you're watching; the portal says exec sessions may be watched. You can't type into it. The terminal and typed commands keep being recorded." : r.native && r.kind === "gateway" && r.protocol === "rdp" ? (r.controllable ? "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched or taken over. Take control in the view: their input is paused while you have it. The screen and typed text keep being recorded." : "The user is not told in their Remote Desktop app; the portal and the .rdp file say sessions may be watched. You can't control it. The screen and typed text keep being recorded.") : r.native ? (r.controllable ? "A line in the user's terminal tells them an admin is watching, and when you take or give back control; their typing is paused while you have it. The terminal and commands keep being recorded." : "A line in the user's terminal tells them an admin is watching. You can't type into it. The terminal and commands keep being recorded.") : "The user is told that this session is being watched. The screen and commands keep being recorded."}</p>
           </div>
           <aside className="sv-side">
             <dl className="sv-facts">{facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className={k === "Started" || k === "Duration" || k === "IP address" ? "mono" : undefined}>{v}</dd></div>)}</dl>
@@ -479,7 +482,9 @@ function WatchWindow({ r, now, workspace, canAct, canInvite = canAct, moderating
               )}
               {id && r.kind === "gateway" && !r.keystrokes ? <p className="cell-sub sv-feednote">Typed input is not shown: keystroke logging is off for this resource.</p> : null}
             </div>
-            {canAct && id && r.native && r.kind === "gateway" && r.protocol === "rdp" ? (
+            {canAct && id && (isKubectl(r) || isKube(r)) ? (
+              <p className="cell-sub sv-feednote">Messages can&apos;t reach kubectl.</p>
+            ) : canAct && id && r.native && r.kind === "gateway" && r.protocol === "rdp" ? (
               <p className="cell-sub sv-feednote">Messages can&apos;t reach a user&apos;s own Remote Desktop app.</p>
             ) : canAct && id && (
               <form className="sv-msg" onSubmit={send}>
@@ -487,7 +492,7 @@ function WatchWindow({ r, now, workspace, canAct, canInvite = canAct, moderating
                 <button type="submit" className="btn" disabled={sending || !text.trim()}>{sending ? "Sending…" : "Send"}</button>
               </form>
             )}
-            {canInvite && id && r.kind === "gateway" && (!r.native || r.watchable) && <GuestInvites sessionId={id} onToast={onToast} />}
+            {canInvite && id && r.kind === "gateway" && !isKubectl(r) && (!r.native || r.watchable) && <GuestInvites sessionId={id} onToast={onToast} />}
             {canAct && <Actions r={r} canTerminate={canAct} onEnded={onEnded} block />}
           </aside>
         </div>

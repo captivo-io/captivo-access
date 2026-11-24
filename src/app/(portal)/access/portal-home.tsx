@@ -32,6 +32,8 @@ export interface CardVM {
   moderated?: boolean;
   /** Where to get the ssh command of a TCP tunnel resource, when it opens now. */
   tunnelHref?: string | null;
+  /** Where to get a kubeconfig for the user's own kubectl (a KUBERNETES resource). */
+  kubeHref?: string | null;
   /** Where to get connection details for the user's own database client (a DATABASE resource). */
   dbHref?: string | null;
   time: Remaining;
