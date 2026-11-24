@@ -6,6 +6,7 @@ import { NavIcon } from "@/app/(app)/_shell/nav-icons";
 import { ResourceIcon } from "@/components/resource-icon";
 import { SshCommandButton } from "./ssh-command";
 import { DbConnectButton } from "./db-connect";
+import { CheckoutButton } from "./checkout-button";
 import { TunnelCommandButton } from "./tunnel-command";
 import { KubeConnectButton } from "./kube-connect";
 
@@ -92,6 +93,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                 {c.status === "active" && c.rdpHref && (
                   <a className="btn sm" href={c.rdpHref} download title={c.rdpRecorded ? "Connect with your own Remote Desktop app. The file works for two minutes. Captivo signs you in, so leave any password prompt empty; the session is recorded and may be watched live or taken over by an admin." : `Connect with your own Remote Desktop app. The file works for two minutes; you sign in to the server yourself.${c.recorded ? " These sessions are not recorded." : ""}`}>.rdp file</a>
                 )}
+                {c.status === "active" && c.checkoutHref && <CheckoutButton href={c.checkoutHref} siteName={c.siteName} />}
                 {c.status === "active" && c.sshHref && <SshCommandButton href={c.sshHref} siteId={c.siteId} siteName={c.siteName} recorded={!!c.recorded} sshRecorded={!!c.sshRecorded} />}
                 {isKube
                   ? (c.status === "active" && c.kubeHref ? <KubeConnectButton href={c.kubeHref} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This cluster's connector needs an update first." : undefined}>Connect</span>)

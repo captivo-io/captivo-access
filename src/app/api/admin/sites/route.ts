@@ -139,8 +139,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
       data: v.mode === "KUBERNETES"
         ? { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, accessMode: "KUBERNETES", ...logoData }
         : v.mode === "DATABASE"
-        ? { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, accessMode: "DATABASE", ...logoData }
-        : { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, requireModerator: v.requireModerator, accessMode: "GATEWAY", ...logoData },
+        ? { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, passwordCheckout: v.passwordCheckout, checkoutMaxMinutes: v.checkoutMaxMinutes, accessMode: "DATABASE", ...logoData }
+        : { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, requireModerator: v.requireModerator, passwordCheckout: v.passwordCheckout, checkoutMaxMinutes: v.checkoutMaxMinutes, accessMode: "GATEWAY", ...logoData },
       select: { id: true },
     });
     await tx.vaultCredential.create({

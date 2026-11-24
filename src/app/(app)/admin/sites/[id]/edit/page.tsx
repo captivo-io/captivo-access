@@ -21,7 +21,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
     where: { id },
     select: {
       id: true, connectorId: true, connectorGroupId: true, name: true, hostname: true, upstreamUrl: true, description: true, insecureSkipVerify: true, recordSessions: true,
-      keystrokeLogging: true, nativeRdp: true, nativeSsh: true, requireModerator: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true,
+      keystrokeLogging: true, nativeRdp: true, nativeSsh: true, passwordCheckout: true, checkoutMaxMinutes: true, requireModerator: true, clipboardMode: true, watermark: true, fileTransferMode: true, accessMode: true, logoType: true, customDomain: true,
       domainVerifiedAt: true, egressMode: true, egressHosts: true, createdAt: true, iconName: true, iconColor: true, logoBg: true, tunnelHost: true, tunnelPort: true,
     },
   });
@@ -65,7 +65,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
           recordSessions: site.recordSessions,
           keystrokeLogging: site.keystrokeLogging,
           nativeRdp: site.nativeRdp,
-          nativeSsh: site.nativeSsh,
+          nativeSsh: site.nativeSsh, passwordCheckout: site.passwordCheckout, checkoutMaxMinutes: site.checkoutMaxMinutes,
           requireModerator: site.requireModerator,
           clipboardMode: site.clipboardMode,
           watermark: site.watermark,

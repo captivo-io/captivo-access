@@ -73,7 +73,7 @@ export async function listUserGrants(userId: string) {
       denyReason: true,
       // The tile fields (icon, colour, logo, and the address the automatic icon reads)
       // stay on the server: callers map out only what they show.
-      site: { select: { id: true, name: true, hostname: true, recordSessions: true, nativeRdp: true, nativeSsh: true, requireModerator: true, logoType: true, accessMode: true, upstreamUrl: true, iconName: true, iconColor: true, logoBg: true, ...siteRoutingSelect, vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true } } } },
+      site: { select: { id: true, name: true, hostname: true, recordSessions: true, nativeRdp: true, nativeSsh: true, requireModerator: true, passwordCheckout: true, logoType: true, accessMode: true, upstreamUrl: true, iconName: true, iconColor: true, logoBg: true, ...siteRoutingSelect, vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true, secretKind: true, secretSource: true, sealedTo: true } } } },
     },
   });
 }

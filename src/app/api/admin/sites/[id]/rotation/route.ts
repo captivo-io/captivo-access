@@ -12,6 +12,7 @@ import { callConnector, canRotate, directoryForRotation, nextScheduled, isDbMeth
 import { kickRotation } from "@/lib/vault/rotation-pass";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { sealsOf } from "@/lib/vault/store";
+import { endCheckout } from "@/lib/vault/checkout";
 import { compareSemver } from "@/lib/updates/semver";
 import { providerLabel, VAULT_PROVIDER_MIN_CONNECTOR, VAULT_PROVIDER_MIN_CONNECTOR_MORE } from "@/lib/vault/providers";
 
@@ -152,6 +153,13 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
       clientIp: clientIp(req.headers) ?? null,
     });
     return NextResponse.json({ ok, detail: ok ? null : ans.detail ?? ans.error ?? "The vault did not answer." });
+  }
+
+  // End someone's check-out now: the password is changed (or the admins told).
+  if (b.action === "end_checkout") {
+    if (!s.checkout) return NextResponse.json({ error: "not_checked_out" }, { status: 409 });
+    await endCheckout(s.checkout.id, "admin", actor);
+    return NextResponse.json({ ok: true });
   }
 
   if (b.action === "reveal") {

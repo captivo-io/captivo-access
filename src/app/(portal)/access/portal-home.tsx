@@ -36,6 +36,8 @@ export interface CardVM {
   kubeHref?: string | null;
   /** Where to get connection details for the user's own database client (a DATABASE resource). */
   dbHref?: string | null;
+  /** Set when the saved password can be checked out of this resource (lib/vault/checkout.ts). */
+  checkoutHref?: string | null;
   time: Remaining;
   whenIso?: string | null; // upcoming cards only: start instant (rendered in the display timezone); null = "Scheduled"
 }
