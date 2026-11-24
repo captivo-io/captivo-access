@@ -70,3 +70,19 @@ func TestBuildConnectPrivateKeyKind(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestTheUsersInputIsHeldButTheirConnectionLives(t *testing.T) {
+	for _, op := range []string{"key", "mouse", "touch", "clipboard", "file", "blob", "end", "put"} {
+		if vendorMayForward(op, false) {
+			t.Errorf("%s passed while input is held", op)
+		}
+		if !vendorMayForward(op, true) {
+			t.Errorf("%s held while input is allowed", op)
+		}
+	}
+	for _, op := range []string{"sync", "nop", "size", "ack", "disconnect", ""} {
+		if !vendorMayForward(op, false) {
+			t.Errorf("%s held: guacd would drop the user", op)
+		}
+	}
+}

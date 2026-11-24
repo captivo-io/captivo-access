@@ -210,6 +210,18 @@ func instructionOpcode(raw []byte) string {
 // vendor is sharing, and stays gated on actually holding control.
 var viewerUpstreamAlways = map[string]bool{"sync": true, "nop": true}
 
+// vendorInput are the user's own instructions held back while someone else
+// holds control, or a moderated session's moderator isn't watching: what they
+// type, point, paste or send as files. The rest still passes, so their
+// connection stays alive (sync, nop) and keeps its size; gating every
+// instruction made guacd drop the user at once.
+var vendorInput = map[string]bool{"key": true, "mouse": true, "touch": true, "clipboard": true, "file": true, "pipe": true, "blob": true, "end": true, "put": true, "argv": true}
+
+// vendorMayForward decides whether one instruction from the session's user reaches guacd.
+func vendorMayForward(op string, inputAllowed bool) bool {
+	return inputAllowed || !vendorInput[op]
+}
+
 // viewerMayForward decides whether one instruction from a viewer reaches guacd.
 func viewerMayForward(op string, hasControl bool) bool {
 	return viewerUpstreamAlways[op] || hasControl

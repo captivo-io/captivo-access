@@ -69,6 +69,7 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                 <span className="ma-res-main">
                   <span className="ma-res-t"><b>{c.siteName}</b><span className={isDb ? "chip green" : isTunnel ? "chip cyan" : remote ? "chip violet" : "chip"}>{isDb ? "DATABASE" : isTunnel ? "TCP" : remote ? "REMOTE" : "WEB"}</span></span>
                   {c.hostname && <span className="mono t-muted ma-host">{c.hostname}</span>}
+                  {c.moderated && <span className="t-muted ma-host" title="A moderator admits each session and watches it.">Needs a moderator</span>}
                 </span>
               </span>
               <span className="ma-win">

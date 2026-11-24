@@ -13,6 +13,7 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
   const [items, setItems] = useState<Item[]>([]);
   const [requests, setRequests] = useState<Req[]>([]);
   const [requestCount, setRequestCount] = useState(0);
+  const [moderation, setModeration] = useState<Req[]>([]);
   const [unread, setUnread] = useState(badge);
   const [loading, setLoading] = useState(false);
 
@@ -21,8 +22,9 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
     try {
       const res = await fetch("/api/admin/notifications", { cache: "no-store" });
       if (!res.ok) return;
-      const body = (await res.json()) as { items: Item[]; unread: number; requests?: Req[]; requestCount?: number };
+      const body = (await res.json()) as { items: Item[]; unread: number; requests?: Req[]; requestCount?: number; moderation?: Req[] };
       setItems(body.items);
+      setModeration(body.moderation ?? []);
       setRequests(body.requests ?? []);
       setRequestCount(body.requestCount ?? 0);
       setUnread(body.unread);
@@ -56,6 +58,19 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
               <button className="tn-notif-link" onClick={() => void act("/api/admin/notifications/read", "POST")}>Mark all read</button>
             )}
           </div>
+          {moderation.length > 0 && (
+            <div className="tn-notif-list tn-notif-reqs">
+              {moderation.map((r) => (
+                <Link key={r.id} href="/admin/live" className="tn-notif-item tn-notif-req" onClick={onToggle}>
+                  <div className="tn-notif-body">
+                    <div className="tn-notif-title"><span className="req">Moderator needed</span> — {r.who} on {r.siteName}</div>
+                    <div className="tn-notif-when">{r.when} · the session starts when a moderator joins</div>
+                  </div>
+                  <span className="tn-notif-go" aria-hidden="true">→</span>
+                </Link>
+              ))}
+            </div>
+          )}
           {requests.length > 0 && (
             <div className="tn-notif-list tn-notif-reqs">
               {requests.map((r) => (
@@ -73,10 +88,10 @@ export function NotificationBell({ badge, open, onToggle }: { badge: number; ope
             </div>
           )}
           <div className="tn-notif-list">
-            {loading && items.length === 0 && requests.length === 0 ? (
+            {loading && items.length === 0 && requests.length === 0 && moderation.length === 0 ? (
               <div className="tn-notif-empty">Loading…</div>
             ) : items.length === 0 ? (
-              requests.length === 0 && <div className="tn-notif-empty">You&apos;re all caught up.</div>
+              requests.length === 0 && moderation.length === 0 && <div className="tn-notif-empty">You&apos;re all caught up.</div>
             ) : (
               items.map((n) => (
                 <div key={n.id} className="tn-notif-item">

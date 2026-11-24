@@ -55,7 +55,7 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		return
 	}
 
-	conn, guacdAddr, cands, tenantID, record, keystrokeLogging, err := ctrl.GatewayDescriptor(userID, siteID)
+	conn, guacdAddr, cands, tenantID, record, keystrokeLogging, mod, err := ctrl.GatewayDescriptor(userID, siteID)
 	if err != nil {
 		log.Printf("guac-tunnel site=%s user=%s: descriptor failed err=%v", siteID, userID, err)
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -161,6 +161,12 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	ls.SetAuth(ck.Value, clientIP) // checked again every minute (recheck.go)
 	ls.SetCapture(record, record && keystrokeLogging)
 	hub.clearEnded(userID, siteID)
+	if mod.ID != "" {
+		hub.Moderate(ls, mod, func() {
+			log.Printf("guac-tunnel site=%s: session %s ended, no moderator came back", siteID, sessionID)
+			audit.Enqueue(auditEvent("DENY", "session_end_policy "+endModeratorLeft, userID, siteID, conn.Hostname, r, http.StatusForbidden, 0))
+		})
+	}
 	// Closing the guacd conn makes the relay error out → goroutines exit → session
 	// tears down (defer c.CloseNow + hub.Remove). This is how admin Terminate works.
 	hub.SetCloser(sessionID, func() { _ = guac.Close() })
@@ -232,8 +238,8 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 				errc <- rerr
 				return
 			}
-			if !ls.vendorInputAllowed() {
-				continue // an admin has taken control; drop vendor input
+			if !vendorMayForward(instructionOpcode(data), ls.vendorInputAllowed()) {
+				continue // someone else holds control, or no moderator watches: drop the user's input
 			}
 			ls.touch(data, time.Now())
 			up := ft.observe(dirUpload, data)

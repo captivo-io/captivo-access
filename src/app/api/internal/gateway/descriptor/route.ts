@@ -13,6 +13,8 @@ import { isolationEnabled } from "@/lib/isolation/enabled";
 import { db } from "@/lib/db";
 import { candidatesFor, routeMembers, siteRoutingSelect } from "@/lib/connector/route";
 import { requireDataplaneSecret, resolveTenantBySite, withTenantFrom } from "@/lib/tenant/internal";
+import { moderationRequired } from "@/lib/moderation/rules";
+import { takeAdmission } from "@/lib/moderation/requests";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +40,7 @@ async function handler(req: NextRequest) {
   const siteId = typeof b.siteId === "string" ? b.siteId : "";
   if (!userId || !siteId) return NextResponse.json({ error: "bad_request" }, { status: 400 });
 
-  const site = await db.site.findUnique({ where: { id: siteId }, select: { ...siteRoutingSelect, accessMode: true, recordSessions: true, clipboardMode: true, upstreamUrl: true, watermark: true, fileTransferMode: true, keystrokeLogging: true, insecureSkipVerify: true, egressMode: true, egressHosts: true, createdAt: true } });
+  const site = await db.site.findUnique({ where: { id: siteId }, select: { ...siteRoutingSelect, accessMode: true, recordSessions: true, clipboardMode: true, upstreamUrl: true, watermark: true, fileTransferMode: true, keystrokeLogging: true, insecureSkipVerify: true, egressMode: true, egressHosts: true, createdAt: true, requireModerator: true } });
   if (!site || (site.accessMode !== "GATEWAY" && site.accessMode !== "ISOLATED")) return NextResponse.json({ error: "not_gateway" }, { status: 404 });
 
   const decision = await evaluateAccess(userId, siteId, new Date());
@@ -91,6 +93,10 @@ async function handler(req: NextRequest) {
 
   const cred = await getVaultCredential(siteId);
   if (!cred) return NextResponse.json({ error: "no_credential" }, { status: 404 });
+  // A moderated resource: the session uses the admission a moderator gave,
+  // and the data plane holds the user's input until that moderator watches.
+  const moderation = moderationRequired(site) ? await takeAdmission(siteId, userId, "browser") : null;
+  if (moderationRequired(site) && !moderation) return NextResponse.json({ error: "moderator_required" }, { status: 409 });
   // Sealed to a key the connector no longer has (its data volume was lost):
   // nothing can open it; the admin has to enter the secret again.
   if (cred.stale) return NextResponse.json({ error: "vault_secret_reenter" }, { status: 409 });
@@ -126,6 +132,7 @@ async function handler(req: NextRequest) {
       recordSessions: site.recordSessions,
       siteFlag: site.keystrokeLogging,
     }),
+    ...(moderation ? { moderation } : {}),
   });
 }
 

@@ -35,6 +35,7 @@ export interface PlatformSettings {
   webAppFileTransferDefault: string | null;
   sessionInvitesEnabled: boolean | null;
   guestRequireSecondFactor: boolean | null;
+  moderatorRoles: string | null;
 }
 
 const EMPTY: PlatformSettings = {
@@ -63,6 +64,7 @@ const EMPTY: PlatformSettings = {
   webAppFileTransferDefault: null,
   sessionInvitesEnabled: null,
   guestRequireSecondFactor: null,
+  moderatorRoles: null,
 };
 
 // Keyed by tenant id: a single un-keyed slot would let one tenant's settings
@@ -107,6 +109,7 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
     webAppFileTransferDefault: c?.webAppFileTransferDefault ?? null,
     sessionInvitesEnabled: c?.sessionInvitesEnabled ?? null,
     guestRequireSecondFactor: c?.guestRequireSecondFactor ?? null,
+    moderatorRoles: c?.moderatorRoles ?? null,
   };
   cache.set(tid, { s, at: Date.now() });
   return s;
@@ -289,6 +292,13 @@ export async function resolvedExternalAnchorEnabled(): Promise<boolean> {
 export async function resolvedRequireRequestJustification(): Promise<boolean> {
   const s = await getPlatformSettings();
   return s.requireRequestJustification !== false;
+}
+
+// Who may moderate a session on a resource that needs a moderator; default
+// admins and operators (operators already approve access).
+export async function resolvedModeratorRoles(): Promise<"admins" | "admins_operators"> {
+  const s = await getPlatformSettings();
+  return s.moderatorRoles === "admins" ? "admins" : "admins_operators";
 }
 
 // Default ON: admins may invite someone into a live session unless turned off.

@@ -148,3 +148,21 @@ export function sessionInviteEmail(input: {
   });
   return { subject, html, text };
 }
+
+export function moderationRequestEmail(input: {
+  userName: string;
+  userEmail: string;
+  siteName: string;
+  consoleUrl: string;
+}): { subject: string; html: string; text: string } {
+  const subject = `Moderator needed: ${input.siteName}`;
+  const { html, text } = renderEmail({
+    heading: "A session is waiting for a moderator",
+    bodyLines: [
+      `${escapeHtml(input.userName)} (${escapeHtml(input.userEmail)}) wants to start a session on ${escapeHtml(input.siteName)}, which needs a moderator.`,
+      "The session starts when a moderator joins it from Live sessions. The request waits for 10 minutes.",
+    ],
+    button: input.consoleUrl ? { label: "Open Live sessions", url: `${input.consoleUrl}/admin/live` } : undefined,
+  });
+  return { subject, html, text };
+}

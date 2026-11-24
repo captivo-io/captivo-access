@@ -74,6 +74,7 @@ async function PolicyPageImpl() {
     requireSecondFactor: policy.requireSecondFactor,
     sessionInvitesEnabled: s.sessionInvitesEnabled ?? true,
     guestRequireSecondFactor: s.guestRequireSecondFactor ?? false,
+    moderatorRoles: s.moderatorRoles ?? "admins_operators",
     maxGrantDays: num(s.maxGrantDays),
     inviteTtlHours: num(s.inviteTtlHours),
     requireRequestJustification: s.requireRequestJustification ?? true,

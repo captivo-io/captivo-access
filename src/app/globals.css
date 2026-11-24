@@ -761,6 +761,21 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
   .connect-splash-ring { animation: none; border-color: rgba(25, 194, 187, 0.35); border-top-color: #19c2bb; }
 }
 
+/* Moderated session: waiting for a moderator (same committed-dark screen as the splash) */
+.mod-gate .connect-splash-ring { position: static; width: 44px; height: 44px; border-width: 3px; }
+.mod-gate .connect-splash-body { max-width: 30rem; padding-inline: max(16px, env(safe-area-inset-left, 0px)); }
+.mod-gate-eyebrow { font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: #19c2bb; font-weight: 600; }
+.mod-gate .connect-splash-site { margin-top: 0.25rem; }
+.mod-gate-title { font-size: 1.4rem; font-weight: 650; color: #f3f6fb; text-wrap: balance; }
+.mod-gate-note { max-width: 26rem; line-height: 1.5; }
+.mod-gate-timer { font-size: 0.85rem; color: #b9c6d8; font-variant-numeric: tabular-nums; }
+.mod-gate-timer b { color: #e8edf5; }
+.mod-gate-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; margin-top: 0.75rem; }
+.mod-gate-btn { appearance: none; border: 1px solid #19c2bb; background: #19c2bb; color: #062022; font: inherit; font-size: 0.9rem; font-weight: 600; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; text-decoration: none; }
+.mod-gate-btn.ghost { background: transparent; color: #e8edf5; border-color: rgba(232, 237, 245, 0.28); }
+.mod-gate-btn:focus-visible { outline: 2px solid #e8edf5; outline-offset: 2px; }
+.mod-gate-fine { font-size: 0.78rem; color: #6f819b; margin-top: 1rem; max-width: 24rem; line-height: 1.5; }
+
 /* On-screen keyboard (gateway + isolated sessions) */
 .osk-handle { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 30; background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-right: 0; border-radius: 8px 0 0 8px; padding: 7px 6px; font-size: 16px; line-height: 1; cursor: pointer; touch-action: none; transition: opacity .18s ease; }
 /* Idle edge handles stay out of the way: faint until pointed at (desktop), so
@@ -875,6 +890,9 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent);width:16px;hei
 .ss-monitor { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 39; pointer-events: none; display: flex; align-items: center; gap: 8px; background: rgba(11,20,36,.9); color: #fff; border: 1px solid rgba(224,165,58,.45); border-radius: 999px; padding: 7px 14px; font: 500 13px/1 var(--sans); white-space: nowrap; }
 .ss-monitor.control { border-color: rgba(255,107,122,.6); background: rgba(120,10,25,.92); }
 .ss-rec.expanded ~ .ss-monitor { top: 70px; }
+.ss-moderation { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 40; pointer-events: none; display: flex; align-items: flex-start; gap: 8px; max-width: min(36rem, calc(100vw - 32px)); background: rgba(11,20,36,.94); color: #fff; border: 1px solid rgba(224,165,58,.7); border-radius: 12px; padding: 10px 14px; font: 400 13px/1.45 var(--sans); }
+.ss-moderation b { font-weight: 600; }
+.ss-mod-clock { font-variant-numeric: tabular-nums; font-weight: 600; color: #ffd38a; }
 .ss-admin-msg { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 41; display: flex; align-items: center; gap: 10px; max-width: min(640px, calc(100vw - 32px)); padding: 10px 10px 10px 12px; border-radius: 12px; background: #2E84F5; color: #fff; font: 500 14px/1.4 var(--sans); box-shadow: 0 18px 40px -16px rgba(0,0,0,.6); animation: cxUp .2s both; }
 .ss-admin-tag { flex: none; font: 700 10.5px/1 var(--mono); letter-spacing: .08em; padding: 4px 6px; border-radius: 5px; background: rgba(255,255,255,.22); }
 .ss-admin-text { min-width: 0; overflow-wrap: anywhere; }
@@ -2077,6 +2095,7 @@ button.rs-cell{cursor:pointer;}
 .tun-to{display:flex;flex-direction:column;gap:6px;}
 .tun-addr{display:flex;align-items:center;gap:10px;}
 .tun-addr code{font-family:var(--mono);font-size:15px;font-weight:600;}
+.ssh-mod { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.75rem 0.9rem; border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 10px; }
 .ssh-field .input.bad{border-color:var(--bad);}
 /* Database connection details (portal) */
 .chip.green{color:var(--ok);background:rgba(var(--ok-rgb),.14);}
@@ -2153,3 +2172,15 @@ button.rs-cell{cursor:pointer;}
 .gw-ended { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #0d1117; color: #9aa5b1; font: 500 14px/1.4 var(--font-sans, sans-serif); padding: 0 16px; text-align: center; }
 .gw-ended b { color: #e6edf3; font-size: 18px; }
 .rv-guests{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;text-align:right;}
+
+/* Live sessions: moderated sessions (waiting queue, card state) */
+.sv-modq { display: flex; flex-direction: column; gap: 0; margin-bottom: 1.25rem; border: 1px solid rgba(var(--warn-rgb), .45); border-radius: 12px; background: rgba(var(--warn-rgb), .06); overflow: hidden; }
+.sv-modq-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem 1rem; padding: .75rem 1rem; border-bottom: 1px solid rgba(var(--warn-rgb), .25); }
+.sv-modq-row { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; padding: .7rem 1rem; }
+.sv-modq-row + .sv-modq-row { border-top: 1px solid var(--line-soft); }
+.sv-modq-t { display: flex; flex-direction: column; gap: .15rem; flex: 1 1 16rem; min-width: 0; font-variant-numeric: tabular-nums; }
+.sv-modq-b { display: flex; gap: .5rem; flex-wrap: wrap; }
+.sv-mod { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; font-size: .8rem; }
+.sv-mod.absent { color: var(--warn); }
+.sv-mod .mono { font-variant-numeric: tabular-nums; }
+.sv-mod-note { font-size: .8rem; color: var(--warn); padding: .5rem .75rem; border: 1px solid rgba(var(--warn-rgb), .4); border-radius: 8px; background: rgba(var(--warn-rgb), .08); }

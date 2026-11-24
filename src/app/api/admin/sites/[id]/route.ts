@@ -95,7 +95,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   if (v.mode === "TUNNEL") {
     // A TCP tunnel: the service's address only. A saved account from an earlier type goes.
     await db.$transaction(async (tx) => {
-      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, tunnelHost: v.targetHost, tunnelPort: v.targetPort, recordSessions: false, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, accessMode: "TUNNEL", ...logoData } });
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, tunnelHost: v.targetHost, tunnelPort: v.targetPort, recordSessions: false, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, requireModerator: false, accessMode: "TUNNEL", ...logoData } });
       await tx.vaultCredential.deleteMany({ where: { siteId: id } });
     });
     await recordAdminAction({
@@ -128,7 +128,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       rotationUpdate = rotationColumnsForNewSecret(prev, target);
     }
     await db.$transaction(async (tx) => {
-      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, accessMode: "DATABASE", ...logoData } });
+      await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, requireModerator: false, accessMode: "DATABASE", ...logoData } });
       const fields = { protocol: v.engine, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, dbParams: v.dbParams as Prisma.InputJsonValue, guacParams: Prisma.DbNull };
       if (hadDb) await tx.vaultCredential.update({ where: { siteId: id }, data: { ...fields, ...secretUpdate, ...rotationUpdate } });
       else {
@@ -174,7 +174,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     }
   }
   await db.$transaction(async (tx) => {
-    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, accessMode: "GATEWAY", ...logoData } });
+    await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: v.keystrokeLogging, watermark: v.watermark, clipboardMode: v.clipboardMode, nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, requireModerator: v.requireModerator, accessMode: "GATEWAY", ...logoData } });
     // Not an upsert: Prisma validates the create branch even when the row
     // exists, and a kept secret leaves it without the required `secret`.
     const fields = { protocol: v.protocol, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, guacParams: v.guacParams as Prisma.InputJsonValue };

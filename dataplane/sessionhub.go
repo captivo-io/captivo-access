@@ -43,6 +43,8 @@ type SessionInfo struct {
 	Controllable bool `json:"controllable,omitempty"`
 	// Input over the last two minutes, in 5-second buckets, oldest first.
 	Activity []int `json:"activity"`
+	// A moderated session: who moderates, whether they watch (moderation.go).
+	Moderation *ModerationState `json:"moderation,omitempty"`
 }
 
 // liveSession is one in-progress gateway session. Viewers join guacd's shared
@@ -76,6 +78,7 @@ type liveSession struct {
 	// control changes hands (to tell the user, release keys...).
 	adminInput func(msg []byte)
 	onControl  func(taken bool, who string)
+	mod        *moderation // a moderated session (moderation.go); nil for any other
 }
 
 // adminWho is how the user is told about an admin: by role, not by name.
@@ -128,7 +131,9 @@ func (ls *liveSession) watch(parent context.Context, w watcher) (context.Context
 	ls.views[n] = liveView{w: w, cancel: cancel}
 	ls.viewers++
 	ls.act.addEvent("watch", w.who()+" started watching", time.Now())
+	text := ls.modSeenLocked(time.Now())
 	ls.mu.Unlock()
+	ls.tellUser(text)
 	var once sync.Once
 	return ctx, func() {
 		once.Do(func() {
@@ -139,7 +144,9 @@ func (ls *liveSession) watch(parent context.Context, w watcher) (context.Context
 				ls.viewers--
 			}
 			ls.act.addEvent("watch", w.who()+" stopped watching", time.Now())
+			text := ls.modSeenLocked(time.Now())
 			ls.mu.Unlock()
+			ls.tellUser(text)
 		})
 	}
 }
@@ -231,10 +238,12 @@ func (ls *liveSession) addViewer() {
 	_, _ = ls.watch(context.Background(), watcher{})
 }
 
+// vendorInputAllowed: nobody else holds control and, on a moderated
+// session, the moderator watches.
 func (ls *liveSession) vendorInputAllowed() bool {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
-	return ls.controlOwner == ""
+	return ls.controlOwner == "" && (ls.mod == nil || ls.mod.deadline.IsZero())
 }
 
 func (ls *liveSession) viewerInputAllowed(userID string) bool {
@@ -399,7 +408,7 @@ func (h *SessionHub) List() []SessionInfo {
 			Host: ls.host, StartedAt: ls.startedAt, ViewerCount: ls.viewers, ControlOwner: ls.controlOwner,
 			ClientIP: ls.clientIP, Recording: ls.act.recording, Keystrokes: ls.act.keystrokes, Activity: activity,
 			Native: ls.native, ConnectorID: ls.connectorID, Watchable: ls.term != nil || ls.rdpWatch != "",
-			Controllable: ls.native && ls.adminInput != nil,
+			Controllable: ls.native && ls.adminInput != nil, Moderation: ls.moderationLocked(),
 		})
 		ls.mu.Unlock()
 	}
@@ -468,6 +477,22 @@ func (h *SessionHub) ReleaseControl(id, ownerUserID string) {
 	if ls := h.Get(id); ls != nil {
 		ls.releaseControl(ownerUserID)
 	}
+}
+
+// ModerationOf is the moderation state of this user's session on this site;
+// nil when it isn't moderated or isn't there.
+func (h *SessionHub) ModerationOf(userID, siteID string) *ModerationState {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, ls := range h.m {
+		if ls.userID == userID && ls.siteID == siteID {
+			ls.mu.Lock()
+			st := ls.moderationLocked()
+			ls.mu.Unlock()
+			return st
+		}
+	}
+	return nil
 }
 
 // WatchStatus is what the user's session page shows: whether anyone watches,

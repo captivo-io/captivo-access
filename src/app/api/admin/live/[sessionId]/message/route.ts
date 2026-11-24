@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/current-user";
-import { can } from "@/lib/auth/roles";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { findOwnSession, sendSessionMessage } from "@/lib/dataplane/client";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { mayActOnSession } from "@/lib/moderation/live";
 
 const MAX_MESSAGE = 280;
 
@@ -16,8 +16,8 @@ const MAX_MESSAGE = 280;
  */
 export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<{ sessionId: string }> }) => {
   const admin = await requireUser();
-  if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { sessionId } = await ctx.params;
+  if (!(await mayActOnSession(admin, sessionId))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as { text?: unknown };
   const text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_MESSAGE) : "";
   if (!text) return NextResponse.json({ error: "empty" }, { status: 400 });

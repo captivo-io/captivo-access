@@ -752,6 +752,45 @@ flowchart LR
   `--ssl-mode=REQUIRED` accept; SQL Server clients need Trust server
   certificate for it.
 
+## Moderated sessions (four eyes)
+
+A resource can require a moderator: nobody works on it alone. A session starts
+only when a moderator joins it, and the user's keyboard and mouse work only
+while that moderator watches.
+
+- **Turning it on.** *Requires a moderator* on a remote desktop or SSH resource
+  (`Site.requireModerator`). Policy → *Who can moderate*: admins and operators
+  (the default), or admins only. Nobody moderates their own session.
+- **Asking.** **Open** shows the user a waiting screen instead of connecting
+  (`ModerationRequest`, `/api/gateway/[siteId]/moderation`). The moderators get
+  an e-mail (behind the access-request mail switch), a push on the Captivo Admin
+  app, the bell and a *Waiting for a moderator* list on `/admin/live` with the
+  sidebar badge. A request waits 10 minutes; the user can stop waiting or ask
+  again after a decline.
+- **Admitting.** **Join as moderator** (or **Decline**) answers it. The
+  admission starts one session within 2 minutes: the gateway descriptor (or the
+  jump host's check) uses it once and tells the data plane who moderates. Until
+  then the descriptor refuses the resource with `moderator_required`, so the
+  target is never reached without a moderator. The console opens the session to
+  watch as soon as it runs.
+- **While it runs.** The data plane (`dataplane/moderation.go`) passes the
+  user's input only while the moderator has a view of the session open. Without
+  one, keys, pointer, clipboard and file transfer are held (protocol liveness
+  still passes, so the connection stays), the user's page says so with a
+  countdown, and after 2 minutes the session ends (`session_end_policy
+  moderator_left`). Another admin or operator can **Moderate** a session whose
+  moderator left: the role passes to them (`/api/admin/live/[id]/moderate`). The
+  moderator can message the user, take control and end the session, an
+  operator too.
+- **Which clients.** What a moderator can watch: browser RDP, SSH and VNC, and
+  recorded native SSH (the command comes once the session is admitted; one
+  connection per admission; the terminal says when the moderator joins or
+  leaves). The user's own Remote Desktop app is refused on such a resource for
+  now (`moderator_browser_only`), and so is unrecorded native SSH
+  (`moderator_needs_recording`).
+- **The record.** Admit, decline and take over are in the admin audit log;
+  the session's feed shows when the moderator joined and left.
+
 ## TCP tunnels (any other service, your own app)
 
 A **TCP tunnel** resource is any TCP service inside the network that has no

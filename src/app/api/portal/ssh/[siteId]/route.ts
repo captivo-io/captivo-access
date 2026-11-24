@@ -7,6 +7,7 @@ import { nativeSshTarget } from "@/lib/gateway/native-ssh-target";
 import { SSH_TICKET_TTL_MS, sshPublicHost, sshPublicPort } from "@/lib/gateway/native-ssh";
 import { newSshTicketCode } from "@/lib/gateway/native-ssh-ticket";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { hasAdmission } from "@/lib/moderation/requests";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,8 @@ export const POST = withTenantRoute(async (req: Request, ctx: { params: Promise<
   const now = new Date();
   const t = await nativeSshTarget(user.id, siteId, now);
   if (!t.ok) return NextResponse.json({ error: t.error }, { status: t.status === 409 ? 409 : 404 });
+  // A moderated resource: the command comes once a moderator admitted the session.
+  if (t.moderated && !(await hasAdmission(siteId, user.id, "ssh", now))) return NextResponse.json({ error: "moderator_required" }, { status: 409 });
 
   const code = newSshTicketCode();
   const expiresAt = new Date(now.getTime() + SSH_TICKET_TTL_MS);

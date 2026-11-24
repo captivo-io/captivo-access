@@ -143,7 +143,11 @@ func (j *sshJumpConn) recorded(nc ssh.NewChannel, target sshTarget) {
 		ServerVersion: "SSH-2.0-CaptivoAccess",
 		NoClientAuth:  true,
 		BannerCallback: func(ssh.ConnMetadata) string {
-			return fmt.Sprintf("Captivo Access: this session is recorded. You are signed in to %s as %s.\r\n", target.SiteName, target.Username)
+			b := fmt.Sprintf("Captivo Access: this session is recorded. You are signed in to %s as %s.\r\n", target.SiteName, target.Username)
+			if target.Moderation.ID != "" {
+				b += "A moderator watches this session. Your typing is paused until they are watching.\r\n"
+			}
+			return b
 		},
 	}
 	cfg.AddHostKey(j.d.rec.hostKey)
@@ -211,6 +215,12 @@ func (r *sshRecSession) begin(s *Session) {
 		r.ls.setTakeover(r.adminInput, r.controlChanged)
 		j.d.hub.clearEnded(j.tk.UserID, j.tk.SiteID)
 		j.d.hub.SetCloser(r.id, func() { r.client.Close() })
+		if t.Moderation.ID != "" {
+			j.d.hub.Moderate(r.ls, t.Moderation, func() {
+				log.Printf("ssh jump: session %s site=%s ended, no moderator came back", r.id, j.tk.SiteID)
+				j.auditDeny("session_end_policy " + endModeratorLeft)
+			})
+		}
 	}
 	key := newRecordingKey(j.tk.SiteID, j.tk.UserID)
 	send := func(req tunnel.RecWriteRequest) (int, error) {

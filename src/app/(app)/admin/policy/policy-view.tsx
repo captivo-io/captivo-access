@@ -15,6 +15,7 @@ export interface PolicyValues {
   requireSecondFactor: boolean;
   sessionInvitesEnabled: boolean;
   guestRequireSecondFactor: boolean;
+  moderatorRoles: string;
   maxGrantDays: string;
   inviteTtlHours: string;
   requireRequestJustification: boolean;
@@ -46,7 +47,7 @@ export type PolicyEnv = Partial<Record<"maxSessionHours" | "inviteTtlHours" | "a
 type SectionId = "session" | "access" | "connectors" | "network" | "recording" | "audit" | "notifications";
 const SECTION_OF: Record<FlatKey | "guac" | "anchorTsaAuth", SectionId> = {
   idleTimeoutMinutes: "session", maxSessionHours: "session", maxConcurrentPerUser: "session", requireSecondFactor: "session",
-  sessionInvitesEnabled: "session", guestRequireSecondFactor: "session",
+  sessionInvitesEnabled: "session", guestRequireSecondFactor: "session", moderatorRoles: "session",
   maxGrantDays: "access", inviteTtlHours: "access", requireRequestJustification: "access",
   defaultConnectorLogLevel: "connectors", guac: "connectors",
   vendorIpAllowlist: "network", isolatedEgressDefault: "network",
@@ -239,6 +240,9 @@ export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequire
         </Row>
         <Row {...rowProps("guestRequireSecondFactor")} label="Two-step verification for invited guests" desc="An invited guest's Captivo ID sign-in must include a second factor.">
           <Switch on={v.guestRequireSecondFactor} onChange={(x) => set("guestRequireSecondFactor", x)} label="Two-step verification for invited guests" disabled={!v.sessionInvitesEnabled} />
+        </Row>
+        <Row {...rowProps("moderatorRoles")} label="Who can moderate" desc="On a resource that needs a moderator, a session starts only when one of these people joins it, and the user can work only while they watch. Nobody moderates their own session.">
+          <Seg value={v.moderatorRoles} onChange={(x) => set("moderatorRoles", x)} label="Who can moderate" options={[["admins_operators", "Admins and operators"], ["admins", "Admins only"]]} />
         </Row>
       </Section>
 

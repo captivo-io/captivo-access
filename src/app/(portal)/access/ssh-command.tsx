@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import { recordedHostKeyAlias, sshCommand } from "@/lib/gateway/native-ssh-command";
+import { useModerationRequest } from "@/lib/moderation/use-request";
 
 type Ticket = {
   code: string; expiresAt: string; jumpHost: string; jumpPort: number;
@@ -26,6 +27,16 @@ const ERRORS: Record<string, string> = {
   vault_secret_reenter: "The saved account for this resource must be entered again by an admin.",
   ssh_off: "Connecting with your own SSH app isn't set up on this service.",
   rotated: "This resource's password changes automatically, so it opens only in the browser now. Ask an admin to turn recording back on for it.",
+  moderator_needs_recording: "This resource needs a moderator, who can only watch a recorded session. Use Open in the browser.",
+};
+
+const MOD_TITLE: Record<string, string> = {
+  asking: "Asking for a moderator…",
+  waiting: "Waiting for a moderator",
+  declined: "A moderator declined this session. You can ask again.",
+  expired: "No moderator joined within 10 minutes. You can ask again.",
+  cancelled: "You stopped waiting.",
+  error: "The request couldn't be sent. Try again.",
 };
 
 const userKey = (siteId: string) => `captivo.ssh-user.${siteId}`;
@@ -52,6 +63,9 @@ function SshCommandModal({ href, siteId, siteName, recorded, sshRecorded, onClos
   const [busy, setBusy] = useState(false);
   const [user, setUser] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  // A resource that needs a moderator: the command comes once one admits the session.
+  const [moderation, setModeration] = useState(false);
+  const mod = useModerationRequest(siteId, "ssh", moderation);
 
   const fetchTicket = useCallback(async () => {
     setBusy(true);
@@ -59,7 +73,10 @@ function SshCommandModal({ href, siteId, siteName, recorded, sshRecorded, onClos
     try {
       const res = await fetch(href, { method: "POST" });
       const j = (await res.json().catch(() => ({}))) as Partial<Ticket> & { error?: string };
-      if (!res.ok || !j.code) {
+      if (j.error === "moderator_required") {
+        setTicket(null);
+        setModeration(true);
+      } else if (!res.ok || !j.code) {
         setTicket(null);
         setError(ERRORS[j.error ?? ""] ?? "Couldn't get a command. Try again in a moment.");
       } else {
@@ -85,6 +102,13 @@ function SshCommandModal({ href, siteId, siteName, recorded, sshRecorded, onClos
     return () => clearInterval(t);
   }, []);
 
+  useEffect(() => {
+    if (moderation && mod.status === "admitted") {
+      setModeration(false);
+      void fetchTicket();
+    }
+  }, [moderation, mod.status, fetchTicket]);
+
   function onUser(v: string) {
     setUser(v);
     try {
@@ -105,14 +129,23 @@ function SshCommandModal({ href, siteId, siteName, recorded, sshRecorded, onClos
   return (
     <Modal open onClose={onClose} title={`SSH to ${siteName}`} subtitle={sshRecorded ? "With your own SSH app: OpenSSH in a terminal, Termius, PuTTY." : "With your own SSH app: OpenSSH in a terminal, VS Code, Termius."} size="md">
       <div className="ssh-cmd">
-        {!rec && (
+        {!rec && !moderation && (
           <label className="ssh-field">
             <span className="ssh-label">Your user name on the server</span>
             <input className="input mono" value={user} onChange={(e) => onUser(e.target.value)} placeholder="USER" autoComplete="off" spellCheck={false} maxLength={64} />
           </label>
         )}
 
-        {error ? (
+        {moderation ? (
+          <div className="ssh-mod" role="status" aria-live="polite">
+            <b>{MOD_TITLE[mod.status] ?? MOD_TITLE.waiting}</b>
+            <span className="cell-sub">This resource needs a moderator. The command appears as soon as one admits the session; then it starts one connection, and the moderator watches it.</span>
+            {mod.status === "waiting" && mod.expiresAt && <span className="cell-sub">The request ends in <b className="mono">{(() => { const s = Math.max(0, Math.round((Date.parse(mod.expiresAt) - now) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; })()}</b>.</span>}
+            {["declined", "expired", "cancelled", "error"].includes(mod.status)
+              ? <button type="button" className="btn sm primary" onClick={mod.retry}>Ask again</button>
+              : <button type="button" className="btn sm ghost" onClick={mod.cancel}>Stop waiting</button>}
+          </div>
+        ) : error ? (
           <p className="ssh-err" role="alert">{error}</p>
         ) : !ticket ? (
           <p className="cell-sub">{busy ? "Getting a command…" : ""}</p>
@@ -131,7 +164,7 @@ function SshCommandModal({ href, siteId, siteName, recorded, sshRecorded, onClos
           </>
         )}
 
-        {rec ? (
+        {moderation ? null : rec ? (
           <ul className="ssh-notes">
             <li>Captivo signs you in to the server as <span className="mono">{ticket?.username}</span>. No password or key is needed.</li>
             <li><b>This session is recorded</b>, like Open. It ends when your access ends.</li>

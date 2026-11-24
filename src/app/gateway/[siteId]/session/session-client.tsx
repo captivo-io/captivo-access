@@ -8,7 +8,7 @@ import { setupGatewayTouch, type TouchController } from "./shell/gateway-touch";
 import { ConnectSplash } from "./connect-splash";
 import { OnScreenKeyboard } from "./on-screen-keyboard";
 import { SessionPanel } from "./shell/session-panel";
-import { RecordingNotice, MonitorNotice, AdminMessageBanner, type AdminMessage, SessionToast, DropOverlay, FirstTips, SessionEnded, SessionFailed, type ToastState } from "./shell/notices";
+import { RecordingNotice, MonitorNotice, ModerationNotice, type SessionModeration, AdminMessageBanner, type AdminMessage, SessionToast, DropOverlay, FirstTips, SessionEnded, SessionFailed, type ToastState } from "./shell/notices";
 import { sessionEndMessage } from "@/lib/session/end-reason";
 import { sessionFailure, type SessionFailure } from "@/lib/gateway/connect-error";
 import { SessionWatermark } from "./shell/watermark";
@@ -21,9 +21,14 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<SessionFailure | null>(null);
   const [ready, setReady] = useState(false);
+  // Why an earlier session here ended stays in watch-status for a while; only
+  // an end after this one connected is this one's (a new try after a
+  // moderator_left end used to close at once).
+  const connectedRef = useRef(false);
   const [watching, setWatching] = useState(false);
   const [guests, setGuests] = useState<string[]>([]);
   const [controlBy, setControlBy] = useState("");
+  const [moderation, setModeration] = useState<SessionModeration | null>(null);
   const [adminMessage, setAdminMessage] = useState<AdminMessage | null>(null);
   const [controlHeld, setControlHeld] = useState(false);
   const guacRef = useRef<any>(null);
@@ -238,7 +243,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       tunnel.onerror = fail;
       client.onerror = fail;
       // Dismiss the connect splash once guacd reaches CONNECTED (state 3).
-      client.onstatechange = (state: number) => { if (state === 3 && !disposed) { setReady(true); setConnectedAt((t) => t ?? Date.now()); } };
+      client.onstatechange = (state: number) => { if (state === 3 && !disposed) { connectedRef.current = true; setReady(true); setConnectedAt((t) => t ?? Date.now()); } };
 
       guacRef.current = Guacamole;
       client.onfile = (stream: any, mimetype: string, filename: string) => {
@@ -413,14 +418,15 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
           return;
         }
         if (res.ok) {
-          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; guests?: string[] | null; controlBy?: string; ended?: string; message?: AdminMessage | null };
+          const s = (await res.json()) as { watching: boolean; controlHeld: boolean; guests?: string[] | null; controlBy?: string; ended?: string; message?: AdminMessage | null; moderation?: SessionModeration | null };
           if (!stop) {
+            setModeration(s.moderation ?? null);
             setWatching(s.watching);
             setControlHeld(s.controlHeld);
             setGuests(s.guests ?? []);
             setControlBy(s.controlBy ?? "");
             setAdminMessage(s.message ?? null);
-            if (s.ended) setEndReason(s.ended);
+            if (s.ended && connectedRef.current) setEndReason(s.ended);
           }
         }
       } catch {
@@ -481,6 +487,7 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       <RecordingNotice active={recorded && ready} />
       <MonitorNotice watching={watching} controlHeld={controlHeld} guests={guests} controlBy={controlBy} />
       <AdminMessageBanner message={adminMessage} />
+      <ModerationNotice moderation={moderation} />
       <DropOverlay state={dropState} siteName={siteName} />
       <SessionToast toast={toastState} />
       {clipboardOpen && (

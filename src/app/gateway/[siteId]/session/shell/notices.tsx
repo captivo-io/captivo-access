@@ -52,6 +52,34 @@ export function MonitorNotice({ watching, controlHeld, guests, controlBy }: { wa
   );
 }
 
+export interface SessionModeration { present: boolean; deadline?: string }
+
+/**
+ * A moderated session without its moderator watching: the user's input is
+ * paused (the data plane drops it) and the session ends at the deadline
+ * unless a moderator joins. Counts down every second.
+ */
+export function ModerationNotice({ moderation }: { moderation: SessionModeration | null | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
+  const paused = !!moderation && !moderation.present;
+  useEffect(() => {
+    if (!paused) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [paused]);
+  if (!paused) return null;
+  const s = moderation.deadline ? Math.max(0, Math.round((Date.parse(moderation.deadline) - now) / 1000)) : null;
+  return (
+    <div className="ss-moderation" role="alert">
+      {Icon.block(16)}
+      <span>
+        <b>Waiting for the moderator.</b> Your keyboard and mouse are paused until they are watching.
+        {s !== null && <> Without a moderator the session ends in <span className="ss-mod-clock">{Math.floor(s / 60)}:{String(s % 60).padStart(2, "0")}</span>.</>}
+      </span>
+    </div>
+  );
+}
+
 export interface AdminMessage { id: string; text: string; at: string }
 
 const MESSAGE_SHOWN_MS = 12_000;
