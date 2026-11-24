@@ -226,6 +226,42 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 
 ---
 
+## Credentials kept in your own vault (HashiCorp Vault, CyberArk)
+
+A resource's password does not have to live in Captivo. For a remote desktop,
+SSH, database or Kubernetes resource, **Where the credential lives** can be
+**HashiCorp Vault** or **CyberArk** instead of **Captivo**.
+
+- **What is saved.** Not a password: a reference (where the secret is) and how
+  the connector signs in to the vault. It is sealed in the admin's browser to
+  the connector's key, exactly like a password, bound to the resource's host,
+  port and user. The console and the data plane never see it.
+- **When it is read.** The connector asks the vault each time a session needs the
+  credential (a remote-desktop or SSH sign-in, a database or Kubernetes
+  connection, a recorded native session) and uses it for that sign-in. Nothing is
+  cached or logged, so a password changed in the vault is the one the next
+  session uses.
+- **HashiCorp Vault.** KV version 2 (or 1): address, optional namespace, mount
+  (`secret`), path, field (`password`). The connector signs in with a token or an
+  AppRole (role id and secret id, mount `approle`). Give it a policy that reads
+  only the paths Captivo needs.
+- **CyberArk.** The Central Credential Provider: address, application id, safe,
+  object (and folder), plus a client certificate and key when the provider asks
+  for one. The connector calls `/AIMWebService/api/Accounts` and uses its
+  `Content`.
+- **The vault's certificate** is checked against the public CAs, against a CA the
+  admin pastes, or not checked (an explicit choice).
+- **Where it is allowed.** The vault's address must be reachable from the
+  connector and inside its `ALLOWED_TARGETS` when that is set. A group's members
+  each get the reference sealed to their own key.
+- **Not rotated, not revealed.** The vault owns the credential, so Captivo
+  neither rotates it nor shows it; *Reveal* is refused. **Check now** on the
+  resource's rotation panel asks the connector to fetch it once and says whether
+  the vault answers (audited as `resource.vault_check`); the value is never sent
+  back.
+- **Requirements:** a connector on 2.66.0 or later. Switching the resource back to
+  **Captivo** and entering a password replaces the reference.
+
 ## Inviting someone into a live session
 
 An admin watching a live session can bring in someone from outside the console

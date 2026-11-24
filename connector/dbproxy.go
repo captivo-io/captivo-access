@@ -69,7 +69,7 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		writeDbErr(st, "target not allowed", "")
 		return
 	}
-	password, err := openSealed(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
+	password, err := openSecret(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
 	if err != nil {
 		writeDbErr(st, "the saved password does not open on this connector; enter it again", "")
 		return

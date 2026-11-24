@@ -468,6 +468,8 @@ model VaultCredential {
   secret     String // sealed to the connector ("cv1:", src/lib/vault/seal.ts) or, before that, AES-256-GCM under ENCRYPTION_KEY
   sealedTo   String? // the connector vault public key `secret` is sealed to; null = legacy server-side encryption
   extraSeals Json? // group resources: { [vaultPublicKey]: sealed } for the other members' keys (src/lib/vault/store.ts)
+  /// "hashicorp" or "cyberark" when `secret` seals a reference to the customer's own vault instead of a password (connector/vaultprovider.go); null = a password
+  secretSource String?
   secretKind VaultSecretKind @default(PASSWORD)
   guacParams Json? // curated per-resource Guacamole connection params (validated allowlist)
   dbParams   Json? // DATABASE resources: { database, databases[], tls, caCertPem } (src/lib/database/params.ts)

@@ -77,7 +77,8 @@ export function windowsAccountOf(c: { username: string; guacParams?: unknown; ro
 }
 
 /** How this resource's account is rotated, or why it cannot be. */
-export function rotationMethod(c: { protocol: string; secretKind: string; username?: string; guacParams?: unknown; rotationAccount?: string | null }, dir: DirectoryForRotation | null): { method: RotationMethod } | { unsupported: string } {
+export function rotationMethod(c: { protocol: string; secretKind: string; username?: string; guacParams?: unknown; rotationAccount?: string | null; secretSource?: string | null }, dir: DirectoryForRotation | null): { method: RotationMethod } | { unsupported: string } {
+  if (c.secretSource) return { unsupported: `This credential lives in ${c.secretSource === "cyberark" ? "CyberArk" : "HashiCorp Vault"}: rotate it there. Captivo asks the vault each time a session needs it.` };
   if (c.secretKind !== "PASSWORD") return { unsupported: "Only passwords are rotated, not SSH keys." };
   if (c.protocol === "SSH") return { method: "linux" };
   if (c.protocol === "RDP") {
@@ -160,7 +161,7 @@ export type RotationJob = {
 export type RotationSkip = { siteId: string; siteName: string; reason: string };
 
 const credSelect = {
-  id: true, secret: true, sealedTo: true, extraSeals: true, protocol: true, secretKind: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true,
+  id: true, secret: true, sealedTo: true, extraSeals: true, protocol: true, secretKind: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true, secretSource: true,
   rotateAfterSession: true, rotateEveryDays: true, rotateVerifyDaily: true, rotateDueAt: true, rotatedAt: true, verifiedAt: true,
   rotationFailures: true, pendingSeals: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true, rotationAccount: true,
   site: {

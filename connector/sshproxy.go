@@ -48,7 +48,7 @@ func handleSsh(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 	}
 	secret := req.Secret
 	if req.Sealed != "" {
-		s, err := openSealed(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
+		s, err := openSecret(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
 		if err != nil {
 			writeSshResp(st, tunnel.SshDialResponse{Error: "the saved password does not open on this connector; enter it again"})
 			return

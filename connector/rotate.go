@@ -146,6 +146,17 @@ func rotate(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatcher, req t
 	if err != nil {
 		return tunnel.RotateResponse{Error: "the saved password does not open here"}
 	}
+	// A credential kept in the customer's own vault is never rotated or shown
+	// from here; "verify" only checks that the vault still hands it out.
+	if _, isRef, _ := parseSecretRef(cur); isRef {
+		if req.Op != "verify" {
+			return tunnel.RotateResponse{Error: "this resource's credential lives in an external vault; change or rotate it there"}
+		}
+		if _, err := openSecret(k, req.Current, aad); err != nil {
+			return tunnel.RotateResponse{Outcome: "mismatch", Detail: err.Error()}
+		}
+		return tunnel.RotateResponse{Outcome: "ok"}
+	}
 	switch req.Op {
 	case "prepare":
 		if len(req.To) == 0 || len(req.To) > maxRotateTo {

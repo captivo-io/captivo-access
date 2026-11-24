@@ -92,6 +92,19 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
     }
   }
 
+  async function checkVault() {
+    setBusy("check");
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/sites/${siteId}/rotation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check" }) });
+      const r = (await res.json().catch(() => null)) as { ok?: boolean; detail?: string | null; error?: string } | null;
+      if (!res.ok) setMsg({ tone: "bad", text: errorText(r ? { error: r.error, detail: r.detail ?? undefined } : null) });
+      else setMsg(r?.ok ? { tone: "ok", text: "The vault handed the credential out." } : { tone: "bad", text: r?.detail ?? "The vault did not answer." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function rotateNow() {
     setBusy("rotate");
     setMsg(null);
@@ -159,7 +172,16 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
         <span className={`rot-pill ${s.on ? (st?.[0] ?? "ok") : "off"}`}><i aria-hidden="true" />{s.on ? st?.[1] ?? "On" : "Off"}</span>
       </div>
 
-      {s.unsupported ? <>{accountRow}<p className="rf-msg warn">{s.unsupported}</p>{msg && <p className={`rf-msg ${msg.tone}`} role="status">{msg.text}</p>}</> : (
+      {s.vaultSource ? (
+        <div className="rot-vault">
+          <p className="cell-sub">{s.unsupported}</p>
+          <div className="rot-actions">
+            <button type="button" className="btn" disabled={!!busy || !!s.waiting} onClick={() => void checkVault()}>{busy === "check" ? "Asking the vault…" : "Check now"}</button>
+          </div>
+          {s.waiting && <p className="rf-msg warn">{s.waiting}</p>}
+          {msg && <p className={`rf-msg ${msg.tone}`} role="status">{msg.text}</p>}
+        </div>
+      ) : s.unsupported ? <>{accountRow}<p className="rf-msg warn">{s.unsupported}</p>{msg && <p className={`rf-msg ${msg.tone}`} role="status">{msg.text}</p>}</> : (
         <>
           <dl className="rot-facts">
             <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "windows" ? " · Windows (SMB)" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : s.method === "mssql" ? " · SQL Server" : " · SSH"}</dd></div>

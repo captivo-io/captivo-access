@@ -44,7 +44,7 @@ func handleKube(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		writeKubeErr(st, "target not allowed")
 		return
 	}
-	token, err := openSealed(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
+	token, err := openSecret(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
 	if err != nil {
 		writeKubeErr(st, "the saved token does not open on this connector; enter it again")
 		return

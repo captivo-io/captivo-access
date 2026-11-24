@@ -12,6 +12,8 @@ import { callConnector, canRotate, directoryForRotation, nextScheduled, isDbMeth
 import { kickRotation } from "@/lib/vault/rotation-pass";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { sealsOf } from "@/lib/vault/store";
+import { compareSemver } from "@/lib/updates/semver";
+import { VAULT_PROVIDER_MIN_CONNECTOR } from "@/lib/vault/providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -132,7 +134,28 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     return NextResponse.json({ ok: true });
   }
 
+  // The customer's own vault: ask the connector to fetch it once and say whether the vault answers.
+  if (b.action === "check") {
+    if (!s.vaultSource) return NextResponse.json({ error: "not_external" }, { status: 400 });
+    if (s.waiting) return NextResponse.json({ error: "rotation_waiting", detail: s.waiting }, { status: 409 });
+    const c = await db.vaultCredential.findUnique({ where: { siteId: id }, select: { secret: true, sealedTo: true, extraSeals: true } });
+    const seals = c ? sealsOf(c) : {};
+    const holders = await db.connector.findMany({ where: { id: { in: s.keys.map((k) => k.connectorId) } }, select: { id: true, name: true, status: true, version: true, vaultPublicKey: true }, orderBy: { id: "asc" } });
+    const pick = holders.find((h) => h.status === "ONLINE" && h.vaultPublicKey && seals[h.vaultPublicKey] && compareSemver(h.version, VAULT_PROVIDER_MIN_CONNECTOR) !== -1);
+    if (!c || !pick) return NextResponse.json({ error: "rotation_waiting", detail: `Needs a connector on ${VAULT_PROVIDER_MIN_CONNECTOR} or later that holds the reference and is online.` }, { status: 409 });
+    const ans = await callConnector(pick.id, { op: "verify", method: "ref", host: s.target.host, port: String(s.target.port), username: s.target.username, current: seals[pick.vaultPublicKey!] });
+    const ok = ans.outcome === "ok" && !ans.error;
+    await recordAdminAction({
+      actor, action: "resource.vault_check", targetType: "resource", targetId: id,
+      summary: `Checked the ${s.vaultSource === "cyberark" ? "CyberArk" : "HashiCorp Vault"} credential of ${s.target.username}@${s.target.host}: ${ok ? "the vault hands it out" : "failed"}`,
+      metadata: { connectorId: pick.id, ok },
+      clientIp: clientIp(req.headers) ?? null,
+    });
+    return NextResponse.json({ ok, detail: ok ? null : ans.detail ?? ans.error ?? "The vault did not answer." });
+  }
+
   if (b.action === "reveal") {
+    if (s.vaultSource) return NextResponse.json({ error: "reveal_external", detail: "This credential lives in your own vault; read it there." }, { status: 400 });
     const reason = typeof b.reason === "string" ? b.reason.trim() : "";
     if (reason.length < 10) return NextResponse.json({ error: "reason_required" }, { status: 400 });
     if (!isVaultPublicKey(b.publicKey)) return NextResponse.json({ error: "invalid_key" }, { status: 400 });

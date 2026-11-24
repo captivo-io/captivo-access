@@ -68,6 +68,7 @@ func runConnector() {
 		os.Exit(1)
 	}
 
+	providerAllow = allow
 	token := readToken(tokenFile)
 	if token == "" {
 		pairCode := os.Getenv("PAIR_CODE")

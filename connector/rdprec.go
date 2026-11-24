@@ -316,7 +316,7 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 	}
 	password := req.Secret
 	if req.Sealed != "" {
-		s, err := openSealed(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
+		s, err := openSecret(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
 		if err != nil {
 			writeRdpRecResp(st, tunnel.RdpRecResponse{Error: "the saved password does not open on this connector; enter it again"})
 			return
