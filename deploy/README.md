@@ -323,8 +323,9 @@ compose file), so `pull` alone stays on your current version — upgrading is a
 deliberate version bump:
 
 ```bash
-git pull                                   # picks up a newer default version + any compose/Caddyfile change
-# or, to choose a version explicitly, set CAPTIVO_VERSION=<release> in .env
+git pull                                   # picks up any compose/Caddyfile change
+# setup.sh wrote CAPTIVO_VERSION into .env and that beats the compose default, so move it to the release you want:
+sed -i 's/^CAPTIVO_VERSION=.*/CAPTIVO_VERSION=<release>/' .env   # or add the line if .env has none
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 

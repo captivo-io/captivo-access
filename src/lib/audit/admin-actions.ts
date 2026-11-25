@@ -55,6 +55,35 @@ const LABELS: Record<string, string> = {
   "platform.support.access": "Support access changed",
   "platform.support.session_start": "Support session started",
   "platform.support.session_end": "Support session ended",
+  "agent.token_create": "Agent token created",
+  "agent.token_revoke": "Agent token revoked",
+  "config.log_destination_create": "Log forwarding destination added",
+  "config.log_destination_update": "Log forwarding destination updated",
+  "config.log_destination_delete": "Log forwarding destination removed",
+  "config.log_destination_test": "Log forwarding test sent",
+  "config.ticketing": "Ticketing settings updated",
+  "config.ticketing_resources": "Ticket rules per resource updated",
+  "config.ticketing_test": "Ticketing connection tested",
+  "connector.update_remote": "Connector update started from the console",
+  "connector.uninstall_remote": "Connector removal started from the console",
+  "credential.checkout": "Password checked out",
+  "credential.checkin": "Password checked in",
+  "grant.auto_approved": "Grant approved automatically for an agent",
+  "resource.discovery_scan": "Accounts listed from a resource",
+  "resource.elevation_update": "Administrator rights during sessions changed",
+  "resource.vault_check": "Saved credential checked",
+  "review.create": "Access review started",
+  "review.decide": "Access review decision recorded",
+  "review.close": "Access review closed",
+  "review.cancel": "Access review cancelled",
+  "session_invite.create": "Guest invited to a session",
+  "session_invite.join": "Guest joined a session",
+  "session_invite.revoke": "Session invitation withdrawn",
+  "session_invite.take_control": "Guest took control of a session",
+  "session_invite.release_control": "Guest gave back control of a session",
+  "site.ssh_host_key_forget": "Pinned SSH host key forgotten",
+  "workspace.close": "Workspace closed",
+  "platform.tenant.self_close": "Workspace closed by its admin",
 };
 
 // The Audit page's category filter (design hand-off 7.9), by action prefix.
@@ -63,10 +92,10 @@ export type AdminCategory = "connector" | "recording" | "access" | "resource" | 
 export const ADMIN_CATEGORY_PREFIXES: Record<AdminCategory, string[]> = {
   connector: ["connector.", "config.log_level"],
   recording: ["recording."],
-  access: ["grant.", "session."],
-  resource: ["resource."],
-  identity: ["user.", "invite.", "authsession.", "config.sso", "config.directory"],
-  settings: ["config.smtp", "config.platform", "config.session_policy", "config.updates", "branding.", "platform."],
+  access: ["grant.", "session.", "session_invite.", "review.", "credential."],
+  resource: ["resource.", "site."],
+  identity: ["user.", "invite.", "authsession.", "agent.", "config.sso", "config.directory"],
+  settings: ["config.smtp", "config.platform", "config.session_policy", "config.updates", "config.log_destination", "config.ticketing", "branding.", "platform.", "workspace."],
 };
 
 export function adminCategory(action: string): AdminCategory {
@@ -95,6 +124,7 @@ const MERGED: Record<string, (n: number) => string> = {
   "session.terminate": (n) => `Terminated ${n} sessions`,
   "authsession.revoke": (n) => `Revoked ${n} sign-in sessions`,
   "invite.create": (n) => `Sent ${n} invites`,
+  "review.decide": (n) => `Recorded ${n} review decisions`,
 };
 
 export function adminMergedSummary(action: string, count: number, latest: string): string {

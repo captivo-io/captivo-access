@@ -206,6 +206,25 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     site && !site.customDomain ? (suffix && site.hostname.endsWith(suffix) ? site.hostname.slice(0, -suffix.length) : site.hostname) : null,
   );
   const [domain, setDomain] = useState(site?.customDomain ? site.hostname : "");
+  // DNS check of the SAVED custom domain. The API checks what is stored, so the button only
+  // appears once the field matches it (see the note under the domain input).
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{ status: "ok" | "missing" | "mismatch" | "undetermined"; expectedIp?: string | null; resolvedIp?: string | null } | null>(null);
+  async function verifyDomain() {
+    if (!site?.id) return;
+    setVerifying(true);
+    setVerifyResult(null);
+    try {
+      const res = await fetch(`/api/admin/sites/${site.id}/verify-domain`, { method: "POST" });
+      const result = await res.json().catch(() => ({}));
+      setVerifyResult(res.ok ? result : { status: "undetermined" });
+      if (res.ok && result?.status === "ok") router.refresh();
+    } catch {
+      setVerifyResult({ status: "undetermined" });
+    } finally {
+      setVerifying(false);
+    }
+  }
   const [hostState, setHostState] = useState<{ host: string; available: boolean } | null>(null);
   // Internal address.
   const [address, setAddress] = useState(
@@ -630,9 +649,22 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                   <input className={domain && !domainOk ? "input mono bad" : "input mono"} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="wiki.example.com" aria-label="Your domain" />
                   {hostState && hostState.host === publicHost && !hostState.available && <p className="rf-msg bad">This address is in use.</p>}
                   <div className="rf-note">
-                    <span>Create this record at your DNS provider; the certificate is issued automatically once it resolves.</span>
+                    <span>Create this record at your DNS provider and verify it here; the certificate is issued after the DNS is verified.</span>
                     <code><span className="rf-code-k">A</span> {domain.trim().toLowerCase() || "wiki.example.com"} → {ctx.customDomainIp ?? "this server's address"}</code>
                     {site?.domainVerifiedAt && <span className="t-ok">✓ DNS verified <LocalTime iso={site.domainVerifiedAt} mode="date" /></span>}
+                    {site?.id && site.customDomain && site.hostname === domain.trim().toLowerCase() ? (
+                      <>
+                        <button type="button" className="btn sm" onClick={verifyDomain} disabled={verifying}>{verifying ? "Verifying…" : "Verify DNS"}</button>
+                        {verifyResult && (
+                          <span className={verifyResult.status === "ok" ? "t-ok" : verifyResult.status === "undetermined" ? "t-muted" : "t-warn"} role="status">
+                            {verifyResult.status === "ok" && "✓ Verified: DNS points at this server."}
+                            {verifyResult.status === "missing" && `No A record found for ${domain.trim().toLowerCase()}. Point it at this server and try again.`}
+                            {verifyResult.status === "mismatch" && `${domain.trim().toLowerCase()} resolves to ${verifyResult.resolvedIp ?? "a different address"}, not this server (${verifyResult.expectedIp ?? "unknown"}). Update the A record and try again.`}
+                            {verifyResult.status === "undetermined" && "Couldn't check right now. Try again shortly."}
+                          </span>
+                        )}
+                      </>
+                    ) : site?.customDomain ? <span className="t-muted">Save the new address, then verify its DNS.</span> : <span className="t-muted">Save the resource, then verify its DNS here.</span>}
                   </div>
                 </>
               )}
