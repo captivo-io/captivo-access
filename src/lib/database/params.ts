@@ -12,6 +12,8 @@ export const MYSQL_MIN_CONNECTOR = "2.51.0";
 export const MSSQL_MIN_CONNECTOR = "2.56.0";
 export const REDIS_MIN_CONNECTOR = "2.64.0";
 export const MONGODB_MIN_CONNECTOR = "2.64.0";
+/** A database user made per connection (PostgreSQL, MySQL / MariaDB). */
+export const SESSION_USER_MIN_CONNECTOR = "2.70.0";
 
 /** The proxy's public ports when DB_PUBLIC_PORT / MYSQL_PUBLIC_PORT / MSSQL_PUBLIC_PORT / REDIS_PUBLIC_PORT / MONGODB_PUBLIC_PORT are not set. */
 export const DEFAULT_DB_PORT = 15432;
@@ -62,7 +64,13 @@ export type DbParams = {
   databases: string[];
   tls: DbTlsMode;
   caCertPem: string | null;
+  /** PostgreSQL, MySQL: a user made per connection that inherits this role; the saved account only provisions. "" = sign in as the saved account. */
+  sessionRole: string;
 };
+
+const ROLE_RE = /^[A-Za-z0-9_][A-Za-z0-9_.$-]{0,62}$/;
+/** Engines a session user can be made in. */
+export const SESSION_USER_ENGINES: readonly DbEngine[] = ["POSTGRES", "MYSQL"];
 
 const NAME_RE = /^[^\s\0"]{1,63}$/;
 
@@ -78,7 +86,8 @@ export function parseDbParams(v: unknown, engine: DbEngine = "POSTGRES"): DbPara
   const databases = Array.isArray(o.databases) ? o.databases.filter((d): d is string => typeof d === "string" && validDbName(d)).slice(0, 50) : [];
   const tls = DB_TLS_MODES.includes(o.tls as DbTlsMode) ? (o.tls as DbTlsMode) : "require";
   const caCertPem = typeof o.caCertPem === "string" && o.caCertPem.includes("BEGIN CERTIFICATE") ? o.caCertPem.trim() : null;
-  return { database, databases, tls, caCertPem };
+  const sessionRole = typeof o.sessionRole === "string" && ROLE_RE.test(o.sessionRole) && SESSION_USER_ENGINES.includes(engine) ? o.sessionRole : "";
+  return { database, databases, tls, caCertPem, sessionRole };
 }
 
 /**
@@ -100,7 +109,9 @@ export function dbParamsFrom(body: Record<string, unknown>, engine: DbEngine = "
   const tls = DB_TLS_MODES.includes(body.dbTls as DbTlsMode) ? (body.dbTls as DbTlsMode) : "require";
   const ca = typeof body.caCertPem === "string" ? body.caCertPem.trim() : "";
   if (ca && (!ca.includes("BEGIN CERTIFICATE") || ca.length > 20_000)) return { error: "invalid_ca_cert" };
-  return { database, databases, tls, caCertPem: tls === "verify-full" && ca ? ca : null };
+  const role = typeof body.sessionRole === "string" ? body.sessionRole.trim() : "";
+  if (role && (!ROLE_RE.test(role) || !SESSION_USER_ENGINES.includes(engine))) return { error: "invalid_session_role" };
+  return { database, databases, tls, caCertPem: tls === "verify-full" && ca ? ca : null, sessionRole: role };
 }
 
 export type DbBlock = "not_database" | "connector_outdated" | "proxy_off";

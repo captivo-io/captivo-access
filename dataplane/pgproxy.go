@@ -404,7 +404,7 @@ func (p *pgProxy) open(conn net.Conn, r *bufio.Reader, params map[string]string,
 	port := strconv.Itoa(t.Port)
 	up, resp, err := dialDb(p.d.session(s.connectorID), tunnel.DbDialRequest{
 		Engine: "postgres", Host: t.Host, Port: port, Username: t.Username, Database: db,
-		Sealed: sealed, TLS: t.TLS, CACertPEM: t.CACertPEM, Params: fwd,
+		Sealed: sealed, TLS: t.TLS, CACertPEM: t.CACertPEM, Params: fwd, SessionRole: t.SessionRole,
 	})
 	if err != nil {
 		_, _ = conn.Write(pgFatal("08006", "Captivo Access: "+err.Error()))

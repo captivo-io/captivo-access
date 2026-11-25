@@ -168,7 +168,8 @@ export function validateSiteInput(
     const dbParams = dbParamsFrom(body, engine);
     if ("error" in dbParams) return { ok: false, error: dbParams.error };
     return {
-      ok: true, mode: "DATABASE", ...checkoutFrom(body), connectorId, name, description, engine, targetHost, targetPort, username, secret,
+      // A session user is made per connection from the saved account: that account's password is never handed out.
+      ok: true, mode: "DATABASE", ...checkoutFrom(body), ...(dbParams.sessionRole ? { passwordCheckout: false } : {}), connectorId, name, description, engine, targetHost, targetPort, username, secret,
       recordSessions: opts.recordingEnabled && body.recordSessions === true, dbParams,
     };
   }

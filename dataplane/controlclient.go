@@ -437,20 +437,22 @@ func (e *httpError) Error() string { return "control-plane returned non-200" }
 // the ticket is for, where the server is, and each connector that may carry
 // the connection with the password sealed to its own key.
 type dbTarget struct {
-	TenantID   string           `json:"tenantId"`
-	SiteID     string           `json:"siteId"`
-	UserID     string           `json:"userId"`
-	SiteName   string           `json:"siteName"`
-	Engine     string           `json:"engine"`
-	Host       string           `json:"targetHost"`
-	Port       int              `json:"targetPort"`
-	Username   string           `json:"username"`
-	Database   string           `json:"database"`
-	Databases  []string         `json:"databases"`
-	TLS        string           `json:"tls"`
-	CACertPEM  string           `json:"caCertPem"`
-	Connectors []routeCandidate `json:"connectors"`
-	Record     bool             `json:"record"`
+	TenantID  string   `json:"tenantId"`
+	SiteID    string   `json:"siteId"`
+	UserID    string   `json:"userId"`
+	SiteName  string   `json:"siteName"`
+	Engine    string   `json:"engine"`
+	Host      string   `json:"targetHost"`
+	Port      int      `json:"targetPort"`
+	Username  string   `json:"username"`
+	Database  string   `json:"database"`
+	Databases []string `json:"databases"`
+	TLS       string   `json:"tls"`
+	CACertPEM string   `json:"caCertPem"`
+	// A database user made per connection that inherits this role (PostgreSQL, MySQL).
+	SessionRole string           `json:"sessionRole"`
+	Connectors  []routeCandidate `json:"connectors"`
+	Record      bool             `json:"record"`
 }
 
 // engine is the resource's database engine; a control plane older than

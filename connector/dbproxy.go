@@ -74,6 +74,18 @@ func handleDb(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		writeDbErr(st, "the saved password does not open on this connector; enter it again", "")
 		return
 	}
+	if req.SessionRole != "" {
+		t := &dbAccountTarget{engine: req.Engine, host: req.Host, port: req.Port, username: req.Username, db: tunnel.RotateDB{Database: req.Database, TLS: req.TLS, CACertPEM: req.CACertPEM}}
+		eph, err := createEphemeralUser(t, password, req.SessionRole)
+		if err != nil {
+			logUpstreamErr("db", addr, err.Error())
+			writeDbErr(st, "could not make this session's database user: "+err.Error(), "")
+			return
+		}
+		// Runs after the connection below is closed.
+		defer eph.drop()
+		req.Username, password = eph.user, eph.pass
+	}
 	var conn net.Conn
 	var br *bufio.Reader
 	var resp tunnel.DbDialResponse

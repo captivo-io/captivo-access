@@ -16,8 +16,9 @@ import { TUNNEL_MIN_CONNECTOR } from "@/lib/gateway/tcp-tunnel";
 import { SshHostKeyLine } from "./ssh-host-key";
 import { CredentialSource, type CredentialSource as CredentialSourceKind } from "./vault-ref-fields";
 import { platformLabel } from "@/lib/connector/platform-label";
-import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
+import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, SESSION_USER_ENGINES, SESSION_USER_MIN_CONNECTOR, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
+import { sessionUserSetup } from "@/lib/database/session-user";
 import { SSH_CA_BLOCK_TEXT } from "@/lib/vault/ssh-ca";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import type { KeystrokeMode } from "@/lib/settings/platform";
@@ -124,6 +125,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "logo_too_large": return "The logo must be 512 KB or smaller.";
     case "invalid_logo_type": case "invalid_logo": return "Use a PNG, SVG, JPG or WebP logo.";
     case "invalid_database": return "Database names can't have spaces or quotes, at most 63 characters, at most 50 of them.";
+    case "invalid_session_role": return "The session role must be a plain role name (letters, digits, _ . $ -), and is for PostgreSQL and MySQL only.";
     case "invalid_ca_cert": return "Paste the CA certificate in PEM form (-----BEGIN CERTIFICATE-----).";
     case "vault_connector_key_required": return "The secret is sealed to its connector, and this connector has no vault key yet. Update the connector.";
     case "ssh_ca_ssh_only": case "ssh_ca_needs_native": case "ssh_ca_needs_recording": return SSH_CA_BLOCK_TEXT[code];
@@ -249,6 +251,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [dbList, setDbList] = useState(initDb.databases.join(", "));
   const [dbTls, setDbTls] = useState<string>(initDb.tls);
   const [dbCa, setDbCa] = useState(initDb.caCertPem ?? "");
+  const [sessionRole, setSessionRole] = useState(initDb.sessionRole);
   // Kubernetes resources.
   const initKube = parseKubeParams(vault?.kubeParams);
   const [kubeCa, setKubeCa] = useState(initKube.caCertPem ?? "");
@@ -472,7 +475,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         recordSessions: record, keystrokeLogging: keystrokes,
         nativeRdp: nativeRdpOn,
         nativeSsh: nativeSshOn,
-        ...(checkoutShown ? { passwordCheckout: checkout && !moderatedOn && source === "local", checkoutMaxMinutes: Number(checkoutMinutes) } : {}),
+        ...(checkoutShown ? { passwordCheckout: checkout && !moderatedOn && source === "local" && !(isDb && sessionRole.trim()), checkoutMaxMinutes: Number(checkoutMinutes) } : {}),
         requireModerator: moderatedOn,
         clipboardMode: clipboard,
         watermark: watermark === "inherit" ? null : watermark === "on",
@@ -485,7 +488,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           caCertPem: kubeCa.trim(), serverName: kubeServerName.trim(), kubeIdentity, kubeGroups: kubeGroupList, namespaces: kubeNsList,
           readOnly: kubeReadOnly, portForward: kubePortForward && !kubeReadOnly,
         } : {}),
-        ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "" } : {}),
+        ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "", sessionRole: SESSION_USER_ENGINES.includes(engine) ? sessionRole.trim() : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
       };
       const res = await fetch(site ? `/api/admin/sites/${site.id}` : "/api/admin/sites", {
@@ -711,6 +714,18 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                   <p className="rf-hint rf-wide">A client that names no database lands in the default one. With a list, only those open; without one, any database the account can open.</p>
                 </>
               )}
+              {SESSION_USER_ENGINES.includes(engine) && (
+                <div className="rq-sec rf-wide">
+                  <label className="rq-sec"><span className="rq-label"><span>Session role <span className="t-muted rf-opt">(optional)</span></span></span>
+                    <input className="input mono" value={sessionRole} onChange={(e) => setSessionRole(e.target.value)} autoComplete="off" placeholder="app_readonly" /></label>
+                  <p className="rf-hint">{sessionRole.trim()
+                    ? <>Each connection gets its own database user, made just before it opens and dropped when it closes. The user has only what <span className="mono">{sessionRole.trim()}</span> has; the account above only provisions it and is never used by anyone. Needs connector {SESSION_USER_MIN_CONNECTOR} or later.</>
+                    : "Leave empty to sign everyone in as the account above. With a role, every connection works as a short-lived user of its own, so no standing account is used."}</p>
+                  {sessionRole.trim() && (
+                    <div className="rf-code"><pre className="mono">{sessionUserSetup(engine, sessionRole.trim(), username.trim() || "captivo_provisioner")}</pre><CopyButton value={sessionUserSetup(engine, sessionRole.trim(), username.trim() || "captivo_provisioner")} /></div>
+                  )}
+                </div>
+              )}
               <div className="rq-sec rf-wide">
                 <span className="rq-label"><span>TLS from the connector to the server</span></span>
                 <Pills value={dbTls} onChange={setDbTls} options={DB_TLS} label="TLS to the server" />
@@ -719,6 +734,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 )}
                 <p className="rf-hint">{dbTls === "disable" ? (engine === "REDIS" ? "A plain connection to the server's regular port; the password crosses your network in the clear." : engine === "MSSQL" ? "Only the sign-in is encrypted (SQL Server's minimum); queries and results cross your network in the clear, unless the server forces encryption." : "The connection inside your network is not encrypted; the password is still sent only as the server's sign-in method requires.") : dbTls === "require" ? "Encrypted, without checking the server's certificate (fine for a self-signed one inside your network)." : "Encrypted, and the certificate must name this address and chain to the CA."}</p>
               </div>
+              {isDb && sessionRole.trim() && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, SESSION_USER_MIN_CONNECTOR) === -1) && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; a user per connection needs {SESSION_USER_MIN_CONNECTOR} or later.</p>}
               {dbOldConnector && <p className="rf-msg bad rf-wide">The connector {connector?.name} runs {connector?.version}; {dbEngineLabel(engine)} access needs {dbMinConnector(engine)} or later. Update it before users connect.</p>}
             </div>
           )}
@@ -798,7 +814,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               <div className="rf-row-c"><Pills value={checkoutMinutes} onChange={setCheckoutMinutes} options={[["60", "1 hour"], ["240", "4 hours"], ["480", "8 hours"], ["1440", "24 hours"]]} label="Longest check-out" /></div>
             </div>
           )}
-          {checkoutShown && checkout && (moderatedOn || source !== "local") && <p className="rf-msg warn">{moderatedOn ? "A resource that needs a moderator can't offer password check-out." : source === "sshca" ? "A certificate sign-in has no password to check out." : "A credential kept in your own vault can't be checked out here; read it there."} It is left off when you save.</p>}
+          {checkoutShown && checkout && (moderatedOn || source !== "local" || (isDb && !!sessionRole.trim())) && <p className="rf-msg warn">{moderatedOn ? "A resource that needs a moderator can't offer password check-out." : isDb && sessionRole.trim() ? "A resource that makes a user per connection has no shared password to check out." : source === "sshca" ? "A certificate sign-in has no password to check out." : "A credential kept in your own vault can't be checked out here; read it there."} It is left off when you save.</p>}
           {moderatedShown && (
             <Row title="Requires a moderator" custom={moderatedOn} desc="Four eyes: a session starts only when a moderator joins it from Live sessions, and the user can work only while the moderator watches. If the moderator leaves, the user's keyboard and mouse pause, and the session ends 2 minutes later unless a moderator joins. Who can moderate is set on the Policy page.">
               <button type="button" role="switch" aria-checked={moderatedOn} aria-label="Requires a moderator" className={moderatedOn ? "toggle on" : "toggle"} onClick={() => setModerated(!moderated)}><span /></button>

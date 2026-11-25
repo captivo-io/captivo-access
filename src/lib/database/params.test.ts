@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dbEngineLabel, dbEngineOf, dbEngineWire, dbMinConnector, dbParamsFrom, dbPublicPort, mongoshCommand, mongoUrl, parseDbParams, redisCliCommand, redisUrl, sqlcmdCommand } from "./params";
+import { sessionUserSetup } from "./session-user";
 
 describe("SQL Server database params", () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -12,7 +13,7 @@ describe("SQL Server database params", () => {
   });
   it("takes no default database and no allowed list", () => {
     expect(parseDbParams({}, "MSSQL").database).toBe("");
-    expect(dbParamsFrom({ database: "", databases: "a, b" }, "MSSQL")).toEqual({ database: "", databases: [], tls: "require", caCertPem: null });
+    expect(dbParamsFrom({ database: "", databases: "a, b" }, "MSSQL")).toEqual({ database: "", databases: [], tls: "require", caCertPem: null, sessionRole: "" });
   });
   it("publishes its own port and a sqlcmd line", () => {
     expect(dbPublicPort("MSSQL")).toBe(11433);
@@ -52,5 +53,27 @@ describe("Redis and MongoDB database params", () => {
     expect(redisUrl(t)).toBe("rediss://tk:x@acme.cloud.captivo.io:16380");
     expect(mongoUrl({ ...t, port: 17017 })).toBe("mongodb://tk:x@acme.cloud.captivo.io:17017/?tls=true&authMechanism=PLAIN&authSource=%24external");
     expect(mongoshCommand({ ...t, port: 17017 })).toContain('mongosh "mongodb://tk:x@');
+  });
+});
+
+describe("session role", () => {
+  it("is kept for PostgreSQL and MySQL only, and only as a plain role name", () => {
+    expect(dbParamsFrom({ database: "app", sessionRole: " app_readonly " }, "POSTGRES")).toMatchObject({ sessionRole: "app_readonly" });
+    expect(dbParamsFrom({ database: "", sessionRole: "reader" }, "MYSQL")).toMatchObject({ sessionRole: "reader" });
+    expect(dbParamsFrom({ database: "", sessionRole: "reader" }, "MSSQL")).toEqual({ error: "invalid_session_role" });
+    expect(dbParamsFrom({ database: "", sessionRole: "reader" }, "REDIS")).toEqual({ error: "invalid_session_role" });
+    for (const bad of [`ro"x`, "a b", "x;DROP", "-lead"]) expect(dbParamsFrom({ database: "app", sessionRole: bad }, "POSTGRES")).toEqual({ error: "invalid_session_role" });
+    expect(dbParamsFrom({ database: "app" }, "POSTGRES")).toMatchObject({ sessionRole: "" });
+  });
+
+  it("reads stored params back, ignoring a role an engine cannot use", () => {
+    expect(parseDbParams({ database: "app", sessionRole: "r" }, "POSTGRES").sessionRole).toBe("r");
+    expect(parseDbParams({ database: "app", sessionRole: "r" }, "MSSQL").sessionRole).toBe("");
+    expect(parseDbParams({ database: "app", sessionRole: `a"b` }, "POSTGRES").sessionRole).toBe("");
+  });
+
+  it("shows the grants the saved account needs, quoted", () => {
+    expect(sessionUserSetup("POSTGRES", "ro", `we"ird`)).toContain(`GRANT "ro" TO "we""ird" WITH ADMIN OPTION`);
+    expect(sessionUserSetup("MYSQL", "ro", "prov")).toContain("GRANT CREATE USER, ROLE_ADMIN ON *.* TO 'prov'@'%'");
   });
 });

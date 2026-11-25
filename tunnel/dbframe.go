@@ -15,6 +15,10 @@ type DbDialRequest struct {
 	Username string `json:"username"`
 	Database string `json:"database"`
 	Sealed   string `json:"sealed"` // the password, sealed for Host, Port, Username
+	// PostgreSQL and MySQL: sign in as a database user made for this connection
+	// that inherits this role, instead of as Username; Username then only
+	// provisions and removes it (connector/dbephemeral.go).
+	SessionRole string `json:"sessionRole,omitempty"`
 	// TLS to the server: "disable", "require" (encrypted, any certificate) or
 	// "verify-full" (the certificate must name Host and chain to CACertPEM, or
 	// to the system roots when that is empty).
