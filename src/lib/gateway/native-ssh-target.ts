@@ -7,6 +7,9 @@ import { resolvedGuacParamDefaults, resolvedKeystrokeLoggingMode } from "@/lib/s
 import { parseGuacParams, resolveGuacParams } from "@/lib/gateway/guac-params";
 import { getVaultCredential } from "@/lib/vault/store";
 import { rotationOn } from "@/lib/vault/rotation";
+import { SSH_CA_MIN_CONNECTOR } from "@/lib/vault/providers";
+import { compareSemver } from "@/lib/updates/semver";
+import { isSshCa, type SshCaBlock } from "@/lib/vault/ssh-ca";
 import { nativeSshMode, NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR, type NativeSshBlock, type NativeSshMode } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 import { TUNNEL_MIN_CONNECTOR, tunnelBlock, type TunnelBlock } from "@/lib/gateway/tcp-tunnel";
@@ -22,11 +25,13 @@ export type NativeSshRecorded = {
   /** A legacy secret (no connector vault key); otherwise each candidate carries its seal. */
   secret?: string;
   sshHostKey: string | null;
+  /** "captivo:<e-mail>": the key id of a certificate sign-in, which the server logs. */
+  keyId: string;
 };
 
 export type NativeSshTarget =
   | ({ ok: true; mode: NativeSshMode | "tunnel"; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number; moderated?: boolean } & Partial<NativeSshRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_needs_recording" | NativeSshBlock | TunnelBlock; reason?: string };
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_needs_recording" | SshCaBlock | NativeSshBlock | TunnelBlock; reason?: string };
 
 /** The resource's file transfer rule, as its browser SSH session would have it. */
 export function sshFileTransfer(p: { enableFileTransfer?: boolean; blockUpload?: boolean; blockDownload?: boolean }): NativeSshRecorded["fileTransfer"] {
@@ -49,7 +54,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
     where: { id: siteId },
     select: {
       name: true, accessMode: true, nativeSsh: true, recordSessions: true, requireModerator: true, keystrokeLogging: true, tunnelHost: true, tunnelPort: true, ...siteRoutingSelect,
-      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true } },
+      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true, secretSource: true } },
     },
   });
   if (!site) return { ok: false, status: 404, error: "not_found" };
@@ -72,6 +77,10 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   });
   if (mode !== "recorded" && mode !== "direct") return { ok: false, status: 409, error: mode };
   if (!cred) return { ok: false, status: 409, error: "not_ssh" };
+  // A certificate sign-in is the connector's own: only the recorded path has one (recording switched off afterwards ends up here).
+  if (isSshCa(cred) && mode !== "recorded") return { ok: false, status: 409, error: "ssh_ca_needs_recording" };
+  // A resource on one connector is never filtered by version below, and an older connector would try to read the reference as a vault address.
+  if (isSshCa(cred) && compareSemver(newestVersion(site), SSH_CA_MIN_CONNECTOR) === -1) return { ok: false, status: 409, error: "connector_outdated" };
   // A moderator must be able to watch: only a recorded session passes the jump host's view.
   const moderated = moderationRequired(site);
   if (moderated && moderationBlock("native_ssh", mode === "recorded")) return { ok: false, status: 409, error: "moderator_needs_recording" };
@@ -93,10 +102,11 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   const sealed = !!vault.sealedSecret;
   const sealFor = (m: { vaultPublicKey: string | null }) => (m.vaultPublicKey ? vault.seals[m.vaultPublicKey] : undefined) ?? vault.sealedSecret;
   const members = routeMembers(site, {
-    minVersion: NATIVE_SSH_RECORDED_MIN_CONNECTOR,
+    minVersion: isSshCa(cred) ? SSH_CA_MIN_CONNECTOR : NATIVE_SSH_RECORDED_MIN_CONNECTOR,
     ...(sealed ? { canOpen: (m: { vaultPublicKey: string | null }) => !!m.vaultPublicKey && !!vault.seals[m.vaultPublicKey] } : {}),
   }).eligible;
   if (members.length === 0) return { ok: false, status: 409, error: sealed ? "vault_secret_reenter" : "connector_outdated" };
+  const who = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
   const params = resolveGuacParams(parseGuacParams(vault.guacParams), await resolvedGuacParamDefaults());
   return {
     ok: true, mode, ...where, moderated,
@@ -111,5 +121,6 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
     secretKind: vault.secretKind,
     ...(sealed ? {} : { secret: vault.secret ?? "" }),
     sshHostKey: cred.sshHostKey,
+    keyId: `captivo:${who?.email ?? userId}`,
   };
 }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,10 @@ type sshTarget struct {
 	password string
 	userKey  ssh.PublicKey
 	ln       net.Listener
+	// ca, when set, makes the server accept user certificates that authority signed.
+	ca     ssh.PublicKey
+	mu     sync.Mutex
+	keyIDs []string
 }
 
 func newSSHTarget(t *testing.T, password string, userKey ssh.PublicKey) *sshTarget {
@@ -45,6 +50,16 @@ func newSSHTarget(t *testing.T, password string, userKey ssh.PublicKey) *sshTarg
 			return nil, io.EOF
 		},
 		PublicKeyCallback: func(cm ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
+			if cert, ok := k.(*ssh.Certificate); ok && s.ca != nil {
+				chk := &ssh.CertChecker{IsUserAuthority: func(a ssh.PublicKey) bool { return bytes.Equal(a.Marshal(), s.ca.Marshal()) }}
+				if _, err := chk.Authenticate(cm, k); err != nil {
+					return nil, err
+				}
+				s.mu.Lock()
+				s.keyIDs = append(s.keyIDs, cert.KeyId)
+				s.mu.Unlock()
+				return nil, nil
+			}
 			if s.userKey != nil && bytes.Equal(k.Marshal(), s.userKey.Marshal()) {
 				return nil, nil
 			}

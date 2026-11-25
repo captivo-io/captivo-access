@@ -311,6 +311,61 @@ Manager** instead of **Captivo**.
   API, Azure Key Vault and AWS Secrets Manager). Switching the resource back to
   **Captivo** and entering a password replaces the reference.
 
+## SSH certificates (no password or key anywhere)
+
+An SSH resource can sign in with a certificate instead of a password or a key:
+**Where the credential lives** → **SSH certificate**. There is then nothing to
+steal, rotate or check out. The connector keeps a certificate authority (CA) key;
+the server trusts its public half; every session signs in with a certificate
+made for that session.
+
+- **What happens.** A user opens **SSH** on the resource in My access and runs
+  the command. The data plane ends their SSH connection (the recorded native
+  path), and the connector makes a fresh key pair, signs a certificate for the
+  resource's account with its CA key and signs in with it. The certificate is
+  valid for two minutes, for that one account, with a terminal and nothing
+  else (no agent, X11 or port forwarding). The session goes on after the
+  certificate expires; only the sign-in needed it.
+- **Who is in the server's log.** The certificate's key id is
+  `captivo:<the user's e-mail>`, so sshd's own log says who it was for:
+  `Accepted publickey for deploy ... ID captivo:ana@acme.com`. Captivo's audit
+  log and the recording have the same session.
+- **The CA key never leaves the connector** (`ssh-ca.key` in its data
+  directory, next to the vault key). The console only holds the public line,
+  which the connector reports and the resource form and the connector's
+  Settings tab show.
+- **Setting up a server, once.** Put the connector's public line in a file on the
+  server, point `TrustedUserCAKeys` at it and reload sshd. The resource form
+  shows the commands:
+
+  ```
+  echo 'ssh-ed25519 AAAA…' | sudo tee /etc/ssh/captivo_ca.pub
+  echo 'TrustedUserCAKeys /etc/ssh/captivo_ca.pub' | sudo tee /etc/ssh/sshd_config.d/captivo-ca.conf
+  sudo sshd -t && sudo systemctl reload sshd
+  ```
+
+  The account named on the resource must exist on the server. With no
+  `AuthorizedPrincipalsFile`, sshd accepts a certificate whose principal equals
+  the login name, which is how Captivo signs it. An account can have no password
+  at all (set it to `*`); a locked one (`!`) is refused by some sshd builds. If
+  sshd has no `Include /etc/ssh/sshd_config.d/*.conf`, add the line to
+  `sshd_config` itself.
+- **A connector group** signs with each member's own CA, so give the server every
+  member's line (one per line in the same file); the resource form lists them
+  all.
+- **Check now** on the resource's page makes the connector sign a certificate
+  and really sign in, then leave: it says whether the server trusts the CA and
+  accepts the account.
+- **What it needs.** Native SSH client on, session recording on (or required by
+  the Policy): a certificate is used by the connector's own sign-in, which only
+  the recorded path has. The browser terminal cannot present a certificate, so
+  the resource has no **Open** button, only **SSH**. Rotation, check-out and
+  *Reveal* do not apply, as there is no password.
+- **If the CA is lost** (the connector's data volume), it makes a new one and the
+  servers must be told its new public line, like re-entering a sealed password.
+- **Requirements:** a connector on 2.69.0 or later (every connector reports its
+  CA once updated).
+
 ## Inviting someone into a live session
 
 An admin watching a live session can bring in someone from outside the console

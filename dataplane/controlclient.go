@@ -47,7 +47,7 @@ func (c *ControlClient) AuthConnector(token string) (string, error) {
 // ReportStatus tells the control plane a connector went ONLINE/OFFLINE.
 // Best-effort: errors are swallowed since this must never block tunnel
 // teardown/setup.
-func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, vaultPublicKey, platform string) (egressPolicy, logLevel string, rec RecordingPolicy) {
+func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, vaultPublicKey, platform, sshCAPublicKey string) (egressPolicy, logLevel string, rec RecordingPolicy) {
 	var out struct {
 		EgressPolicy           string   `json:"egressPolicy"`
 		LogLevel               string   `json:"logLevel"`
@@ -56,7 +56,7 @@ func (c *ControlClient) ReportStatus(connectorID, status, remoteAddr, version, v
 		PurgeRecordingKeys     []string `json:"purgeRecordingKeys"`
 	}
 	_ = c.post("/api/internal/connector/status",
-		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version, "vaultPublicKey": vaultPublicKey, "platform": platform}, &out)
+		map[string]string{"connectorId": connectorID, "status": status, "remoteAddr": remoteAddr, "version": version, "vaultPublicKey": vaultPublicKey, "platform": platform, "sshCaPublicKey": sshCAPublicKey}, &out)
 	return out.EgressPolicy, out.LogLevel, RecordingPolicy{TenantID: out.TenantID, RetentionDays: out.RecordingRetentionDays, PurgeKeys: out.PurgeRecordingKeys}
 }
 
@@ -219,6 +219,9 @@ type sshTarget struct {
 	SecretKind    string
 	Secret        string // legacy, unsealed
 	PinnedHostKey string
+	// Who is signing in, as "captivo:<e-mail>": a certificate's key id, which
+	// the server writes in its log (connector/sshca.go).
+	KeyID string
 	// A TCP tunnel resource (sshtunnel.go): the user's ssh -L carries their
 	// own app's connections to Host:Port, never recorded.
 	Tunnel bool
@@ -244,6 +247,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		SecretKind    string           `json:"secretKind"`
 		Secret        string           `json:"secret"`
 		PinnedHostKey string           `json:"sshHostKey"`
+		KeyID         string           `json:"keyId"`
 		Tunnel        bool             `json:"tunnel"`
 		Moderation    moderationRef    `json:"moderation"`
 	}
@@ -253,7 +257,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 	return sshTarget{
 		rdpTarget: rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)},
 		Record:    out.Record, Keystrokes: out.Keystrokes, FileTransfer: out.FileTransfer,
-		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey,
+		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey, KeyID: out.KeyID,
 		Tunnel: out.Tunnel, Moderation: out.Moderation,
 	}, nil
 }

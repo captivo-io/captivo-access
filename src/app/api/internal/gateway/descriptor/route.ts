@@ -93,6 +93,8 @@ async function handler(req: NextRequest) {
 
   const cred = await getVaultCredential(siteId);
   if (!cred) return NextResponse.json({ error: "no_credential" }, { status: 404 });
+  // A certificate sign-in is the connector's own, on the recorded native SSH path: the browser terminal has no way to present one.
+  if ((await db.vaultCredential.findUnique({ where: { siteId }, select: { secretSource: true } }))?.secretSource === "sshca") return NextResponse.json({ error: "ssh_ca_native_only" }, { status: 409 });
   // A moderated resource: the session uses the admission a moderator gave,
   // and the data plane holds the user's input until that moderator watches.
   const moderation = moderationRequired(site) ? await takeAdmission(siteId, userId, "browser") : null;

@@ -101,6 +101,8 @@ export function AccessCards({ cards }: { cards: CardVM[] }) {
                   ? (c.status === "active" && c.tunnelHref ? <TunnelCommandButton href={c.tunnelHref} siteId={c.siteId} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This tunnel can't open right now: its connector needs an update, or the workspace requires every session to be recorded." : undefined}>Connect</span>)
                   : isDb
                   ? (c.status === "active" && c.dbHref ? <DbConnectButton href={c.dbHref} siteName={c.siteName} /> : <span className="btn sm" aria-disabled="true" title={c.status === "active" ? "This database's connector needs an update first." : undefined}>Connect</span>)
+                  : c.sshCa
+                  ? <span className="btn sm" aria-disabled="true" title="This resource signs you in with a certificate. Use SSH to connect with your own SSH app.">Open</span>
                   : c.status === "active"
                   ? <a className="btn ink sm" href={c.href} target="_blank" rel="noopener noreferrer">Open ↗</a>
                   : <span className="btn sm" aria-disabled="true">Open</span>}

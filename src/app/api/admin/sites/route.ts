@@ -16,6 +16,8 @@ import { capabilityAllowed, assertWithinLimit, LimitError } from "@/lib/tenant/e
 import { parseLogoUpload } from "@/lib/site/logo";
 import { appearanceFrom } from "@/lib/site/validate";
 import { ICON_NAMES } from "@/lib/site/icons";
+import { effectiveSiteRecording } from "@/lib/recording/effective";
+import { sshCaProblem } from "@/lib/vault/ssh-ca";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
@@ -125,6 +127,10 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   }
 
   // GATEWAY (remote desktop), DATABASE or KUBERNETES: the site (null hostname/upstream) + its credential, atomically.
+  if (v.secret?.source === "sshca") {
+    const bad = v.mode === "GATEWAY" ? sshCaProblem({ protocol: v.protocol, nativeSsh: v.nativeSsh, recorded: await effectiveSiteRecording(v.recordSessions) }) : "ssh_ca_ssh_only";
+    if (bad) return NextResponse.json({ error: bad }, { status: 400 });
+  }
   let stored;
   try {
     stored = await storedSecretFor({ connectorId: v.connectorId, connectorGroupId }, v.secret!, { host: v.targetHost, port: v.targetPort, username: v.username });

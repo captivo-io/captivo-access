@@ -23,6 +23,9 @@ type SshDialRequest struct {
 	// The server's host key fingerprint ("SHA256:...") seen before; empty on
 	// first contact, when whatever the server shows is taken and reported.
 	PinnedHostKey string `json:"pinnedHostKey,omitempty"`
+	// Who is signing in, for a certificate's key id ("captivo:ana@acme.com"),
+	// which the server then writes in its log.
+	KeyID string `json:"keyId,omitempty"`
 }
 
 // SshDialResponse reports the sign-in. An empty Error means the SSH server on

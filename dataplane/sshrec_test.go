@@ -280,7 +280,7 @@ func auditReasons(q *AuditQueue) []string {
 }
 
 func TestRecordedSSHRecordsTheTerminalAndMasksThePassword(t *testing.T) {
-	r := recordedJumpRig(t, sshTarget{Record: true, Keystrokes: true, FileTransfer: "none", Username: "ops", Secret: "pw", SecretKind: "PASSWORD"})
+	r := recordedJumpRig(t, sshTarget{Record: true, Keystrokes: true, FileTransfer: "none", Username: "ops", Secret: "pw", SecretKind: "PASSWORD", KeyID: "captivo:ana@acme.com"})
 	c, banner, err := r.innerClient(t)
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestRecordedSSHRecordsTheTerminalAndMasksThePassword(t *testing.T) {
 	if strings.Contains(keys, "hunter2") {
 		t.Error("the password is in the keystroke log")
 	}
-	if d := r.conn.dials[0]; d.Username != "ops" || d.Secret != "pw" || d.PinnedHostKey != "" {
+	if d := r.conn.dials[0]; d.Username != "ops" || d.Secret != "pw" || d.PinnedHostKey != "" || d.KeyID != "captivo:ana@acme.com" {
 		t.Errorf("dial %+v", d)
 	}
 	reasons := strings.Join(auditReasons(r.audit), "|")

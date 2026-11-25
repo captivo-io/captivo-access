@@ -79,6 +79,7 @@ export function windowsAccountOf(c: { username: string; guacParams?: unknown; ro
 
 /** How this resource's account is rotated, or why it cannot be. */
 export function rotationMethod(c: { protocol: string; secretKind: string; username?: string; guacParams?: unknown; rotationAccount?: string | null; secretSource?: string | null }, dir: DirectoryForRotation | null): { method: RotationMethod } | { unsupported: string } {
+  if (c.secretSource === "sshca") return { unsupported: "There is no password to rotate: every session signs in with a certificate the connector signs for two minutes." };
   if (c.secretSource) return { unsupported: `This credential lives in ${providerLabel(c.secretSource) ?? "your own vault"}: rotate it there. Captivo asks the vault each time a session needs it.` };
   if (c.secretKind !== "PASSWORD") return { unsupported: "Only passwords are rotated, not SSH keys." };
   if (c.protocol === "SSH") return { method: "linux" };

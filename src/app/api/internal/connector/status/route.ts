@@ -6,6 +6,7 @@ import { pendingErasuresByConnector } from "@/lib/recording/erasure";
 import { currentTenantId } from "@/lib/tenant/context";
 import { requireDataplaneSecret, resolveTenantByConnector, withTenantFrom } from "@/lib/tenant/internal";
 import { isVaultPublicKey } from "@/lib/vault/seal";
+import { isSshCaKey } from "@/lib/vault/ssh-ca";
 import { sealLegacyCredentials } from "@/lib/vault/store";
 import { recordConnectorEvent } from "@/lib/connector/history";
 
@@ -44,6 +45,8 @@ async function handler(req: NextRequest) {
       // The connector's vault key: a changed one means its /data was lost, and
       // secrets sealed to the old key need entering again (shown on the resource).
       ...(isVaultPublicKey(body.vaultPublicKey) ? { vaultPublicKey: body.vaultPublicKey } : {}),
+      // The SSH certificate authority servers are told to trust: one ssh-ed25519 line, checked by the data plane too.
+      ...(isSshCaKey(body.sshCaPublicKey) ? { sshCaPublicKey: body.sshCaPublicKey } : {}),
       // What the connector says it runs as; none means the Docker image. A drop says nothing.
       ...(status === "ONLINE" ? { platform: body.platform === "windows" || body.platform === "linux" ? body.platform : null } : {}),
     },

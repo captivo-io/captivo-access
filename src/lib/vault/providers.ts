@@ -9,6 +9,11 @@ export const VAULT_PROVIDER_MIN_CONNECTOR_MORE = "2.67.0";
 
 export const REF_PREFIX = "captivo-ref1:";
 
+/** SSH certificate sign-in (the connector signs a short-lived certificate per session) came in 2.69.0. */
+export const SSH_CA_MIN_CONNECTOR = "2.69.0";
+/** What is sealed for a certificate sign-in: there is nothing to look up, the connector signs. */
+export const SSH_CA_REF_TEXT = REF_PREFIX + JSON.stringify({ provider: "sshca" });
+
 export type HashiCorpRef = {
   provider: "hashicorp";
   address: string;
@@ -117,4 +122,4 @@ export function refText(r: VaultRef): string {
 }
 
 export const providerLabel = (s: string | null | undefined) =>
-  s === "cyberark" ? "CyberArk" : s === "hashicorp" ? "HashiCorp Vault" : s === "azure" ? "Azure Key Vault" : s === "aws" ? "AWS Secrets Manager" : null;
+  s === "cyberark" ? "CyberArk" : s === "hashicorp" ? "HashiCorp Vault" : s === "azure" ? "Azure Key Vault" : s === "aws" ? "AWS Secrets Manager" : s === "sshca" ? "SSH certificates" : null;

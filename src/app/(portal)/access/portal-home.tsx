@@ -30,6 +30,8 @@ export interface CardVM {
   rdpRecorded?: boolean;
   /** Needs a moderator: a session starts once one admits it (lib/moderation). */
   moderated?: boolean;
+  /** Signs in with certificates the connector signs: only the SSH app button works, the browser terminal cannot. */
+  sshCa?: boolean;
   /** Where to get the ssh command of a TCP tunnel resource, when it opens now. */
   tunnelHref?: string | null;
   /** Where to get a kubeconfig for the user's own kubectl (a KUBERNETES resource). */

@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { providerLabel, refProblem, refText, VAULT_PROVIDER_MIN_CONNECTOR, VAULT_PROVIDER_MIN_CONNECTOR_MORE, type VaultRef } from "@/lib/vault/providers";
+import { providerLabel, refProblem, refText, SSH_CA_MIN_CONNECTOR, SSH_CA_REF_TEXT, VAULT_PROVIDER_MIN_CONNECTOR, VAULT_PROVIDER_MIN_CONNECTOR_MORE, type VaultRef } from "@/lib/vault/providers";
+import { sshCaServerSetup } from "@/lib/vault/ssh-ca";
+import { CopyButton } from "@/app/(app)/_shell/copy-button";
 
-export type CredentialSource = "local" | "hashicorp" | "cyberark" | "azure" | "aws";
+export type CredentialSource = "local" | "hashicorp" | "cyberark" | "azure" | "aws" | "sshca";
 
 const SOURCES: [CredentialSource, string][] = [["local", "Captivo"], ["hashicorp", "HashiCorp Vault"], ["cyberark", "CyberArk"], ["azure", "Azure Key Vault"], ["aws", "AWS Secrets Manager"]];
 
@@ -56,13 +58,17 @@ export function refFromFields(source: CredentialSource, f: F): VaultRef | null {
  * reference and how the connector signs in to the vault; that is sealed to the
  * connector like a password, so Captivo never sees it.
  */
-export function CredentialSource({ source, onSource, saved, onRef }: {
+export function CredentialSource({ source, onSource, saved, onRef, ssh, caKeys }: {
   source: CredentialSource;
   onSource: (s: CredentialSource) => void;
   /** The resource already has a credential of this source: leave the fields empty to keep it. */
   saved: boolean;
   /** The sealed text for the current fields, or null while they are empty or incomplete. */
   onRef: (text: string | null, problem: string | null) => void;
+  /** An SSH resource may sign in with certificates the connector signs. */
+  ssh?: boolean;
+  /** The certificate authority key of each connector that can carry the session (empty until it reports one). */
+  caKeys?: { name: string; key: string | null }[];
 }) {
   const [f, setF] = useState<F>({ auth: "token", kv: "2", tls: "system", mode: "ccp", logonType: "cyberark" });
   const set = (k: string) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
@@ -71,12 +77,14 @@ export function CredentialSource({ source, onSource, saved, onRef }: {
 
   useEffect(() => {
     if (source === "local") return onRef(null, null);
+    if (source === "sshca") return onRef(SSH_CA_REF_TEXT, null);
     const ref = refFromFields(source, f);
     if (!ref) return onRef(null, saved ? null : "Enter where the credential lives.");
     const problem = refProblem(ref);
     onRef(problem ? null : refText(ref), problem);
   }, [source, f, saved, onRef]);
 
+  const sources = ssh ? [...SOURCES, ["sshca", "SSH certificate"] as [CredentialSource, string]] : SOURCES;
   const min = source === "hashicorp" || (source === "cyberark" && f.mode !== "pvwa") ? VAULT_PROVIDER_MIN_CONNECTOR : VAULT_PROVIDER_MIN_CONNECTOR_MORE;
   const pvwa = source === "cyberark" && f.mode === "pvwa";
 
@@ -84,9 +92,26 @@ export function CredentialSource({ source, onSource, saved, onRef }: {
     <div className="rq-sec rf-wide">
       <span className="rq-label"><span>Where the credential lives</span></span>
       <div className="seg wrap" role="radiogroup" aria-label="Where the credential lives">
-        {SOURCES.map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={source === k} className={source === k ? "seg-opt on" : "seg-opt"} onClick={() => onSource(k)}>{l}</button>)}
+        {sources.map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={source === k} className={source === k ? "seg-opt on" : "seg-opt"} onClick={() => onSource(k)}>{l}</button>)}
       </div>
-      {source !== "local" && (
+      {source === "sshca" && (
+        <div className="rot-rec-form">
+          <p className="rf-hint rot-wide">
+            No password or key exists for this account. Each session, the connector signs a certificate that is valid for two minutes, for this account only, and signs in with it; the server&apos;s log names who it was for.
+            Needs a connector on {SSH_CA_MIN_CONNECTOR} or later, Native SSH client and session recording on.
+          </p>
+          {(caKeys ?? []).some((c) => c.key) ? (
+            <div className="rq-sec rot-wide"><span className="rq-label"><span>Make the server trust the connector</span></span>
+              <p className="rf-hint">Run this on the SSH server as an administrator, once. The account must exist there under the name above{saved ? "; it already works if you did this before" : ""}.</p>
+              <div className="rf-code"><pre className="mono">{sshCaServerSetup((caKeys ?? []).map((c) => c.key))}</pre><CopyButton value={sshCaServerSetup((caKeys ?? []).map((c) => c.key))} /></div>
+              {(caKeys ?? []).some((c) => !c.key) && <p className="rf-msg warn">{(caKeys ?? []).filter((c) => !c.key).map((c) => c.name).join(", ")} has not reported a certificate authority yet: update it, then open this again.</p>}
+            </div>
+          ) : (
+            <p className="rf-msg warn rot-wide">The connector has not reported a certificate authority yet. Update it to {SSH_CA_MIN_CONNECTOR} or later, then open this again.</p>
+          )}
+        </div>
+      )}
+      {source !== "local" && source !== "sshca" && (
         <div className="rot-rec-form">
           <p className="rf-hint rot-wide">
             The connector asks {providerLabel(source)} for the credential each time a session needs it and keeps nothing; nobody here ever sees it. What you enter below is sealed to the connector, like a password.

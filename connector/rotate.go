@@ -152,8 +152,12 @@ func rotate(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatcher, req t
 		if req.Op != "verify" {
 			return tunnel.RotateResponse{Error: "this resource's credential lives in an external vault; change or rotate it there"}
 		}
-		if _, err := openSecret(k, req.Current, aad); err != nil {
+		got, err := openSecretOrCA(k, req.Current, aad)
+		if err != nil {
 			return tunnel.RotateResponse{Outcome: "mismatch", Detail: err.Error()}
+		}
+		if got == sshCAMarker {
+			return verifyCertSignIn(allow, req)
 		}
 		return tunnel.RotateResponse{Outcome: "ok"}
 	}
