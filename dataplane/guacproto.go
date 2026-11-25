@@ -105,7 +105,10 @@ type GuacConn struct {
 	Protocol, Hostname, Port, Username, Secret, SecretKind string
 	// SealedSecret is the secret sealed to the connector's vault key; when set,
 	// Secret is a placeholder the connector replaces (connector/vault.go).
-	SealedSecret       string
+	SealedSecret string
+	// Administrator rights for the session, and the pinned SSH host key for a Linux server.
+	Elevate            *elevateTarget
+	SSHHostKey         string
 	Width, Height, Dpi int
 	Params             map[string]string // resolved guacd arg-name→value (server-layout, color-depth, enable-*, disable-copy/paste)
 }

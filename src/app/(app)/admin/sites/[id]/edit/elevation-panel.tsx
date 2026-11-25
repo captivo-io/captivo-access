@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { sealSecret } from "@/lib/vault/seal";
-import { ELEVATE_BLOCK_TEXT, ELEVATE_MIN_CONNECTOR, type ElevateBlock } from "@/lib/vault/elevation";
+import { ELEVATE_BLOCK_TEXT, ELEVATE_SESSIONS_MIN_CONNECTOR, type ElevateBlock } from "@/lib/vault/elevation";
 import type { RotationStatus } from "@/lib/vault/rotation-status";
 
 // Administrator rights during a session (lib/vault/elevation.ts) for one SSH
@@ -10,7 +10,7 @@ import type { RotationStatus } from "@/lib/vault/rotation-status";
 
 const ERRORS: Record<string, string> = {
   ...ELEVATE_BLOCK_TEXT,
-  invalid_reconcile_user: "Use a user name of letters, digits, . _ - and no spaces or quotes.",
+  invalid_reconcile_user: "Use a user name of letters, digits, . _ - and no spaces or quotes (on Windows: Administrator or DOMAIN\\name).",
   vault_key_changed: "None of this resource's connectors has a key yet. Reload the page and try again.",
   invalid_sealed_secret: "This browser can't seal the password for the connector. Use a current browser.",
 };
@@ -19,7 +19,8 @@ export function ElevationPanel({ siteId, initial }: { siteId: string; initial: R
   const router = useRouter();
   const [s, setS] = useState(initial);
   const [open, setOpen] = useState(false);
-  const [user, setUser] = useState(initial.reconcile?.username ?? "root");
+  const windows = initial.protocol === "RDP";
+  const [user, setUser] = useState(initial.reconcile?.username ?? (windows ? "Administrator" : "root"));
   const [kind, setKind] = useState<"PASSWORD" | "KEY">(initial.reconcile?.kind ?? "PASSWORD");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,22 +62,22 @@ export function ElevationPanel({ siteId, initial }: { siteId: string; initial: R
         <div>
           <h2 id="elev-h">Administrator rights during sessions</h2>
           <p className="cell-sub">
-            <b className="mono">{s.target.username}</b> stays an ordinary user. While someone has a recorded session on it, the connector gives it sudo, and takes it away when the last session ends. Needs connector {ELEVATE_MIN_CONNECTOR} or later and Linux.
+            <b className="mono">{s.target.username}</b> stays an ordinary user. While someone has a session on it (in the browser, or in their own app when it is recorded), the connector {windows ? "adds it to the server's Administrators group" : "gives it sudo"}, and takes it away when the last session ends. A connector that stops in between takes it away when it starts again. Needs connector {ELEVATE_SESSIONS_MIN_CONNECTOR} or later{windows ? " and a local account of the Windows server (SMB, port 445, reachable from the connector)" : ""}.
           </p>
         </div>
         <span className={`rot-pill ${s.elevate ? "ok" : "off"}`}><i aria-hidden="true" />{s.elevate ? "On" : "Off"}</span>
       </div>
 
       <div className="rf-row">
-        <span className="rf-row-t"><b>Give sudo during sessions</b><span className="cell-sub">Sessions are recorded, so what was done with the rights is on the recording. The session&apos;s banner says it has them.</span></span>
-        <div className="rf-row-c"><button type="button" role="switch" aria-checked={s.elevate} aria-label="Give sudo during sessions" disabled={busy || (!s.elevate && !!blocked)} className={s.elevate ? "toggle on" : "toggle"} onClick={() => void put({ elevate: !s.elevate })}><span /></button></div>
+        <span className="rf-row-t"><b>Give administrator rights during sessions</b><span className="cell-sub">{windows ? "The account is in the Administrators group only while a session is open." : "A recorded session shows a banner that says it has them, and what was done with them is on the recording."}</span></span>
+        <div className="rf-row-c"><button type="button" role="switch" aria-checked={s.elevate} aria-label="Give administrator rights during sessions" disabled={busy || (!s.elevate && !!blocked)} className={s.elevate ? "toggle on" : "toggle"} onClick={() => void put({ elevate: !s.elevate })}><span /></button></div>
       </div>
 
       <div className="rot-rec">
         <span className="rq-label"><span>Administrator account</span></span>
         <p className="cell-sub">{s.reconcile
           ? <>Signs in as <b className="mono">{s.reconcile.username}</b> ({s.reconcile.kind === "KEY" ? "SSH key" : "password"}) to add and remove the entry. It is the same account password rotation uses to reset passwords.{s.reconcile.missingFor.length ? ` ${s.reconcile.missingFor.join(", ")} has no copy yet: enter it again.` : ""}</>
-          : "None yet. Root, or an account that can use sudo, on the server."}</p>
+          : windows ? "None yet. The built-in Administrator of the server (or a domain account in its Administrators group)." : "None yet. Root, or an account that can use sudo, on the server."}</p>
         {!open ? (
           <div className="rot-actions">
             <button type="button" className="btn sm" onClick={() => setOpen(true)}>{s.reconcile ? "Change" : "Add administrator account"}</button>
@@ -86,15 +87,15 @@ export function ElevationPanel({ siteId, initial }: { siteId: string; initial: R
           <div className="rot-rec-form">
             <label className="rq-sec"><span className="rq-label"><span>User</span></span>
               <input className="input mono" value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" /></label>
-            <div className="rq-sec"><span className="rq-label"><span>Signs in with</span></span>
+            {!windows && <div className="rq-sec"><span className="rq-label"><span>Signs in with</span></span>
               <div className="seg" role="radiogroup" aria-label="Signs in with">
                 {(["PASSWORD", "KEY"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? "seg-opt on" : "seg-opt"} onClick={() => setKind(k)}>{k === "KEY" ? "SSH key" : "Password"}</button>)}
-              </div></div>
+              </div></div>}
             <label className="rq-sec rot-wide"><span className="rq-label"><span>{kind === "KEY" ? "Private key" : "Password"}</span></span>
               {kind === "KEY"
                 ? <textarea className="textarea mono" rows={4} value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" spellCheck={false} />
                 : <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password" />}</label>
-            <p className="rf-hint rot-wide">Sealed in this browser to {s.keys.map((k) => k.name).join(", ")}. A sudo account without a password needs <span className="mono">NOPASSWD</span>, or its password here.</p>
+            <p className="rf-hint rot-wide">Sealed in this browser to {s.keys.map((k) => k.name).join(", ")}. {windows ? "It signs in over SMB, so the connector must reach port 445." : <>A sudo account without a password needs <span className="mono">NOPASSWD</span>, or its password here.</>}</p>
             <div className="rot-actions rot-wide">
               <button type="button" className="btn sm" onClick={() => { setOpen(false); setSecret(""); }}>Cancel</button>
               <button type="button" className="btn sm ink" disabled={!user.trim() || !secret || busy} onClick={() => void saveAccount()}>{busy ? "Saving…" : "Save account"}</button>

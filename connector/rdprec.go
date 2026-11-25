@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -322,6 +323,14 @@ func handleRdpRec(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) 
 			return
 		}
 		password = s
+	}
+	if req.Elevate != nil {
+		release, err := elevateAccount(context.Background(), allow, elevSpec{platform: req.Elevate.Platform, host: req.Elevate.Host, port: req.Elevate.Port, account: req.Elevate.Account, admin: &req.Elevate.Admin, pinned: req.Elevate.SSHHostKey})
+		if err != nil {
+			writeRdpRecResp(st, tunnel.RdpRecResponse{Error: err.Error()})
+			return
+		}
+		defer release()
 	}
 	in, err := rdpSignIn(addr, req.Username, password)
 	if err != nil {

@@ -89,6 +89,7 @@ jobs:
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/gateway/ssh-ca.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/vault/discovery.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/agent/agent.integration.test.ts
+      - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/vault/elevation.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/database/database.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/review/review.integration.test.ts
       - run: TEST_DATABASE_URL=$DB_URL npx vitest run src/lib/ticketing/ticketing.integration.test.ts

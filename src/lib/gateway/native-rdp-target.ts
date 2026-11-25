@@ -8,11 +8,14 @@ import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
 import { parseGuacParams, resolveGuacParams } from "@/lib/gateway/guac-params";
 import { getVaultCredential } from "@/lib/vault/store";
 import { rotationOn } from "@/lib/vault/rotation";
+import { elevationPlan } from "@/lib/vault/elevation";
 import { blockedChannels, nativeRdpMode, NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR, nativeRedirection, type NativeRdpBlock, type NativeRdpMode, type NativeRedirection } from "@/lib/gateway/native-rdp";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 
 /** What a recorded session needs on top of where the server is. */
 export type NativeRdpRecorded = {
+  /** Administrator rights for this session: the account that gives them. Each connector's seal is in its candidate. */
+  elevate?: { platform: string; username: string; kind: string };
   keystrokeLogging: boolean;
   username: string;
   /** A legacy secret (no connector vault key); otherwise each candidate carries its seal. */
@@ -22,7 +25,7 @@ export type NativeRdpRecorded = {
 
 export type NativeRdpTarget =
   | ({ ok: true; mode: NativeRdpMode; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number; redirection: NativeRedirection } & Partial<NativeRdpRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_browser_only" | NativeRdpBlock; reason?: string };
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_browser_only" | "elevate_reenter" | NativeRdpBlock; reason?: string };
 
 /**
  * Whether this user may open this resource in a native RDP client now, and
@@ -36,7 +39,7 @@ export async function nativeRdpTarget(userId: string, siteId: string, now: Date)
     where: { id: siteId },
     select: {
       name: true, accessMode: true, nativeRdp: true, recordSessions: true, requireModerator: true, keystrokeLogging: true, clipboardMode: true, ...siteRoutingSelect,
-      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, guacParams: true, rotateAfterSession: true, rotateEveryDays: true } },
+      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, guacParams: true, rotateAfterSession: true, rotateEveryDays: true, elevate: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true } },
     },
   });
   if (!site) return { ok: false, status: 404, error: "not_found" };
@@ -77,10 +80,15 @@ export async function nativeRdpTarget(userId: string, siteId: string, now: Date)
     ...(sealed ? { canOpen: (m: { vaultPublicKey: string | null }) => !!m.vaultPublicKey && !!vault.seals[m.vaultPublicKey] } : {}),
   }).eligible;
   if (members.length === 0) return { ok: false, status: 409, error: sealed ? "vault_secret_reenter" : "connector_outdated" };
+  // Administrator rights for this session: connectors new enough that hold the administrator account's seal.
+  const plan = elevationPlan(cred, members, "session");
+  if (plan.on && !plan.ok) return { ok: false, status: 409, error: plan.error };
+  const carriers = plan.on ? plan.carriers : members;
   return {
     ok: true, mode, ...where,
-    connectorId: members[0].id,
-    connectors: candidatesFor(members, (m) => (sealed ? { sealedSecret: sealFor(m) } : {})),
+    connectorId: carriers[0].id,
+    connectors: candidatesFor(carriers, (m) => ({ ...(sealed ? { sealedSecret: sealFor(m) } : {}), ...(plan.on && plan.ok ? { elevateSealed: plan.sealOf(m) } : {}) })),
+    ...(plan.on && plan.ok ? { elevate: plan.elevate } : {}),
     keystrokeLogging: effectiveKeystrokeLogging({
       mode: await resolvedKeystrokeLoggingMode(), recordingEnabled: recordingEnabled(),
       recordSessions: true, siteFlag: site.keystrokeLogging,

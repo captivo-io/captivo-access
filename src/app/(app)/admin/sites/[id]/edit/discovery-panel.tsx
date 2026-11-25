@@ -2,26 +2,26 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ADOPT_MAX, adoptProblem, DISCOVER_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
+import { ADOPT_MAX, adoptProblem, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
 
 // Account discovery for one SSH resource (lib/vault/discovery.ts): which
 // accounts the server has, and a way to take some over as resources whose
 // password only Captivo knows.
 
-type Scan = { accounts: DiscoveredRow[]; administrator: string };
+type Scan = { accounts: DiscoveredRow[]; administrator: string; platform: "linux" | "windows" };
 type Done = { created: { id: string; name: string; username: string }[]; refused: { name: string; reason: string }[]; nativeLeftOff: boolean };
 
-function flags(a: DiscoveredRow): string[] {
+function flags(a: DiscoveredRow, windows: boolean): string[] {
   const f: string[] = [];
   if (a.admin) f.push("administrator");
   if (a.noPass) f.push("no password");
-  else if (a.locked) f.push("password locked");
+  else if (a.locked) f.push(windows ? "disabled" : "password locked");
   else if (a.passAgeDays >= 0) f.push(a.passAgeDays === 0 ? "password changed today" : `password ${a.passAgeDays} days old`);
   if (!a.login) f.push("no shell");
   return f;
 }
 
-export function DiscoveryPanel({ siteId, host }: { siteId: string; host: string }) {
+export function DiscoveryPanel({ siteId, host, windows }: { siteId: string; host: string; windows: boolean }) {
   const router = useRouter();
   const [scan, setScan] = useState<Scan | null>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
@@ -66,7 +66,7 @@ export function DiscoveryPanel({ siteId, host }: { siteId: string; host: string 
       <div className="rot-head">
         <div>
           <h2 id="disc-h">Accounts on this server</h2>
-          <p className="cell-sub">Lists the accounts of <b className="mono">{host}</b> through the administrator account: who can sign in, who is an administrator, whose password is locked, empty or old. Nothing is changed by looking. Needs a connector on {DISCOVER_MIN_CONNECTOR} or later and Linux.</p>
+          <p className="cell-sub">Lists the accounts of <b className="mono">{host}</b> through the administrator account: who can sign in, who is an administrator, whose password is locked, empty or old. Nothing is changed by looking. Needs a connector on {windows ? DISCOVER_WINDOWS_MIN_CONNECTOR : DISCOVER_MIN_CONNECTOR} or later{windows ? " and the server's local accounts (SMB, port 445)" : ""}.</p>
         </div>
         <button type="button" className="btn" disabled={!!busy} onClick={() => void doScan()}>{busy === "scan" ? "Looking…" : scan ? "Scan again" : "Scan this server"}</button>
       </div>
@@ -82,12 +82,12 @@ export function DiscoveryPanel({ siteId, host }: { siteId: string; host: string 
         <>
           <div role="group" aria-label="Accounts">
             {scan.accounts.map((a) => {
-              const why = adoptProblem(a, scan.administrator);
+              const why = adoptProblem(a, scan.administrator, scan.platform);
               return (
                 <label key={a.name} className="rf-row" style={{ cursor: why ? "default" : "pointer" }}>
                   <span className="rf-row-t">
                     <b className="mono">{a.name}</b>
-                    <span className="cell-sub">uid {a.uid} · {a.shell || "no shell"}{flags(a).length ? ` · ${flags(a).join(" · ")}` : ""}{why ? ` — ${why}` : ""}</span>
+                    <span className="cell-sub">{windows ? `RID ${a.uid}` : `uid ${a.uid} · ${a.shell || "no shell"}`}{flags(a, windows).length ? ` · ${flags(a, windows).join(" · ")}` : ""}{why ? ` — ${why}` : ""}</span>
                   </span>
                   <div className="rf-row-c"><input type="checkbox" aria-label={`Take over ${a.name}`} disabled={!!why || !!busy} checked={pick.has(a.name)} onChange={() => toggle(a.name)} /></div>
                 </label>

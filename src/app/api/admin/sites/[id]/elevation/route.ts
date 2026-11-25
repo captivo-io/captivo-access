@@ -9,12 +9,15 @@ import { withTenantRoute } from "@/lib/tenant/request";
 import { isSealedValue } from "@/lib/vault/seal";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
-import { elevationProblem } from "@/lib/vault/elevation";
+import { elevationPlatform, elevationProblem } from "@/lib/vault/elevation";
+import { windowsAccountOf } from "@/lib/vault/rotation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const LINUX_USER = /^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}\$?$/;
+/** A Windows administrator account: Administrator, .\\Administrator or DOMAIN\\name. */
+const WINDOWS_USER = /^(?:(?:\.|[A-Za-z0-9][A-Za-z0-9.-]{0,63})\\)?[^\s"\\/[\]:;|=,+*?<>@]{1,20}$/;
 
 // Administrator rights during a session: the switch, and the administrator
 // account that adds and removes the sudo entry (sealed in the browser to each
@@ -33,7 +36,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   if (!can(u.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { id } = await params;
   const s = await rotationStatus(id);
-  const site = await db.site.findUnique({ where: { id }, select: { name: true, nativeSsh: true, recordSessions: true } });
+  const site = await db.site.findUnique({ where: { id }, select: { name: true, nativeSsh: true, nativeRdp: true, recordSessions: true, vaultCredential: { select: { guacParams: true, rotationAccount: true } } } });
   if (!s || !site) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
@@ -46,7 +49,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   } else if (b.account && typeof b.account === "object") {
     const r = b.account as Record<string, unknown>;
     const username = typeof r.username === "string" ? r.username.trim() : "";
-    if (!LINUX_USER.test(username)) return NextResponse.json({ error: "invalid_reconcile_user" }, { status: 400 });
+    if (!(elevationPlatform(s.protocol) === "windows" ? WINDOWS_USER : LINUX_USER).test(username)) return NextResponse.json({ error: "invalid_reconcile_user" }, { status: 400 });
     const keys = new Set(s.keys.map((k) => k.key));
     const seals: Record<string, string> = {};
     for (const [k, v] of Object.entries((r.seals ?? {}) as Record<string, unknown>)) {
@@ -60,7 +63,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   }
   const elevate = b.elevate === undefined ? s.elevate : b.elevate === true;
   if (elevate) {
-    const bad = elevationProblem({ protocol: s.protocol, nativeSsh: site.nativeSsh, recorded: await effectiveSiteRecording(site.recordSessions), account: accountName, username: s.target.username });
+    const bad = elevationProblem({ protocol: s.protocol, nativeSsh: site.nativeSsh, nativeRdp: site.nativeRdp, recorded: await effectiveSiteRecording(site.recordSessions), account: accountName, username: s.target.username, windowsLocal: windowsAccountOf({ username: s.target.username, guacParams: site.vaultCredential?.guacParams, rotationAccount: site.vaultCredential?.rotationAccount }).account === "local" });
     if (bad) return NextResponse.json({ error: bad }, { status: 400 });
   }
   await db.vaultCredential.update({ where: { siteId: id }, data: { elevate, ...account } });

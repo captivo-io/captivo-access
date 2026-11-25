@@ -74,6 +74,8 @@ func runConnector() {
 	}
 
 	providerAllow = allow
+	// Administrator rights a stopped connector left behind are taken away now (elevate_journal.go).
+	go recoverElevations(allow)
 	token := readToken(tokenFile)
 	if token == "" {
 		pairCode := os.Getenv("PAIR_CODE")
