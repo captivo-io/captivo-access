@@ -79,6 +79,7 @@ model Tenant {
   sessionInvites     SessionInvite[]
   moderationRequests ModerationRequest[]
   checkouts          CredentialCheckout[]
+  apiTokens          ApiToken[]
   accessReviewItems  AccessReviewItem[]
 }
 
@@ -128,6 +129,8 @@ model User {
   // follow the centre (lib/auth/center-role.ts).
   centerRole              String?
   dbTickets               DbTicket[]
+  /// Set on the identity an agent token acts as (src/lib/agent).
+  agentTokens             ApiToken[] @relation("AgentIdentity")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1251,4 +1254,33 @@ model CredentialCheckout {
   @@index([tenantId])
   @@index([siteId, endedBy])
   @@index([endedBy, endsAt])
+}
+
+/// A token a machine or an AI agent signs in to the agent API with
+/// (src/lib/agent, /api/agent/v1). It acts as its own identity (a User row of
+/// the VENDOR role that nobody can sign in as), so what it is given is an
+/// ordinary grant: asked for, approved, time-boxed, reviewed, recorded and
+/// audited like a person's. The token only says which resources it may ask
+/// for, for how long at most, and whether the request approves itself.
+model ApiToken {
+  id          String    @id @default(cuid())
+  tenantId    String    @default("default")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  userId      String
+  user        User      @relation("AgentIdentity", fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String // sha256 of the token; the token is shown once
+  prefix      String // its first characters, to tell tokens apart
+  siteIds     String[] // the resources it may ask for
+  maxMinutes  Int       @default(60) // the longest access one request may ask for
+  autoApprove Boolean   @default(false) // a request is approved without a person (only within the limits above)
+  expiresAt   DateTime
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([tenantId, tokenHash])
+  @@index([tenantId])
+  @@index([userId])
 }

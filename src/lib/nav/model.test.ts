@@ -23,7 +23,7 @@ describe("buildNavModel", () => {
     expect(hrefs(m)).toEqual(expect.arrayContaining([
       "/", "/admin/insights", "/admin/grants", "/admin/live", "/admin/recordings", "/admin/audit",
       "/admin/connectors", "/admin/sites", "/admin/policy",
-      "/admin/users", "/admin/directory", "/admin/sso",
+      "/admin/users", "/admin/directory", "/admin/sso", "/admin/agents",
       "/admin/email", "/admin/log-forwarding", "/admin/updates",
     ]));
     expect(m.canSwitchView).toBe(true);

@@ -437,6 +437,48 @@ under *Administrator rights during sessions*, also used by password rotation),
   administrator account, and a connector on 2.72.0 or later that holds the
   administrator account. Windows and database accounts are not scanned yet.
 
+## Agents (scripts, pipelines and AI agents)
+
+A machine can ask for access the way a person does, and get it for a few minutes.
+**Agents** in the console (Identity & access) makes **agent tokens**.
+
+- **A token is an identity.** Making one creates a user of its own (the vendor role,
+  with no way to sign in to the console) and a token. What the agent is given is an
+  ordinary access grant for that user, so approval, tickets, schedules, access
+  reviews, recording and the audit log all apply as they do for a person. The token
+  only says which resources it may ask for (SSH resources and TCP tunnels for now), the
+  longest access one request may ask for (5 minutes to 24 hours), how long the token
+  lives (up to 90 days), and whether it approves its own requests.
+- **The token is shown once**, when it is made; only its hash is kept. Revoking it
+  stops it at once and ends the access it holds (the data plane rechecks live
+  sessions every minute and closes them). It counts as one user toward the
+  workspace's user limit.
+- **Asking.** With `Authorization: Bearer <token>` on the workspace's address:
+  - `GET /api/agent/v1/me`: the token's limits and the resources it may ask for,
+    each with where it stands (`active`, `pending`, `scheduled`, `off_hours`).
+  - `POST /api/agent/v1/access` with `{"siteId", "minutes", "reason"}` (a reason of
+    at least 10 characters, and optionally `"ticket"` for a resource that takes
+    one). The minutes are held to the token's limit. The answer is `pending` (a person
+    approves it: they get it by mail and on their phone, with Approve and Deny),
+    or `approved` (the ticket was approved in your ticket system, or the token approves
+    its own requests; the audit log records `grant.auto_approved`).
+  - `GET /api/agent/v1/access/<id>`: `pending`, `active`, `denied`, `revoked`,
+    `expired`, and the reason when there is one.
+- **Connecting.** `POST /api/agent/v1/connect/<siteId>` once the access is active
+  gives an SSH command through the jump host, good for two minutes
+  (`ssh -J <ticket>@host:2222 ... user@server`). On a recorded resource Captivo
+  signs in as the saved account, so the agent holds no password or key and the
+  whole session is recorded; combine it with SSH certificates or sudo only while a
+  session is open for no standing credential at all. On an unrecorded resource the
+  agent would have to bring the account's own password, so use recorded ones. A
+  TCP tunnel returns the port forward instead of a command.
+- **What it does not do (yet).** Agents reach SSH resources and tunnels; databases,
+  Kubernetes and remote desktops are for people. There is no per-token rate limit.
+  A request is for the resource as a whole, not for part of it.
+- **Safe defaults.** A new token waits for a person. Turning on self-approval is a
+  decision about that one token: it can be given only the resources and minutes
+  you set, and only while it is live.
+
 ## Inviting someone into a live session
 
 An admin watching a live session can bring in someone from outside the console

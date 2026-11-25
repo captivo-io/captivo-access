@@ -97,6 +97,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
       { label: "Users & vendors", href: "/admin/users", icon: "users" },
       { label: "Directory", href: "/admin/directory", icon: "folder" },
       { label: "Single sign-on", href: "/admin/sso", icon: "lock" },
+      { label: "Agents", href: "/admin/agents", icon: "key" },
     ] });
     admin.push({ label: "Platform", items: [
       { label: "Email", href: "/admin/email", icon: "mail" },
