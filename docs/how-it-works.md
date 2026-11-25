@@ -401,6 +401,42 @@ page, **Administrator rights during sessions** turns this on.
   changed. It combines with certificate sign-in, so an account can have neither
   a password nor a standing sudo.
 
+## Finding and taking over accounts (Linux)
+
+A server has more accounts than anyone wrote down. On an SSH resource that has
+an **administrator account** (root, or one that can use sudo; the one entered
+under *Administrator rights during sessions*, also used by password rotation),
+**Accounts on this server** lists them.
+
+- **What the scan shows.** The connector signs in as the administrator account and
+  reads `/etc/passwd`, `/etc/group` and `/etc/shadow`. For each account: its uid and
+  shell, whether it can sign in, whether it is an administrator (uid 0, or in
+  `sudo`, `wheel` or `admin`), whether its password is locked or empty, and how
+  old it is. Only those facts leave the server; a password hash never does. Accounts
+  that are already resources are marked. Looking changes nothing and is audited
+  (`resource.discovery_scan`).
+- **Taking an account over.** Pick up to 20 accounts that can sign in, confirm,
+  and Captivo makes each one a resource of its own (same connector or group, same
+  server, recording and other session settings as the resource you scanned from,
+  named `<resource> · <account>`). The new resource starts with a placeholder
+  password that does not work, and rotation runs at once: it finds the saved
+  password wrong, resets the account through the administrator account, and keeps
+  the new random password sealed to the connector. From then on the account is
+  managed like any other: rotation, check-out, grants, recording.
+- **What it costs.** The account's password changes. Anything else that signs in
+  with the old password (a service, a script, a person) stops working, and the
+  page says so before the button is enabled. Take over the account that humans
+  use, not one a service depends on, unless the service can be given the new
+  password.
+- **Never offered:** the administrator account itself (changing its password
+  would lock Captivo out), root, accounts without a shell, accounts that are
+  already resources. If the source resource's sessions are not recorded, the new
+  resources have the native SSH client off, because a native client needs a
+  password the user knows.
+- **Requirements:** a Linux server with `/etc/shadow` readable by the
+  administrator account, and a connector on 2.72.0 or later that holds the
+  administrator account. Windows and database accounts are not scanned yet.
+
 ## Inviting someone into a live session
 
 An admin watching a live session can bring in someone from outside the console

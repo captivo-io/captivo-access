@@ -13,6 +13,8 @@ package tunnel
 //	         prepared password) instead of Current, then check it signs in
 //	verify   check Current still signs in
 //	reveal   seal Current to the one key in To (an admin's browser)
+//	discover list the accounts on a Linux server, through the reconcile
+//	         account (Current is not used)
 type RotateRequest struct {
 	Kind     string   `json:"kind"` // "rotate"
 	Op       string   `json:"op"`
@@ -71,6 +73,22 @@ type RotateResponse struct {
 	SSHHostKey string            `json:"sshHostKey,omitempty"`
 	Detail     string            `json:"detail,omitempty"`
 	Error      string            `json:"error,omitempty"`
+	// discover: the server's accounts. Never a hash.
+	Accounts []DiscoveredAccount `json:"accounts,omitempty"`
+}
+
+// DiscoveredAccount is one account of a Linux server (connector/discover.go).
+type DiscoveredAccount struct {
+	Name   string `json:"name"`
+	UID    int    `json:"uid"`
+	Shell  string `json:"shell"`
+	Home   string `json:"home"`
+	Admin  bool   `json:"admin,omitempty"`  // uid 0, or in sudo, wheel or admin
+	Login  bool   `json:"login,omitempty"`  // has a shell that signs in
+	Locked bool   `json:"locked,omitempty"` // no password can sign in (a "!" or "*" hash)
+	NoPass bool   `json:"noPass,omitempty"` // an empty password
+	// Days since the password was last changed; -1 when unknown.
+	PassAgeDays int `json:"passAgeDays"`
 }
 
 // RotateDB is how the connector signs in to a database resource's server for a

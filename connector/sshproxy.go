@@ -153,7 +153,7 @@ func sshSignInError(err error) string {
 	switch {
 	case errors.Is(err, errSSHHostKeyChanged):
 		return errSSHHostKeyChanged.Error()
-	case strings.Contains(err.Error(), "unable to authenticate"):
+	case isAuthRefused(err):
 		return "the server refused the saved account; an admin can enter its password or key again (for a certificate: the server must trust this connector's CA and accept the account name)"
 	case strings.Contains(err.Error(), "i/o timeout"), strings.Contains(err.Error(), "connection refused"), strings.Contains(err.Error(), "no route"):
 		return "the server can't be reached from its connector"
