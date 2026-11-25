@@ -17,7 +17,7 @@ const OWNER_URL = process.env.TEST_DATABASE_URL;
 const suffix = crypto.randomUUID().slice(0, 8);
 const tA = { id: `ag-a-${suffix}`, slug: `ag-a-${suffix}` };
 const conn = `ag-c-${suffix}`;
-const [sshSite, rdpSite, dbSite, kubeSite] = [`ags-ssh-${suffix}`, `ags-rdp-${suffix}`, `ags-db-${suffix}`, `ags-kube-${suffix}`];
+const [sshSite, rdpSite, dbSite, kubeSite, vncSite, webSite] = [`ags-ssh-${suffix}`, `ags-rdp-${suffix}`, `ags-db-${suffix}`, `ags-kube-${suffix}`, `ags-vnc-${suffix}`, `ags-web-${suffix}`];
 const admin = `ag-adm-${suffix}`;
 const DP_SECRET = `ag-dp-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "deploy" };
@@ -42,6 +42,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
   let accessId: typeof import("@/app/api/agent/v1/access/[id]/route");
   let connect: typeof import("@/app/api/agent/v1/connect/[siteId]/route");
   let mcp: typeof import("@/app/api/agent/mcp/route");
+  let resolveRoute: typeof import("@/app/api/internal/agent/resolve/route");
   let fakeDataplane: Server;
   let token = "";
   let tokenId = "";
@@ -77,7 +78,9 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.71.0',$3)`, conn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,'admin@a.test','Admin','ADMIN','ACTIVE')`, admin, tA.id);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","nativeSsh","recordSessions") VALUES($1,$2,$3,'Build box','GATEWAY',true,true)`, sshSite, tA.id, conn);
-    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Desktop','GATEWAY')`, rdpSite, tA.id, conn);
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","nativeRdp","recordSessions") VALUES($1,$2,$3,'Desktop','GATEWAY',true,true)`, rdpSite, tA.id, conn);
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Console','GATEWAY')`, vncSite, tA.id, conn);
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode",hostname,"upstreamUrl") VALUES($1,$2,$3,'Wiki','TRANSPARENT',$4,'http://wiki.internal')`, webSite, tA.id, conn, `wiki-${suffix}.example.test`);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Orders DB','DATABASE')`, dbSite, tA.id, conn);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Prod cluster','KUBERNETES')`, kubeSite, tA.id, conn);
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
@@ -86,6 +89,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     const s = await sealSecret(pub, "deploy-pass", target);
     await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","updatedAt") VALUES($1,$2,$3,'SSH',$4,$5,$6,$7,$8,now())`, `agv1-${suffix}`, tA.id, sshSite, target.host, target.port, target.username, s, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","updatedAt") VALUES($1,$2,$3,'RDP',$4,3389,'Administrator',$5,$6,now())`, `agv2-${suffix}`, tA.id, rdpSite, target.host, s, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","updatedAt") VALUES($1,$2,$3,'VNC',$4,5900,'x',$5,$6,now())`, `agv5-${suffix}`, tA.id, vncSite, target.host, s, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","updatedAt") VALUES($1,$2,$3,'POSTGRES',$4,5432,'app',$5,$6,'{"database":"orders","databases":[],"tls":"require"}'::jsonb,now())`, `agv3-${suffix}`, tA.id, dbSite, target.host, s, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","kubeParams","updatedAt") VALUES($1,$2,$3,'KUBERNETES',$4,6443,'captivo',$5,$6,$7::jsonb,now())`, `agv4-${suffix}`, tA.id, kubeSite, target.host, s, pub, JSON.stringify({ caCertPem: null, identity: "service_account", groups: [], namespaces: ["default"], readOnly: false, portForward: false }));
     agents = await import("@/app/api/admin/agents/route");
@@ -95,6 +99,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     accessId = await import("@/app/api/agent/v1/access/[id]/route");
     connect = await import("@/app/api/agent/v1/connect/[siteId]/route");
     mcp = await import("@/app/api/agent/mcp/route");
+    resolveRoute = await import("@/app/api/internal/agent/resolve/route");
   });
 
   afterAll(async () => {
@@ -105,7 +110,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
   });
 
   it("makes a token only for resources an agent can connect to, shown once", async () => {
-    const bad = await json(await call(agents.POST as never, "POST", "/api/admin/agents", null, { name: "pipeline", siteIds: [sshSite, rdpSite] }));
+    const bad = await json(await call(agents.POST as never, "POST", "/api/admin/agents", null, { name: "pipeline", siteIds: [sshSite, vncSite] }));
     expect(bad).toMatchObject({ status: 400, body: { error: "site_not_supported" } });
     const ok = await json(await call(agents.POST as never, "POST", "/api/admin/agents", null, { name: "pipeline", siteIds: [sshSite], maxMinutes: 30 }));
     expect(ok.status).toBe(201);
@@ -129,7 +134,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
   });
 
   it("asks for access with a reason, held to the token's limits, and waits for a person", async () => {
-    expect((await call(access.POST as never, "POST", "/api/agent/v1/access", token, { siteId: rdpSite, reason: "Roll back release 4.2" })).status).toBe(403);
+    expect((await call(access.POST as never, "POST", "/api/agent/v1/access", token, { siteId: vncSite, reason: "Roll back release 4.2" })).status).toBe(403);
     expect((await json(await call(access.POST as never, "POST", "/api/agent/v1/access", token, { siteId: sshSite, reason: "short" }))).body.error).toBe("reason_required");
     const r = await json(await call(access.POST as never, "POST", "/api/agent/v1/access", token, { siteId: sshSite, minutes: 600, reason: "Roll back release 4.2 (INC-1042)" }));
     expect(r).toMatchObject({ status: 201, body: { status: "pending" } });
@@ -185,6 +190,38 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     await call(connect.POST as never, "POST", `/api/agent/v1/connect/${dbSite}`, tk, undefined, ctx(dbSite));
     const n = await owner.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM "Session" WHERE "userAgent" = 'agent-api' AND "tenantId" = $1`, tA.id);
     expect(Number(n[0].n)).toBe(1);
+  });
+
+  it("connects to a remote desktop with a ticketed .rdp file and to a web application through its own header", async () => {
+    const made = await json(await call(agents.POST as never, "POST", "/api/admin/agents", null, { name: "desk", siteIds: [rdpSite, webSite], maxMinutes: 30, autoApprove: true }));
+    expect(made.status).toBe(201);
+    const tk = made.body.token as string;
+    const ctx = (id: string) => ({ params: Promise.resolve({ siteId: id }) });
+    expect((await json(await call(connect.POST as never, "POST", `/api/agent/v1/connect/${webSite}`, tk, undefined, ctx(webSite)))).body.error).toBe("no_active_access");
+    for (const id of [rdpSite, webSite]) {
+      expect((await json(await call(access.POST as never, "POST", "/api/agent/v1/access", tk, { siteId: id, minutes: 15, reason: "Check the wiki and the desktop" }))).body.status).toBe("approved");
+    }
+    const w = await json(await call(connect.POST as never, "POST", `/api/agent/v1/connect/${webSite}`, tk, undefined, ctx(webSite)));
+    expect(w.body).toMatchObject({ kind: "web", url: `https://wiki-${suffix}.example.test/`, header: "X-Captivo-Agent-Token" });
+    const d = await json(await call(connect.POST as never, "POST", `/api/agent/v1/connect/${rdpSite}`, tk, undefined, ctx(rdpSite)));
+    expect(d.status).toBe(200);
+    expect(d.body.kind).toBe("rdp");
+    expect(d.body.recorded).toBe(true);
+    expect(d.body.rdp).toContain("gatewayhostname");
+    expect(d.body.rdp).toContain("gatewayaccesstoken");
+
+    // The data plane's check for a request with the token: who it is, only on a web resource it was given.
+    const resolve = async (token: string, siteId: string) => {
+      const res = await resolveRoute.POST(new Request(`${H}/api/internal/agent/resolve`, { method: "POST", headers: { "content-type": "application/json", "x-dataplane-secret": DP_SECRET }, body: JSON.stringify({ token, siteId }) }) as unknown as NextRequest);
+      return { status: res.status, body: (await res.json()) as Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    };
+    const ok = await resolve(tk, webSite);
+    expect(ok.status).toBe(200);
+    expect(ok.body.email).toMatch(/@agents\.invalid$/);
+    expect((await resolve(tk, sshSite)).status).toBe(401); // not one of its resources
+    expect((await resolve(tk, rdpSite)).status).toBe(401); // not a web application
+    expect((await resolve("cat_nope", webSite)).status).toBe(401);
+    expect((await resolve(token, webSite)).status).toBe(401); // another agent's token: not given the wiki
   });
 
   it("a token made to approve its own requests is approved at once, and the audit log says so", async () => {

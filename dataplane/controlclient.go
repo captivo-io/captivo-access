@@ -102,6 +102,22 @@ func (c *ControlClient) ResolveSession(token string) (userID, email string, err 
 	return out.UserID, out.Email, nil
 }
 
+// ResolveAgent says who an agent API token is on a web resource: the token's
+// identity when it is live and the resource is one it may use, else "".
+func (c *ControlClient) ResolveAgent(token, siteID string) (userID, email string, err error) {
+	var out struct {
+		UserID string `json:"userId"`
+		Email  string `json:"email"`
+	}
+	if err := c.post("/api/internal/agent/resolve", map[string]string{"token": token, "siteId": siteID}, &out); err != nil {
+		if isHTTPStatus(err) {
+			return "", "", nil
+		}
+		return "", "", err
+	}
+	return out.UserID, out.Email, nil
+}
+
 // ViewAuthz asks the manager whether a user may watch the live session on siteID:
 // read_console, and the site must belong to the viewer's own tenant. The hub holds
 // every tenant's sessions, so the role alone would let one workspace's admin watch

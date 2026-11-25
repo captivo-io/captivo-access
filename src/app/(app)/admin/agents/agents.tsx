@@ -66,7 +66,7 @@ export function Agents({ tokens, sites, origin, limits }: { tokens: TokenRow[]; 
           <div><h2 id="ag-h">Tokens</h2><p className="cell-sub">{live.length} live. A token is shown once, when it is made.</p></div>
           <button type="button" className="btn primary" disabled={sites.length === 0} onClick={() => { setOpen(true); setErr(null); }}>New agent token</button>
         </div>
-        {sites.length === 0 && <p className="rf-msg warn">Agents connect to SSH resources, TCP tunnels, databases and Kubernetes clusters, and there are none yet.</p>}
+        {sites.length === 0 && <p className="rf-msg warn">Agents connect to SSH resources, TCP tunnels, databases, Kubernetes clusters, web applications and remote desktops, and there are none yet.</p>}
         {tokens.length === 0 ? <p className="cell-sub">No agent tokens yet.</p> : (
           <div role="list">
             {tokens.map((t) => {

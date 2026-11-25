@@ -9,11 +9,11 @@ import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { callConnector, nativeBlocksRotation, windowsAccountOf } from "@/lib/vault/rotation";
 import { kickRotation } from "@/lib/vault/rotation-pass";
-import { storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
+import { sealsOf, storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { compareSemver } from "@/lib/updates/semver";
 import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
-import { ADOPT_MAX, acceptAccounts, adoptProblem, adoptedName, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, DISCOVER_DB_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
+import { ADOPT_MAX, acceptAccounts, adoptProblem, adoptedName, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, DISCOVER_DB_MIN_CONNECTOR, DISCOVER_MORE_DB_MIN_CONNECTOR, isDbPlatform, type DiscoverPlatform, type DiscoveredRow } from "@/lib/vault/discovery";
 import { Prisma } from "@/generated/prisma/client";
 import { parseDbParams, dbEngineOf } from "@/lib/database/params";
 
@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 /** The password a new resource starts with: it does not sign in, and is replaced at once by the takeover. */
 const placeholderPassword = () => randomBytes(24).toString("base64url");
 
-type Platform = "linux" | "windows" | "postgres" | "mysql";
+type Platform = DiscoverPlatform;
 
 type Admin = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
@@ -34,19 +34,24 @@ async function scan(siteId: string): Promise<{ error: string; status: number; de
   const src = await load(siteId);
   if (!src || !src.vaultCredential) return { error: "not_found", status: 404 };
   const c = src.vaultCredential;
-  const platform: Platform | null = c.protocol === "SSH" ? "linux" : c.protocol === "RDP" ? "windows" : c.protocol === "POSTGRES" ? "postgres" : c.protocol === "MYSQL" ? "mysql" : null;
+  const platform: Platform | null = c.protocol === "SSH" ? "linux" : c.protocol === "RDP" ? "windows" : c.protocol === "POSTGRES" ? "postgres" : c.protocol === "MYSQL" ? "mysql" : c.protocol === "MSSQL" ? "mssql" : c.protocol === "REDIS" ? "redis" : c.protocol === "MONGODB" ? "mongodb" : null;
   if (!platform) return { error: "discovery_ssh_only", status: 400, detail: "Accounts can be listed on a Linux server reached over SSH, a Windows server reached over remote desktop, or in PostgreSQL or MySQL." };
   if (platform === "windows" && windowsAccountOf({ username: c.username, guacParams: c.guacParams, rotationAccount: c.rotationAccount }).account === "domain") return { error: "discovery_local_only", status: 400, detail: "Only the local accounts of a Windows server can be listed; this resource's account is a domain account." };
-  const min = platform === "windows" ? DISCOVER_WINDOWS_MIN_CONNECTOR : platform === "linux" ? DISCOVER_MIN_CONNECTOR : DISCOVER_DB_MIN_CONNECTOR;
-  const dbp = platform === "postgres" || platform === "mysql" ? parseDbParams(c.dbParams, dbEngineOf(c.protocol)) : null;
-  const seals = c.reconcileSeals && typeof c.reconcileSeals === "object" && !Array.isArray(c.reconcileSeals) ? (c.reconcileSeals as Record<string, string>) : {};
-  if (!c.reconcileUsername || Object.keys(seals).length === 0) return { error: "discovery_needs_account", status: 409, detail: "Add the administrator account (root, or one that can use sudo) in Administrator rights during sessions first." };
+  const min = platform === "windows" ? DISCOVER_WINDOWS_MIN_CONNECTOR : platform === "linux" ? DISCOVER_MIN_CONNECTOR : platform === "postgres" || platform === "mysql" ? DISCOVER_DB_MIN_CONNECTOR : DISCOVER_MORE_DB_MIN_CONNECTOR;
+  const dbp = isDbPlatform(platform) ? parseDbParams(c.dbParams, dbEngineOf(c.protocol)) : null;
+  // Redis and MongoDB have no reconcile account: their own saved account lists the others.
+  const own = platform === "redis" || platform === "mongodb";
+  const ownSeals = sealsOf({ secret: c.secret, sealedTo: c.sealedTo, extraSeals: c.extraSeals });
+  const seals = own ? ownSeals : c.reconcileSeals && typeof c.reconcileSeals === "object" && !Array.isArray(c.reconcileSeals) ? (c.reconcileSeals as Record<string, string>) : {};
+  if (!own && (!c.reconcileUsername || Object.keys(seals).length === 0)) return { error: "discovery_needs_account", status: 409, detail: "Add the administrator account (root, or one that can use sudo) in Administrator rights during sessions first." };
   const holders = (src.connectorGroup ? src.connectorGroup.members.map((m) => m.connector) : [src.connector]).filter((h) => h.status === "ONLINE" && h.vaultPublicKey && seals[h.vaultPublicKey] && compareSemver(h.version, min) !== -1);
   const pick = holders[0];
   if (!pick) return { error: "discovery_waiting", status: 409, detail: `Needs an online connector on ${min} or later that holds the administrator account.` };
   const ans = await callConnector(pick.id, {
     op: "discover", method: platform, host: c.targetHost, port: String(c.targetPort), username: c.username,
-    reconcile: { host: c.targetHost, port: String(c.targetPort), username: c.reconcileUsername, sealed: seals[pick.vaultPublicKey!], secretKey: c.reconcileKind === "KEY" },
+    ...(own
+      ? { current: seals[pick.vaultPublicKey!] }
+      : { reconcile: { host: c.targetHost, port: String(c.targetPort), username: c.reconcileUsername, sealed: seals[pick.vaultPublicKey!], secretKey: c.reconcileKind === "KEY" } }),
     ...(platform === "linux" && c.sshHostKey ? { sshHostKey: c.sshHostKey } : {}),
     ...(dbp ? { db: { database: dbp.database, tls: dbp.tls, caCertPem: dbp.caCertPem } } : {}),
   } as Record<string, unknown>);
@@ -54,7 +59,7 @@ async function scan(siteId: string): Promise<{ error: string; status: number; de
   const accounts = acceptAccounts((ans as { accounts?: unknown }).accounts);
   const taken = await db.vaultCredential.findMany({ where: { targetHost: c.targetHost, targetPort: c.targetPort, protocol: c.protocol }, select: { username: true, site: { select: { id: true, name: true } } } });
   const by = new Map(taken.map((t) => [t.username, t.site]));
-  return { rows: accounts.map((a) => ({ ...a, managedBy: by.get(a.name) ?? null })), admin: c.reconcileUsername, platform, src };
+  return { rows: accounts.map((a) => ({ ...a, managedBy: by.get(a.name) ?? null })), admin: own ? c.username : c.reconcileUsername!, platform, src };
 }
 
 function load(siteId: string) {
@@ -64,7 +69,7 @@ function load(siteId: string) {
       id: true, name: true, connectorId: true, connectorGroupId: true, recordSessions: true, keystrokeLogging: true, watermark: true, clipboardMode: true, nativeSsh: true, nativeRdp: true, requireModerator: true,
       connector: { select: { id: true, status: true, version: true, vaultPublicKey: true } },
       connectorGroup: { select: { members: { orderBy: { createdAt: "asc" }, select: { connector: { select: { id: true, status: true, version: true, vaultPublicKey: true } } } } } },
-      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true, rotationAccount: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true } },
+      vaultCredential: { select: { secret: true, sealedTo: true, extraSeals: true, protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, dbParams: true, rotationAccount: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true } },
     },
   });
 }
@@ -105,7 +110,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     }
     const recorded = await effectiveSiteRecording(src.recordSessions);
     // A native client needs a password the user knows; rotation is what takes the account over, so it stays off unless sessions are recorded.
-    const isDb = res.platform === "postgres" || res.platform === "mysql";
+    const isDb = isDbPlatform(res.platform);
     const wasNative = isDb ? false : res.platform === "windows" ? src.nativeRdp : src.nativeSsh;
     const keepNative = wasNative && !nativeBlocksRotation({ nativeRdp: res.platform === "windows", nativeSsh: res.platform === "linux", recorded });
     const created: { id: string; name: string; username: string }[] = [];

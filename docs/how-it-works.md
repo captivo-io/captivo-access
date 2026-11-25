@@ -466,9 +466,16 @@ under *Administrator rights during sessions*, also used by password rotation),
 - **Requirements:** on Linux a server with `/etc/shadow` readable by the
   administrator account and a connector on 2.72.0 or later; on Windows a local
   account (not a domain one), SMB reachable from the connector and a connector on
-  2.75.0 or later; for a database a connector on 2.76.0 or later. All need a
-  connector that holds the administrator account. SQL Server, Redis and MongoDB
-  are not scanned.
+  2.75.0 or later; for PostgreSQL and MySQL a connector on 2.76.0 or later. All need a
+  connector that holds the administrator account.
+- **SQL Server.** The SQL logins (not Windows logins): who is disabled, who is in
+  `sysadmin`, how old the password is. A take-over works like PostgreSQL's: the
+  reconcile account needs `ALTER ANY LOGIN`. Needs a connector on 2.77.0 or later.
+- **Redis and MongoDB.** They have no reconcile account, so the resource's own saved
+  account lists the others, as far as its rights allow: Redis ACL users (who is on,
+  who has no password, who may run every command) and MongoDB users with their
+  database and whether a role is administrative. These are listed so you can see
+  them; Captivo does not change their passwords yet, so none can be taken over.
 
 ## Agents (scripts, pipelines and AI agents)
 
@@ -479,7 +486,7 @@ A machine can ask for access the way a person does, and get it for a few minutes
   with no way to sign in to the console) and a token. What the agent is given is an
   ordinary access grant for that user, so approval, tickets, schedules, access
   reviews, recording and the audit log all apply as they do for a person. The token
-  only says which resources it may ask for (SSH resources, TCP tunnels, databases and Kubernetes clusters), the
+  only says which resources it may ask for (SSH resources, TCP tunnels, databases, Kubernetes clusters, web applications and remote desktops), the
   longest access one request may ask for (5 minutes to 24 hours), how long the token
   lives (up to 90 days), and whether it approves its own requests.
 - **The token is shown once**, when it is made; only its hash is kept. Revoking it
@@ -512,6 +519,20 @@ A machine can ask for access the way a person does, and get it for a few minutes
     internal session nobody can sign in with.
   - **Kubernetes**: a kubeconfig whose token is a ticket, with the cluster's rules
     (namespaces, read-only, port-forward) and exec recording as for a person.
+  - **Web applications**: the application's own address and the name of a header,
+    `X-Captivo-Agent-Token`. The agent calls the application (an API, a dashboard's
+    JSON) at that address with its token in that header. The proxy takes the token
+    out before the request reaches the application, so the application's own
+    `Authorization` header is left alone, and checks the access, the allowed
+    hosts and the recording on every request, as it does for a person. A request
+    without a live token, or for an application the token was not given, gets
+    a plain 401, not a login page.
+  - **Remote desktops**: a `.rdp` file for a Remote Desktop client (FreeRDP's
+    `xfreerdp`, for a tool that drives a screen), valid for two minutes and going
+    through this workspace's RD Gateway. The resource must allow the native client;
+    on a recorded resource Captivo signs in, so the agent holds no password, and
+    the session is recorded and can be watched or taken over by an admin like any
+    other.
   Combine them with SSH certificates, a user per database connection and sudo only
   while a session is open, and the agent never holds a standing credential.
 - **Rate.** A token may make 120 calls a minute by default (10 to 600, set when the
@@ -523,8 +544,11 @@ A machine can ask for access the way a person does, and get it for a few minutes
   at `https://<workspace host>/api/agent/mcp` with the header
   `Authorization: Bearer <token>`. Each tool runs the REST handler, so checks, rate and
   audit are the same; a failure comes back as a tool error the model can read.
-- **What it does not do.** Remote desktops and web apps are for people. A request is
-  for the resource as a whole, not for part of it.
+- **What it does not do.** Isolated browsers and VNC consoles are for people. A request
+  is for the resource as a whole, not for part of it. Driving a screen with an AI is
+  the widest thing an agent can be given and the hardest to review afterwards:
+  give it to a token only where a command-line way in does not exist, and leave
+  *Approves its own requests* off.
 - **Safe defaults.** A new token waits for a person. Turning on self-approval is a
   decision about that one token: it can be given only the resources and minutes
   you set, and only while it is live.
