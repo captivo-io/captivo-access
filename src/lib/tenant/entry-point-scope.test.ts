@@ -78,6 +78,7 @@ const EXEMPT_PREFIXES: Array<[string, string]> = [
   ["src/app/api/connector/enroll/", "tunnel host + pairing token; resolved via SECURITY DEFINER"],
   ["src/app/api/recovery/", "pre-session recovery; resolved by token/email"],
   ["src/app/api/health/", "tenant-agnostic liveness"],
+  ["src/app/api/agent/mcp/", "queries nothing itself: every tool calls the /api/agent/v1 handlers, each of which opens its own tenant scope (nesting scopes is not allowed)"],
 ];
 describe("all /api tenant route handlers are scoped or explicitly exempt", () => {
   it("every route.ts is wrapped or allow-listed with a reason", () => {
