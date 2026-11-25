@@ -83,7 +83,7 @@ type fakeViewAuth struct {
 }
 
 func (f fakeViewAuth) ResolveSession(string) (string, string, error) { return f.user, "", nil }
-func (f fakeViewAuth) ViewAuthz(string, string) (bool, error)         { return f.allow, nil }
+func (f fakeViewAuth) ViewAuthz(string, string) (bool, error)        { return f.allow, nil }
 
 func TestServeWebView_Refusals(t *testing.T) {
 	h := NewWebLiveHub()

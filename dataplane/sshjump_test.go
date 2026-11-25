@@ -39,6 +39,9 @@ func (f *fakeSSHCtrl) NativeSshTarget(userID, siteID string) (sshTarget, error) 
 	if f.recorded != nil {
 		r := *f.recorded
 		r.rdpTarget = t.rdpTarget
+		if len(f.recorded.Candidates) > 0 {
+			r.Candidates = f.recorded.Candidates
+		}
 		return r, nil
 	}
 	return t, nil

@@ -9,6 +9,7 @@ import { getVaultCredential } from "@/lib/vault/store";
 import { rotationOn } from "@/lib/vault/rotation";
 import { SSH_CA_MIN_CONNECTOR } from "@/lib/vault/providers";
 import { compareSemver } from "@/lib/updates/semver";
+import { ELEVATE_MIN_CONNECTOR } from "@/lib/vault/elevation";
 import { isSshCa, type SshCaBlock } from "@/lib/vault/ssh-ca";
 import { nativeSshMode, NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR, type NativeSshBlock, type NativeSshMode } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
@@ -25,13 +26,15 @@ export type NativeSshRecorded = {
   /** A legacy secret (no connector vault key); otherwise each candidate carries its seal. */
   secret?: string;
   sshHostKey: string | null;
+  /** Administrator rights for this session: the account that adds and removes the sudo entry. Each connector's seal is in its candidate. */
+  elevate?: { username: string; kind: string };
   /** "captivo:<e-mail>": the key id of a certificate sign-in, which the server logs. */
   keyId: string;
 };
 
 export type NativeSshTarget =
   | ({ ok: true; mode: NativeSshMode | "tunnel"; siteName: string; connectorId: string; connectors: RouteCandidate[]; targetHost: string; targetPort: number; moderated?: boolean } & Partial<NativeSshRecorded>)
-  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_needs_recording" | SshCaBlock | NativeSshBlock | TunnelBlock; reason?: string };
+  | { ok: false; status: number; error: "not_found" | "forbidden" | "vault_secret_reenter" | "rotated" | "moderator_needs_recording" | "elevate_reenter" | SshCaBlock | NativeSshBlock | TunnelBlock; reason?: string };
 
 /** The resource's file transfer rule, as its browser SSH session would have it. */
 export function sshFileTransfer(p: { enableFileTransfer?: boolean; blockUpload?: boolean; blockDownload?: boolean }): NativeSshRecorded["fileTransfer"] {
@@ -54,7 +57,7 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
     where: { id: siteId },
     select: {
       name: true, accessMode: true, nativeSsh: true, recordSessions: true, requireModerator: true, keystrokeLogging: true, tunnelHost: true, tunnelPort: true, ...siteRoutingSelect,
-      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true, secretSource: true } },
+      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, sshHostKey: true, rotateAfterSession: true, rotateEveryDays: true, secretSource: true, elevate: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true } },
     },
   });
   if (!site) return { ok: false, status: 404, error: "not_found" };
@@ -106,12 +109,22 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
     ...(sealed ? { canOpen: (m: { vaultPublicKey: string | null }) => !!m.vaultPublicKey && !!vault.seals[m.vaultPublicKey] } : {}),
   }).eligible;
   if (members.length === 0) return { ok: false, status: 409, error: sealed ? "vault_secret_reenter" : "connector_outdated" };
+  // Administrator rights: a connector new enough, holding the administrator account's seal.
+  const elevSeals = cred.elevate && cred.reconcileSeals && typeof cred.reconcileSeals === "object" && !Array.isArray(cred.reconcileSeals) ? (cred.reconcileSeals as Record<string, string>) : {};
+  let carriers = members;
+  if (cred.elevate) {
+    if (!cred.reconcileUsername) return { ok: false, status: 409, error: "elevate_reenter" };
+    if (compareSemver(newestVersion(site), ELEVATE_MIN_CONNECTOR) === -1) return { ok: false, status: 409, error: "connector_outdated" };
+    carriers = members.filter((m) => compareSemver(m.version, ELEVATE_MIN_CONNECTOR) !== -1 && !!m.vaultPublicKey && !!elevSeals[m.vaultPublicKey]);
+    if (carriers.length === 0) return { ok: false, status: 409, error: "elevate_reenter" };
+  }
   const who = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
   const params = resolveGuacParams(parseGuacParams(vault.guacParams), await resolvedGuacParamDefaults());
   return {
     ok: true, mode, ...where, moderated,
-    connectorId: members[0].id,
-    connectors: candidatesFor(members, (m) => (sealed ? { sealedSecret: sealFor(m) } : {})),
+    connectorId: carriers[0].id,
+    connectors: candidatesFor(carriers, (m) => ({ ...(sealed ? { sealedSecret: sealFor(m) } : {}), ...(cred.elevate && m.vaultPublicKey ? { elevateSealed: elevSeals[m.vaultPublicKey] } : {}) })),
+    ...(cred.elevate ? { elevate: { username: cred.reconcileUsername!, kind: cred.reconcileKind === "KEY" ? "KEY" : "PASSWORD" } } : {}),
     keystrokeLogging: effectiveKeystrokeLogging({
       mode: await resolvedKeystrokeLoggingMode(), recordingEnabled: recordingEnabled(),
       recordSessions: true, siteFlag: site.keystrokeLogging,

@@ -26,6 +26,11 @@ type SshDialRequest struct {
 	// Who is signing in, for a certificate's key id ("captivo:ana@acme.com"),
 	// which the server then writes in its log.
 	KeyID string `json:"keyId,omitempty"`
+	// Give the account administrator rights (sudo) for this session: the
+	// administrator account signs in on Host and Port to add and later remove
+	// a sudoers entry for Username (connector/elevate.go). Its seal is the
+	// resource's reconcile seal.
+	Elevate *RotateReconcile `json:"elevate,omitempty"`
 }
 
 // SshDialResponse reports the sign-in. An empty Error means the SSH server on
@@ -35,4 +40,6 @@ type SshDialResponse struct {
 	Error          string `json:"error,omitempty"`
 	HostKey        string `json:"hostKey,omitempty"`
 	HostKeyChanged bool   `json:"hostKeyChanged,omitempty"`
+	// The account has administrator rights for this session.
+	Elevated bool `json:"elevated,omitempty"`
 }

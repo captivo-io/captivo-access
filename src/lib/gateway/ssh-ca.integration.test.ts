@@ -16,6 +16,8 @@ const suffix = crypto.randomUUID().slice(0, 8);
 const tA = { id: `ca-a-${suffix}`, slug: `ca-a-${suffix}` };
 const [newConn, oldConn] = [`ca-n-${suffix}`, `ca-o-${suffix}`];
 const [okSite, oldSite, unrecSite, pwSite] = [`cas-ok-${suffix}`, `cas-old-${suffix}`, `cas-unrec-${suffix}`, `cas-pw-${suffix}`];
+const [elevSite, elevOldSite, elevBareSite] = [`cas-el-${suffix}`, `cas-elo-${suffix}`, `cas-elb-${suffix}`];
+let connKey = "";
 const ana = `ca-ana-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "deploy" };
 
@@ -41,7 +43,7 @@ describe.skipIf(!OWNER_URL)("SSH certificate sign-in", () => {
     const kp = (await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"])) as CryptoKeyPair;
     const pub = Buffer.from(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))).toString("base64");
     await owner.$executeRawUnsafe(`INSERT INTO "Tenant"(id,slug,name,status) VALUES($1,$2,'CA A','ACTIVE')`, tA.id, tA.slug);
-    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'new',$1,'ONLINE','2.69.0',$3)`, newConn, tA.id, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'new',$1,'ONLINE','2.71.0',$3)`, newConn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'old',$1,'ONLINE','2.60.0',$3)`, oldConn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,$3,'Ana','VENDOR','ACTIVE')`, ana, tA.id, "ana@acme.test");
     const ref = await sealSecret(pub, '{"x":1}', target); // the reference text is opaque to the manager; any sealed value stands in
@@ -54,6 +56,15 @@ describe.skipIf(!OWNER_URL)("SSH certificate sign-in", () => {
     await mk(oldSite, oldConn, true, "sshca");
     await mk(unrecSite, newConn, false, "sshca");
     await mk(pwSite, newConn, true, null);
+    connKey = pub;
+    // Administrator rights during sessions: the administrator account's seal is kept like the reconcile account's.
+    const adminSeal = await sealSecret(pub, "root-pass", { host: target.host, port: target.port, username: "root" }, "reconcile");
+    await mk(elevSite, newConn, true, null);
+    await mk(elevOldSite, oldConn, true, null);
+    await mk(elevBareSite, newConn, true, null);
+    for (const [sid, withSeal] of [[elevSite, true], [elevOldSite, true], [elevBareSite, false]] as const) {
+      await owner.$executeRawUnsafe(`UPDATE "VaultCredential" SET elevate = true, "reconcileUsername" = 'root', "reconcileKind" = 'PASSWORD', "reconcileSeals" = $2::jsonb WHERE "siteId" = $1`, sid, JSON.stringify(withSeal ? { [pub]: adminSeal } : {}));
+    }
     process.env.MULTI_TENANT = "on";
     process.env.APP_DATABASE_URL = toAppUrl(OWNER_URL!);
     process.env.ENCRYPTION_KEY = "0".repeat(64);
@@ -92,5 +103,17 @@ describe.skipIf(!OWNER_URL)("SSH certificate sign-in", () => {
 
   it("leaves a password resource as it was", async () => {
     expect(await look(pwSite)).toMatchObject({ ok: true, mode: "recorded" });
+  });
+
+  it("hands a session the administrator account, sealed for the connector that carries it", async () => {
+    const t = await look(elevSite);
+    if (!t.ok || t.mode !== "recorded") throw new Error(JSON.stringify(t));
+    expect(t.elevate).toEqual({ username: "root", kind: "PASSWORD" });
+    expect(t.connectors[0].elevateSealed).toBe((await owner.$queryRawUnsafe<{ s: Record<string, string> }[]>(`SELECT "reconcileSeals" AS s FROM "VaultCredential" WHERE "siteId" = $1`, elevSite))[0].s[connKey]);
+  });
+
+  it("needs a connector new enough, and a copy of the administrator account for it", async () => {
+    expect(await look(elevOldSite)).toMatchObject({ ok: false, error: "connector_outdated" });
+    expect(await look(elevBareSite)).toMatchObject({ ok: false, error: "elevate_reenter" });
   });
 });

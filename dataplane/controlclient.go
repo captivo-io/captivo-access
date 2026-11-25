@@ -210,6 +210,11 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 // also carries what the connector needs to sign in (sshrec.go): the account,
 // its secret (sealed per candidate, or plain for a connector without a vault
 // key), the pinned host key, and what the session may do.
+type elevateTarget struct {
+	Username string `json:"username"`
+	Kind     string `json:"kind"`
+}
+
 type sshTarget struct {
 	rdpTarget
 	Record        bool
@@ -222,6 +227,8 @@ type sshTarget struct {
 	// Who is signing in, as "captivo:<e-mail>": a certificate's key id, which
 	// the server writes in its log (connector/sshca.go).
 	KeyID string
+	// Administrator rights (sudo) for the session: the account that adds and removes the entry.
+	Elevate *elevateTarget
 	// A TCP tunnel resource (sshtunnel.go): the user's ssh -L carries their
 	// own app's connections to Host:Port, never recorded.
 	Tunnel bool
@@ -248,6 +255,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		Secret        string           `json:"secret"`
 		PinnedHostKey string           `json:"sshHostKey"`
 		KeyID         string           `json:"keyId"`
+		Elevate       *elevateTarget   `json:"elevate"`
 		Tunnel        bool             `json:"tunnel"`
 		Moderation    moderationRef    `json:"moderation"`
 	}
@@ -257,7 +265,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 	return sshTarget{
 		rdpTarget: rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)},
 		Record:    out.Record, Keystrokes: out.Keystrokes, FileTransfer: out.FileTransfer,
-		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey, KeyID: out.KeyID,
+		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey, KeyID: out.KeyID, Elevate: out.Elevate,
 		Tunnel: out.Tunnel, Moderation: out.Moderation,
 	}, nil
 }

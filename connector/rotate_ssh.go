@@ -179,18 +179,33 @@ func (t *linuxTarget) selfChange(ctx context.Context, cur, next string) error {
 var linuxUserRe = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}\$?$`)
 
 func (t *linuxTarget) reset(ctx context.Context, next string) error {
-	r := t.reconcile
-	if r == nil {
+	if t.reconcile == nil {
 		return errNoReconcile
 	}
 	if !linuxUserRe.MatchString(t.username) {
 		return errors.New("the account name is not a Linux user name")
 	}
+	c, err := t.adminClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	line := t.username + ":" + next + "\n"
+	return t.adminRun(c, "chpasswd", line, next)
+}
+
+// adminClient signs in as the reconcile account, the one with root or sudo on
+// this host.
+func (t *linuxTarget) adminClient(ctx context.Context) (*ssh.Client, error) {
+	r := t.reconcile
+	if r == nil {
+		return nil, errNoReconcile
+	}
 	var auth []ssh.AuthMethod
 	if r.isKey {
 		signer, err := ssh.ParsePrivateKey([]byte(r.secret))
 		if err != nil {
-			return errors.New("the reconcile account's private key does not parse (keys with a passphrase are not supported)")
+			return nil, errors.New("the reconcile account's private key does not parse (keys with a passphrase are not supported)")
 		}
 		auth = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	} else {
@@ -199,23 +214,28 @@ func (t *linuxTarget) reset(ctx context.Context, next string) error {
 	c, err := t.dial(ctx, r.username, auth)
 	if err != nil {
 		if sshAuthResult(err).kind == authBad {
-			return errors.New("the reconcile account could not sign in")
+			return nil, errors.New("the reconcile account could not sign in")
 		}
-		return err
+		return nil, err
 	}
-	defer c.Close()
-	line := t.username + ":" + next + "\n"
+	return c, nil
+}
+
+// adminRun runs cmd as root: directly for root, else through sudo (without a
+// password when it may, with the account's own otherwise).
+func (t *linuxTarget) adminRun(c *ssh.Client, cmd, input string, secrets ...string) error {
+	r := t.reconcile
 	if r.username == "root" {
-		return runWithInput(c, "chpasswd", line, next)
+		return runWithInput(c, cmd, input, secrets...)
 	}
 	if runWithInput(c, "sudo -n true", "", "") == nil {
-		return runWithInput(c, "sudo -n chpasswd", line, next)
+		return runWithInput(c, "sudo -n "+cmd, input, secrets...)
 	}
 	if r.isKey {
 		return errors.New("the reconcile account needs sudo without a password (it signs in with a key)")
 	}
-	// sudo reads its password from the first line, chpasswd the rest.
-	return runWithInput(c, "sudo -S -p '' chpasswd", r.secret+"\n"+line, next, r.secret)
+	// sudo reads its password from the first line, the command the rest.
+	return runWithInput(c, "sudo -S -p '' "+cmd, r.secret+"\n"+input, append(secrets, r.secret)...)
 }
 
 func runWithInput(c *ssh.Client, cmd, input string, secrets ...string) error {

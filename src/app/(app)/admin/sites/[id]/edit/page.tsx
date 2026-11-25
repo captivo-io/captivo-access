@@ -7,6 +7,7 @@ import { recentEgressEvents } from "@/lib/isolation/egress-events";
 import { resourceContext } from "../../context";
 import { EditResource } from "./edit-resource";
 import { RotationPanel } from "./rotation-panel";
+import { ElevationPanel } from "./elevation-panel";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { withRequestTenant } from "@/lib/tenant/request";
 
@@ -85,6 +86,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
         }}
       />
       {rotation && vault?.sealed && <RotationPanel siteId={site.id} siteName={site.name} initial={rotation} />}
+      {rotation && vault?.sealed && vault.protocol === "SSH" && site.nativeSsh && <ElevationPanel siteId={site.id} initial={rotation} />}
     </main>
   );
 }

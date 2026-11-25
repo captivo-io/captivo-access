@@ -366,6 +366,41 @@ made for that session.
 - **Requirements:** a connector on 2.69.0 or later (every connector reports its
   CA once updated).
 
+## Administrator rights during a session (Linux)
+
+The account an SSH resource signs in with can stay an ordinary user all day and
+have administrator rights only while someone is working on it. On the resource's
+page, **Administrator rights during sessions** turns this on.
+
+- **What happens.** When a recorded native SSH session opens, the connector signs
+  in as the resource's **administrator account** (root, or one that can use
+  sudo), writes `/etc/sudoers.d/captivo-<user>` containing
+  `<user> ALL=(ALL:ALL) NOPASSWD: ALL` (checked with `visudo -cf` before it is put
+  in place), and then signs in as the account. When the last session on that
+  account closes, the entry is removed. Sessions on the same account share the
+  entry; it goes with the last. A leftover from a crash is removed by the next
+  elevation once it is a day old.
+- **What the user sees.** The session's banner says it has administrator rights
+  for this session only. The session is recorded as always, so what was done
+  with them is on the recording and in the keystroke log.
+- **If it cannot be given, the session does not open** (it is not opened without
+  the rights the user expected). The reason is in the message: the administrator
+  account cannot sign in, sudo needs a password it was not given, `visudo`
+  refused the entry.
+- **The administrator account** is sealed in the admin's browser to each of the
+  resource's connectors, like the reconcile account password rotation uses, and
+  is the same account: entering it in either place sets both. A key or a
+  password both work; with a password and sudo that asks for one, the password
+  is given to sudo.
+- **What it needs.** An SSH resource with Native SSH client and session recording
+  on (the rights are given to recorded sessions only), an ordinary account
+  (lower case letters, digits, `_` and `-`; sudoers.d skips names with a dot, and
+  root needs nothing), and a connector on 2.71.0 or later. A Linux server with
+  sudo and `/etc/sudoers.d` included (the default). Windows is not covered yet.
+- **Not the same as** a check-out or a rotation: no password is shown or
+  changed. It combines with certificate sign-in, so an account can have neither
+  a password nor a standing sudo.
+
 ## Inviting someone into a live session
 
 An admin watching a live session can bring in someone from outside the console

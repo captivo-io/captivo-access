@@ -31,6 +31,9 @@ export type RotationStatus = {
   vaultSource: string | null;
   /** RDP: a local account of the server or a domain account, and whether an admin said so. */
   windowsAccount: { account: WindowsAccount; chosen: boolean } | null;
+  /** Administrator rights while a recorded SSH session is open (lib/vault/elevation.ts). */
+  elevate: boolean;
+  protocol: string;
   /** Linux, Windows, a database: this server's reconcile account. AD: the directory's reset account. */
   reconcile: { username: string; kind: "PASSWORD" | "KEY"; missingFor: string[] } | null;
   directoryReset: { username: string; host: string; port: number; missingFor: string[] } | null;
@@ -50,7 +53,7 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
       protocol: true, secretKind: true, secret: true, dbParams: true, sealedTo: true, extraSeals: true, targetHost: true, targetPort: true, username: true,
       rotateAfterSession: true, rotateEveryDays: true, rotateVerifyDaily: true, rotateDueAt: true, rotatedAt: true, verifiedAt: true,
       rotationState: true, rotationDetail: true, pendingSeals: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true,
-      guacParams: true, rotationAccount: true, secretSource: true,
+      guacParams: true, rotationAccount: true, secretSource: true, elevate: true,
       site: {
         select: {
           nativeRdp: true, nativeSsh: true, recordSessions: true,
@@ -84,6 +87,8 @@ export async function rotationStatus(siteId: string): Promise<RotationStatus | n
     unsupported: "unsupported" in m ? m.unsupported : null,
     windowsAccount: c.protocol === "RDP" && !c.secretSource ? windowsAccountOf(c) : null,
     vaultSource: c.secretSource,
+    elevate: c.elevate,
+    protocol: c.protocol,
     checkout: await activeCheckout(siteId).then((a) => (a ? { id: a.id, who: a.userName, until: a.endsAt.toISOString(), reason: a.reason } : null)),
     cleartext: (c.protocol === "MYSQL" || c.protocol === "MSSQL") && parseDbParams(c.dbParams, c.protocol).tls === "disable",
     native: nativeBlocksRotation({ ...c.site, recorded: await effectiveSiteRecording(c.site.recordSessions) }),

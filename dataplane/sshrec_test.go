@@ -390,3 +390,34 @@ func TestRecordedSSHRefusesAChangedServerKey(t *testing.T) {
 	default:
 	}
 }
+
+func TestRecordedSSHCarriesTheAdministratorAccountForElevation(t *testing.T) {
+	target := sshTarget{
+		rdpTarget: rdpTarget{Host: "10.0.0.5", Port: "22", ConnectorID: "c1", Candidates: []routeCandidate{{ID: "c1", ElevateSealed: "cv1:admin-seal"}}},
+		Record:    true, FileTransfer: "none", Username: "deploy", Secret: "pw", SecretKind: "PASSWORD",
+		Elevate: &elevateTarget{Username: "root", Kind: "PASSWORD"},
+	}
+	r := recordedJumpRig(t, target)
+	if _, _, err := r.innerClient(t); err != nil {
+		t.Fatal(err)
+	}
+	d := r.conn.dials[0]
+	if d.Elevate == nil || d.Elevate.Username != "root" || d.Elevate.Sealed != "cv1:admin-seal" || d.Elevate.Host != "10.0.0.5" || d.Elevate.Port != "22" || d.Elevate.SecretKey {
+		t.Fatalf("elevate %+v", d.Elevate)
+	}
+}
+
+func TestRecordedSSHRefusesWhenTheConnectorHasNoAdministratorSeal(t *testing.T) {
+	target := sshTarget{
+		rdpTarget: rdpTarget{Host: "10.0.0.5", Port: "22", ConnectorID: "c1", Candidates: []routeCandidate{{ID: "c1"}}},
+		Record:    true, FileTransfer: "none", Username: "deploy", Secret: "pw", SecretKind: "PASSWORD",
+		Elevate: &elevateTarget{Username: "root", Kind: "PASSWORD"},
+	}
+	r := recordedJumpRig(t, target)
+	if _, _, err := r.innerClient(t); err == nil {
+		t.Fatal("a session that should be elevated must not open unelevated")
+	}
+	if len(r.conn.dials) != 0 {
+		t.Fatalf("the connector was asked anyway: %+v", r.conn.dials)
+	}
+}
