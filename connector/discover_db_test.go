@@ -98,3 +98,85 @@ func TestTakeOverDatabaseE2E(t *testing.T) {
 	}
 	c.Close()
 }
+
+func TestParseMSSQLRedisMongoAccounts(t *testing.T) {
+	ms := parseMSSQLAccounts([]string{"sa|false|true|-1", "app|false|false|12", "dormant1|true|false|3", "bad name|false|false|1", "junk"})
+	by := map[string]tunnel.DiscoveredAccount{}
+	for _, a := range ms {
+		by[a.Name] = a
+	}
+	if len(ms) != 3 || !by["sa"].Admin || by["app"].PassAgeDays != 12 || by["dormant1"].Login || !by["dormant1"].Locked || ms[len(ms)-1].Name != "dormant1" {
+		t.Fatalf("mssql %+v", ms)
+	}
+	rd := parseRedisACL([]string{"user default on #hash ~* &* +@all", "user reader on #h ~* -@all +@read", "user open on nopass ~* +@all", "user dormant off #h", "garbage"})
+	r := map[string]tunnel.DiscoveredAccount{}
+	for _, a := range rd {
+		r[a.Name] = a
+	}
+	if len(rd) != 4 || !r["default"].Admin || r["reader"].Admin || !r["open"].NoPass || r["dormant"].Login || r["reader"].Blocked == "" {
+		t.Fatalf("redis %+v", rd)
+	}
+	for _, a := range rd {
+		if strings.Contains(a.Name+a.Blocked, "hash") {
+			t.Fatal("a hash got through")
+		}
+	}
+}
+
+// Real SQL Server, Redis and MongoDB: DISC_X_ADDR, DISC_X_ADMIN, DISC_X_PASS, DISC_X_WANT for X in MSSQL, REDIS, MONGO.
+func TestDiscoverOtherEnginesE2E(t *testing.T) {
+	for _, c := range []struct{ env, engine string }{{"MSSQL", "mssql"}, {"REDIS", "redis"}, {"MONGO", "mongodb"}} {
+		addr := os.Getenv("DISC_" + c.env + "_ADDR")
+		if addr == "" {
+			continue
+		}
+		host, port, _ := net.SplitHostPort(addr)
+		admin, pass := os.Getenv("DISC_"+c.env+"_ADMIN"), os.Getenv("DISC_"+c.env+"_PASS")
+		tg := &dbAccountTarget{engine: c.engine, host: host, port: port, username: admin, db: tunnel.RotateDB{TLS: os.Getenv("DISC_" + c.env + "_TLS")}}
+		var r tunnel.RotateResponse
+		switch c.engine {
+		case "redis":
+			r = discoverRedis(tg, admin, pass)
+		case "mongodb":
+			r = discoverMongo(tg, admin, pass)
+		default:
+			r = discoverDatabase(tg, admin, pass)
+		}
+		if r.Error != "" {
+			t.Fatalf("%s: %s", c.engine, r.Error)
+		}
+		found := false
+		for _, a := range r.Accounts {
+			if a.Name == os.Getenv("DISC_"+c.env+"_WANT") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s: %s is not listed: %+v", c.engine, os.Getenv("DISC_"+c.env+"_WANT"), r.Accounts)
+		}
+		t.Logf("%s: %d accounts: %+v", c.engine, len(r.Accounts), r.Accounts)
+	}
+}
+
+// Redis and MongoDB have no reconcile account: the discover op signs in with the
+// resource's own saved credential (the "current" seal), which may be a vault reference.
+func TestDiscoverUsesTheSavedAccountWhereThereIsNoReconcile(t *testing.T) {
+	for _, c := range []struct{ env, method string }{{"REDIS", "redis"}, {"MONGO", "mongodb"}} {
+		addr := os.Getenv("DISC_" + c.env + "_ADDR")
+		if addr == "" {
+			continue
+		}
+		host, port, _ := net.SplitHostPort(addr)
+		k, _ := ecdh.X25519().GenerateKey(rand.Reader)
+		user := os.Getenv("DISC_" + c.env + "_ADMIN")
+		cur := sealForTest(t, k.PublicKey(), os.Getenv("DISC_"+c.env+"_PASS"), vaultTargetAAD(host, port, user))
+		r := discoverAccounts(t.Context(), k, &TargetMatcher{open: true}, tunnel.RotateRequest{Op: "discover", Method: c.method, Host: host, Port: port, Username: user, Current: cur, DB: &tunnel.RotateDB{TLS: ""}})
+		if r.Error != "" || len(r.Accounts) == 0 {
+			t.Fatalf("%s: %+v", c.method, r)
+		}
+		bad := discoverAccounts(t.Context(), k, &TargetMatcher{open: true}, tunnel.RotateRequest{Op: "discover", Method: c.method, Host: host, Port: port, Username: user, Current: "cv1:nonsense", DB: &tunnel.RotateDB{}})
+		if bad.Error == "" {
+			t.Fatalf("%s: a credential that does not open must be refused", c.method)
+		}
+	}
+}

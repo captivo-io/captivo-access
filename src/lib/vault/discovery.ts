@@ -6,6 +6,10 @@
 export const DISCOVER_MIN_CONNECTOR = "2.72.0";
 /** Connectors that list a PostgreSQL or MySQL server's accounts. */
 export const DISCOVER_DB_MIN_CONNECTOR = "2.76.0";
+/** Connectors that list a SQL Server, Redis or MongoDB server's accounts. */
+export const DISCOVER_MORE_DB_MIN_CONNECTOR = "2.77.0";
+export type DiscoverPlatform = "linux" | "windows" | "postgres" | "mysql" | "mssql" | "redis" | "mongodb";
+export const isDbPlatform = (p: DiscoverPlatform) => p !== "linux" && p !== "windows";
 /** Connectors that list a Windows server's accounts. */
 export const DISCOVER_WINDOWS_MIN_CONNECTOR = "2.75.0";
 /** How many accounts one take-over handles. */
@@ -51,12 +55,12 @@ export function acceptAccounts(v: unknown): DiscoveredAccount[] {
 }
 
 /** Why an account cannot be taken over, or null. */
-export function adoptProblem(a: DiscoveredRow, administrator: string, platform: "linux" | "windows" | "postgres" | "mysql" = "linux"): string | null {
+export function adoptProblem(a: DiscoveredRow, administrator: string, platform: DiscoverPlatform = "linux"): string | null {
   const bare = (n: string) => n.trim().replace(/^.*\\/, "").toLowerCase();
   if (bare(a.name) === bare(administrator)) return "This is the administrator account Captivo signs in with; changing its password would lock Captivo out.";
   if (a.managedBy) return `Already a resource: ${a.managedBy.name}.`;
   if (a.blocked) return a.blocked;
-  if (platform === "postgres" || platform === "mysql") return a.login ? null : "It cannot sign in (locked, or a role that only groups privileges).";
+  if (isDbPlatform(platform)) return a.login ? null : "It cannot sign in (disabled, locked, or a role that only groups privileges).";
   if (platform === "windows") {
     if (!a.login) return "It is disabled or is not a normal account.";
     if (a.uid === 500) return "The built-in Administrator is not taken over here.";

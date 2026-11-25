@@ -43,6 +43,9 @@ func wsRequestHeaders(r *http.Request, host string) map[string][]string {
 		if strings.EqualFold(k, gatewayUserHeader) {
 			continue // client must never smuggle the trusted gateway identity header
 		}
+		if strings.EqualFold(k, agentTokenHeader) {
+			continue // an agent's token is for the proxy; the app never sees it
+		}
 		cp := make([]string, len(vs))
 		copy(cp, vs)
 		out[k] = cp

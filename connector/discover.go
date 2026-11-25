@@ -30,21 +30,37 @@ func discoverAccounts(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatc
 	if k == nil {
 		return tunnel.RotateResponse{Error: "no vault key"}
 	}
-	if req.Method != "linux" && req.Method != "windows" && req.Method != "postgres" && req.Method != "mysql" {
-		return tunnel.RotateResponse{Error: "accounts can be listed on a Linux or a Windows server, or in PostgreSQL or MySQL"}
+	switch req.Method {
+	case "linux", "windows", "postgres", "mysql", "mssql", "redis", "mongodb":
+	default:
+		return tunnel.RotateResponse{Error: "accounts can be listed on a Linux or a Windows server, or in a database server"}
 	}
-	if req.Reconcile == nil {
-		return tunnel.RotateResponse{Error: "listing accounts needs the administrator account"}
+	var r *tunnel.RotateReconcile
+	var secret string
+	if req.Reconcile == nil && (req.Method == "redis" || req.Method == "mongodb") {
+		// Redis and MongoDB have no reconcile account (their passwords are not rotated): the
+		// resource's own account lists the others, as far as its rights allow. Its saved
+		// credential may also be a reference into the customer's own vault.
+		pw, err := openSecret(k, req.Current, vaultTargetAAD(req.Host, req.Port, req.Username))
+		if err != nil {
+			return tunnel.RotateResponse{Error: "the saved credential does not open here"}
+		}
+		r, secret = &tunnel.RotateReconcile{Host: req.Host, Port: req.Port, Username: req.Username}, pw
+	} else {
+		if req.Reconcile == nil {
+			return tunnel.RotateResponse{Error: "listing accounts needs the administrator account"}
+		}
+		r = req.Reconcile
+		if r.Host != req.Host || r.Port != req.Port {
+			return tunnel.RotateResponse{Error: "the administrator account is for another host"}
+		}
+		var err error
+		secret, err = openSealed(k, r.Sealed, vaultReconcileAAD(r.Host, r.Port, r.Username))
+		if err != nil {
+			return tunnel.RotateResponse{Error: "the administrator account does not open here"}
+		}
 	}
-	r := req.Reconcile
-	if r.Host != req.Host || r.Port != req.Port {
-		return tunnel.RotateResponse{Error: "the administrator account is for another host"}
-	}
-	secret, err := openSealed(k, r.Sealed, vaultReconcileAAD(r.Host, r.Port, r.Username))
-	if err != nil {
-		return tunnel.RotateResponse{Error: "the administrator account does not open here"}
-	}
-	if req.Method == "postgres" || req.Method == "mysql" {
+	if req.Method == "postgres" || req.Method == "mysql" || req.Method == "mssql" || req.Method == "redis" || req.Method == "mongodb" {
 		if r.SecretKey {
 			return tunnel.RotateResponse{Error: "a database administrator account signs in with a password"}
 		}
@@ -57,6 +73,12 @@ func discoverAccounts(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatc
 		t := &dbAccountTarget{engine: req.Method, host: req.Host, port: req.Port, username: req.Username}
 		if req.DB != nil {
 			t.db = *req.DB
+		}
+		switch req.Method {
+		case "redis":
+			return discoverRedis(t, r.Username, secret)
+		case "mongodb":
+			return discoverMongo(t, r.Username, secret)
 		}
 		return discoverDatabase(t, r.Username, secret)
 	}
@@ -262,7 +284,10 @@ func discoverDatabase(t *dbAccountTarget, adminUser, adminPW string) tunnel.Rota
 	}
 	defer s.Close()
 	var rows []string
-	if t.engine == "postgres" {
+	if t.engine == "mssql" {
+		// A SQL login (not a Windows one): who can sign in, who is sysadmin, how old the password is.
+		rows, err = s.column(`SELECT CONVERT(nvarchar(4000), p.name + N'|' + CASE WHEN p.is_disabled = 1 THEN N'true' ELSE N'false' END + N'|' + CASE WHEN IS_SRVROLEMEMBER(N'sysadmin', p.name) = 1 THEN N'true' ELSE N'false' END + N'|' + CONVERT(nvarchar(20), ISNULL(DATEDIFF(day, CONVERT(datetime, LOGINPROPERTY(p.name, N'PasswordLastSetTime')), GETDATE()), -1))) FROM sys.server_principals p WHERE p.type = 'S' AND p.name NOT LIKE N'##%' ORDER BY p.name`)
+	} else if t.engine == "postgres" {
 		rows, err = s.column(`SELECT rolname || '|' || rolcanlogin::text || '|' || rolsuper::text FROM pg_roles WHERE rolname NOT LIKE 'pg\_%' ORDER BY rolname`)
 	} else {
 		// MySQL 8 knows when a password changed and whether the account is locked; MariaDB and older servers lack those columns.
@@ -274,7 +299,37 @@ func discoverDatabase(t *dbAccountTarget, adminUser, adminPW string) tunnel.Rota
 	if err != nil {
 		return tunnel.RotateResponse{Error: "the administrator account can't read the server's accounts: " + err.Error()}
 	}
+	if t.engine == "mssql" {
+		return tunnel.RotateResponse{Outcome: "ok", Accounts: parseMSSQLAccounts(rows)}
+	}
 	return tunnel.RotateResponse{Outcome: "ok", Accounts: parseDatabaseAccounts(t.engine, rows)}
+}
+
+// parseMSSQLAccounts reads "name|disabled|sysadmin|age" lines.
+func parseMSSQLAccounts(rows []string) []tunnel.DiscoveredAccount {
+	var out []tunnel.DiscoveredAccount
+	for _, r := range rows {
+		f := strings.Split(r, "|")
+		if len(f) != 4 || !dbAccountNameRe.MatchString(f[0]) {
+			continue
+		}
+		a := tunnel.DiscoveredAccount{Name: f[0], PassAgeDays: -1, Login: f[1] != "true", Locked: f[1] == "true", Admin: f[2] == "true"}
+		if n, err := strconv.Atoi(f[3]); err == nil {
+			a.PassAgeDays = n
+		}
+		out = append(out, a)
+	}
+	sortAccounts(out)
+	return out
+}
+
+func sortAccounts(out []tunnel.DiscoveredAccount) {
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Login != out[j].Login {
+			return out[i].Login
+		}
+		return out[i].Name < out[j].Name
+	})
 }
 
 func parseDatabaseAccounts(engine string, rows []string) []tunnel.DiscoveredAccount {

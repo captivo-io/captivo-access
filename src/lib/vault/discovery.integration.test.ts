@@ -21,6 +21,7 @@ const conn = `di-c-${suffix}`;
 const site = `dis-${suffix}`;
 const winSite = `disw-${suffix}`;
 const dbSite = `disd-${suffix}`;
+const redisSite = `disr-${suffix}`;
 const admin = `di-adm-${suffix}`;
 const DP_SECRET = `di-dp-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "ana" };
@@ -74,7 +75,7 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     process.env.DATAPLANE_URL = `http://127.0.0.1:${(fakeDataplane.address() as AddressInfo).port}`;
 
     await owner.$executeRawUnsafe(`INSERT INTO "Tenant"(id,slug,name,status) VALUES($1,$2,'Di A','ACTIVE')`, tA.id, tA.slug);
-    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.76.0',$3)`, conn, tA.id, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.77.0',$3)`, conn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,'admin@a.test','Admin','ADMIN','ACTIVE')`, admin, tA.id);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","recordSessions") VALUES($1,$2,$3,'Build box','GATEWAY',true)`, site, tA.id, conn);
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
@@ -101,6 +102,13 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     await owner.$executeRawUnsafe(
       `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","reconcileUsername","reconcileKind","reconcileSeals","updatedAt") VALUES($1,$2,$3,'POSTGRES',$4,5432,'app',$5,$6,$7::jsonb,'prov','PASSWORD',$8::jsonb,now())`,
       `divd-${suffix}`, tA.id, dbSite, "10.0.0.8", ds, pub, JSON.stringify({ database: "orders", databases: [], tls: "require", caCertPem: null, sessionRole: "reader" }), JSON.stringify({ [pub]: dr }),
+    );
+    // Redis has no reconcile account: its own saved account lists the others.
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Cache','DATABASE')`, redisSite, tA.id, conn);
+    const rs = await sealSecret(pub, "cache-pass", { host: "10.0.0.6", port: 6379, username: "default" });
+    await owner.$executeRawUnsafe(
+      `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","updatedAt") VALUES($1,$2,$3,'REDIS',$4,6379,'default',$5,$6,$7::jsonb,now())`,
+      `divr-${suffix}`, tA.id, redisSite, "10.0.0.6", rs, pub, JSON.stringify({ database: "", databases: [], tls: "require", caCertPem: null, sessionRole: "" }),
     );
     route = await import("@/app/api/admin/sites/[id]/discovery/route");
   });
@@ -174,6 +182,17 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     expect(rows[0]).toMatchObject({ protocol: "POSTGRES", mode: "DATABASE", reconcileUsername: "prov" });
     expect(rows[0].dbParams).toMatchObject({ database: "orders", sessionRole: "" });
     expect(rows[0].guacParams).toBeNull();
+  });
+
+  it("lists a Redis server's accounts with the resource's own saved account, and offers none to take over", async () => {
+    asked.length = 0;
+    const scan = await (await post({ action: "scan" }, redisSite)).json();
+    expect(scan.platform).toBe("redis");
+    expect(scan.administrator).toBe("default");
+    const req = asked[0] as { method: string; current: string; reconcile?: unknown };
+    expect(req.method).toBe("redis");
+    expect(req.current).toMatch(/^cv1:/);
+    expect(req.reconcile).toBeUndefined();
   });
 
   it("asks for one to twenty accounts", async () => {

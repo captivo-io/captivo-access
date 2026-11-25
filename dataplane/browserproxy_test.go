@@ -48,6 +48,13 @@ type fakeControl struct {
 	sendRecordingErr                 error
 }
 
+func (f *fakeControl) ResolveAgent(token, siteID string) (string, string, error) {
+	if token == "agent-ok" {
+		return "agent-user", "agent@agents.invalid", nil
+	}
+	return "", "", nil
+}
+
 func (f *fakeControl) ResolveSession(string) (string, string, error) {
 	return f.userID, f.email, f.resolveErr
 }
@@ -1131,5 +1138,52 @@ func TestWatermarkScriptIsGrey(t *testing.T) {
 	s := watermarkScript("a@b.co")
 	if !strings.Contains(s, "fill=\\'#808080\\'") || !strings.Contains(s, "opacity:.3;") {
 		t.Fatalf("%s", s)
+	}
+}
+
+// An agent calls a web application's API through the proxy with its token in
+// its own header: the token's identity is who the access check, the audit and
+// the app see; the token never reaches the app; no token (or a wrong one) is a
+// plain 401, not a redirect to a login page an agent cannot use.
+func TestBrowserProxyAgentTokenIsWhoTheRequestIs(t *testing.T) {
+	ctrl := &fakeControl{siteID: "s1", connID: "c1", upstream: "http://wiki.internal", allow: false, reason: "expired"}
+	p := &BrowserProxy{reg: NewRegistry(), ctrl: ctrl, managerURL: "https://manager.example", audit: NewAuditQueue(100)}
+
+	// A token that is not live: 401 and nothing audited.
+	req := httptest.NewRequest(http.MethodGet, "http://app.example.com/api/items", nil)
+	req.Header.Set("X-Captivo-Agent-Token", "cat_wrong")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized || w.Header().Get("Location") != "" {
+		t.Fatalf("a wrong token: status %d location %q", w.Code, w.Header().Get("Location"))
+	}
+	if evs := p.audit.drain(10); len(evs) != 0 {
+		t.Fatalf("audited %+v", evs)
+	}
+
+	// A good token goes through the same access check as a person, as that identity.
+	req = httptest.NewRequest(http.MethodGet, "http://app.example.com/api/items", nil)
+	req.Header.Set("X-Captivo-Agent-Token", "agent-ok")
+	w = httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("the access check applies to an agent too: status %d", w.Code)
+	}
+	evs := p.audit.drain(10)
+	if len(evs) != 1 || evs[0].UserID != "agent-user" || evs[0].Decision != "DENY" {
+		t.Fatalf("audit %+v", evs)
+	}
+
+	// The token never goes to the app, on either path.
+	r := httptest.NewRequest(http.MethodGet, "http://app.example.com/", nil)
+	r.Header.Set("X-Captivo-Agent-Token", "agent-ok")
+	r.Header.Set("Authorization", "Bearer apps-own-token")
+	for name, out := range map[string]map[string][]string{"http": sanitizeReqHeaders(r, "app.example.com"), "ws": wsRequestHeaders(r, "app.example.com")} {
+		if _, present := out["X-Captivo-Agent-Token"]; present {
+			t.Fatalf("%s: the agent token reached the app", name)
+		}
+		if got := out["Authorization"]; len(got) != 1 || got[0] != "Bearer apps-own-token" {
+			t.Fatalf("%s: the app's own Authorization must pass through: %v", name, got)
+		}
 	}
 }

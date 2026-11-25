@@ -36,7 +36,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "connect",
-    description: "Once access is active: how to connect to the resource (an SSH command, a database client command and ticket, or a kubeconfig). The ticket is short-lived; no password is involved.",
+    description: "Once access is active: how to connect to the resource (an SSH command, a database client command and ticket, a kubeconfig, a .rdp file for a remote desktop, or the url and header to call a web application with). The ticket is short-lived; no password is involved.",
     inputSchema: { type: "object", properties: { siteId: { type: "string", description: "The resource's id." } }, required: ["siteId"], additionalProperties: false },
   },
 ] as const;

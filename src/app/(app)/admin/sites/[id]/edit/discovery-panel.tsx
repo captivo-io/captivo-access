@@ -2,13 +2,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ADOPT_MAX, adoptProblem, DISCOVER_DB_MIN_CONNECTOR, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
+import { ADOPT_MAX, adoptProblem, DISCOVER_DB_MIN_CONNECTOR, DISCOVER_MORE_DB_MIN_CONNECTOR, isDbPlatform, type DiscoverPlatform, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
 
 // Account discovery for one SSH resource (lib/vault/discovery.ts): which
 // accounts the server has, and a way to take some over as resources whose
 // password only Captivo knows.
 
-type Scan = { accounts: DiscoveredRow[]; administrator: string; platform: "linux" | "windows" | "postgres" | "mysql" };
+type Scan = { accounts: DiscoveredRow[]; administrator: string; platform: DiscoverPlatform };
 type Done = { created: { id: string; name: string; username: string }[]; refused: { name: string; reason: string }[]; nativeLeftOff: boolean };
 
 function flags(a: DiscoveredRow, windows: boolean, database: boolean): string[] {
@@ -21,9 +21,9 @@ function flags(a: DiscoveredRow, windows: boolean, database: boolean): string[] 
   return f;
 }
 
-export function DiscoveryPanel({ siteId, host, kind }: { siteId: string; host: string; kind: "linux" | "windows" | "postgres" | "mysql" }) {
+export function DiscoveryPanel({ siteId, host, kind }: { siteId: string; host: string; kind: DiscoverPlatform }) {
   const windows = kind === "windows";
-  const database = kind === "postgres" || kind === "mysql";
+  const database = isDbPlatform(kind);
   const router = useRouter();
   const [scan, setScan] = useState<Scan | null>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
@@ -68,7 +68,7 @@ export function DiscoveryPanel({ siteId, host, kind }: { siteId: string; host: s
       <div className="rot-head">
         <div>
           <h2 id="disc-h">Accounts on this server</h2>
-          <p className="cell-sub">Lists the {database ? "users" : "accounts"} of <b className="mono">{host}</b> through the administrator account: who can sign in, who is an administrator, whose password is locked, empty or old. Nothing is changed by looking. Needs a connector on {database ? DISCOVER_DB_MIN_CONNECTOR : windows ? DISCOVER_WINDOWS_MIN_CONNECTOR : DISCOVER_MIN_CONNECTOR} or later{windows ? " and the server's local accounts (SMB, port 445)" : ""}{kind === "postgres" ? ". PostgreSQL 16 lets an account with CREATEROLE change only the roles it has ADMIN OPTION on, so a take-over needs a superuser as the administrator or that grant" : ""}.</p>
+          <p className="cell-sub">Lists the {database ? "users" : "accounts"} of <b className="mono">{host}</b> through the administrator account: who can sign in, who is an administrator, whose password is locked, empty or old. Nothing is changed by looking. Needs a connector on {kind === "mssql" || kind === "redis" || kind === "mongodb" ? DISCOVER_MORE_DB_MIN_CONNECTOR : database ? DISCOVER_DB_MIN_CONNECTOR : windows ? DISCOVER_WINDOWS_MIN_CONNECTOR : DISCOVER_MIN_CONNECTOR} or later{windows ? " and the server's local accounts (SMB, port 445)" : ""}{kind === "redis" || kind === "mongodb" ? ". Redis and MongoDB accounts are listed so you can see them; Captivo does not change their passwords yet, so they cannot be taken over" : kind === "postgres" ? ". PostgreSQL 16 lets an account with CREATEROLE change only the roles it has ADMIN OPTION on, so a take-over needs a superuser as the administrator or that grant" : ""}.</p>
         </div>
         <button type="button" className="btn" disabled={!!busy} onClick={() => void doScan()}>{busy === "scan" ? "Looking…" : scan ? "Scan again" : "Scan this server"}</button>
       </div>

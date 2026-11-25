@@ -22,6 +22,9 @@ import (
 // back from /login.
 const sessionCookieName = "ca_session"
 
+// The header an agent sends its API token in to use a web application through the proxy.
+const agentTokenHeader = "X-Captivo-Agent-Token"
+
 // reservedAuthCookies are the proxy's own identity cookies (set by the
 // control plane: src/lib/auth/session.ts, challenge.ts, recover-token.ts).
 // Because the session cookie is shared across *.access.<domain> subdomains
@@ -227,6 +230,8 @@ func (p *BrowserProxy) consentPage(w http.ResponseWriter, r *http.Request) {
 // production use.
 type proxyControl interface {
 	ResolveSession(token string) (userID, email string, err error)
+	// ResolveAgent is who an agent token is on this site (agent API tokens, /api/agent/v1), or "" when it may not use it.
+	ResolveAgent(token, siteID string) (userID, email string, err error)
 	SiteByHost(host string) (siteRoute, error)
 	CheckAccess(userID, siteID, clientIP string) (allow bool, reason string, err error)
 	RecorderJS() ([]byte, error)
@@ -264,23 +269,52 @@ type BrowserProxy struct {
 func (p *BrowserProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := forwardedHost(r)
 
-	// 1. Session.
-	token := readCookie(r, sessionCookieName)
-	userID, email, _ := p.ctrl.ResolveSession(token)
-	if userID == "" {
-		orig := absoluteURL(r, host)
-		http.Redirect(w, r, p.managerURL+"/login?returnTo="+url.QueryEscape(orig), http.StatusFound)
-		return
+	// 1. Session: a person's cookie, or an agent's token in its own header (an
+	// agent calls the app's API through here; the app's Authorization header stays its own).
+	var userID, email string
+	var site siteRoute
+	var siteErr error
+	siteLoaded := false
+	loadSite := func() bool {
+		if siteLoaded {
+			return siteErr == nil
+		}
+		siteLoaded = true
+		site, siteErr = p.ctrl.SiteByHost(host)
+		return siteErr == nil
 	}
-
-	// 2. Site by host.
-	site, err := p.ctrl.SiteByHost(host)
-	if err != nil {
-		if errors.Is(err, ErrNoSite) {
+	siteFailed := func() {
+		if errors.Is(siteErr, ErrNoSite) {
 			errorPage(w, http.StatusNotFound, "No application here", "There's no application published at this address.", "Check the link, or contact your administrator.")
 		} else {
 			errorPage(w, http.StatusBadGateway, "Application unavailable", "The application didn't respond.", "Try again shortly.")
 		}
+	}
+	if agentTok := r.Header.Get(agentTokenHeader); agentTok != "" {
+		if !loadSite() {
+			siteFailed()
+			return
+		}
+		userID, email, _ = p.ctrl.ResolveAgent(agentTok, site.SiteID)
+		if userID == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+	} else {
+		token := readCookie(r, sessionCookieName)
+		userID, email, _ = p.ctrl.ResolveSession(token)
+		if userID == "" {
+			orig := absoluteURL(r, host)
+			http.Redirect(w, r, p.managerURL+"/login?returnTo="+url.QueryEscape(orig), http.StatusFound)
+			return
+		}
+	}
+
+	// 2. Site by host.
+	if !loadSite() {
+		siteFailed()
 		return
 	}
 	siteID, connectorID, tenantID, upstream := site.SiteID, site.ConnectorID, site.TenantID, site.Upstream
@@ -851,7 +885,7 @@ func absoluteURL(r *http.Request, host string) string {
 func sanitizeReqHeaders(r *http.Request, host string) map[string][]string {
 	out := map[string][]string{}
 	for k, vs := range r.Header {
-		if hopByHopHeaders[strings.ToLower(k)] || strings.EqualFold(k, "Cookie") || strings.EqualFold(k, gatewayUserHeader) {
+		if hopByHopHeaders[strings.ToLower(k)] || strings.EqualFold(k, "Cookie") || strings.EqualFold(k, gatewayUserHeader) || strings.EqualFold(k, agentTokenHeader) {
 			continue
 		}
 		cp := make([]string, len(vs))

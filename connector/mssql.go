@@ -182,7 +182,102 @@ func (s *mssqlSession) exec(sql string) error {
 	return nil
 }
 
-func (s *mssqlSession) column(string) ([]string, error) { return nil, errors.New("not used") }
+// column runs a query whose one column is an nvarchar (up to 4000 characters;
+// CONVERT to it) and returns the rows.
+func (s *mssqlSession) column(sql string) ([]string, error) {
+	h := binary.LittleEndian.AppendUint32(nil, 22)
+	h = binary.LittleEndian.AppendUint32(h, 18)
+	h = binary.LittleEndian.AppendUint16(h, 2)
+	h = append(h, make([]byte, 8)...)
+	h = binary.LittleEndian.AppendUint32(h, 1)
+	if _, err := s.out.Write(tunnel.TDSPackets(tunnel.TDSBatch, append(h, tunnel.UCS2(sql)...), s.packetSize)); err != nil {
+		return nil, errors.New("the database server closed the connection")
+	}
+	_ = s.out.SetReadDeadline(time.Now().Add(dbSignInLimit))
+	defer func() { _ = s.out.SetReadDeadline(time.Time{}) }()
+	typ, reply, err := tunnel.ReadTDSMessage(s.in, mssqlMaxReply)
+	if err != nil || typ != tunnel.TDSReply {
+		return nil, errors.New("the database server closed the connection")
+	}
+	return parseTDSNVarcharRows(reply)
+}
+
+// parseTDSNVarcharRows reads a reply of one nvarchar column: COLMETADATA, ROWs,
+// DONE. Anything else (an error token first of all) is reported or refused.
+func parseTDSNVarcharRows(b []byte) ([]string, error) {
+	var rows []string
+	for len(b) > 0 {
+		tok := b[0]
+		b = b[1:]
+		switch tok {
+		case 0x81: // COLMETADATA: count, then per column UserType(4) Flags(2) TYPE_INFO ColName
+			if len(b) < 2 {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			n := int(binary.LittleEndian.Uint16(b))
+			b = b[2:]
+			if n != 1 {
+				return nil, errors.New("unexpected columns in the database server's answer")
+			}
+			// UserType, Flags, type 0xE7 (nvarchar), max length (2), collation (5), name.
+			if len(b) < 4+2+1+2+5+1 || b[6] != 0xE7 {
+				return nil, errors.New("unexpected column type in the database server's answer")
+			}
+			b = b[4+2+1+2+5:]
+			nameLen := int(b[0])
+			if len(b) < 1+nameLen*2 {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			b = b[1+nameLen*2:]
+		case 0xD1: // ROW: USHORT length and UTF-16LE; 0xFFFF is NULL
+			if len(b) < 2 {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			l := int(binary.LittleEndian.Uint16(b))
+			b = b[2:]
+			if l == 0xFFFF {
+				rows = append(rows, "")
+				continue
+			}
+			if l > len(b) {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			rows = append(rows, tunnel.FromUCS2(b[:l]))
+			b = b[l:]
+		case 0xFD, 0xFE, 0xFF: // DONE, DONEPROC, DONEINPROC: status(2) curcmd(2) rowcount(8)
+			if len(b) < 12 {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			b = b[12:]
+		case 0xAA: // ERROR
+			if len(b) > 2 {
+				if e, ok := tunnel.ParseErrorToken(b[2:]); ok {
+					return nil, &e
+				}
+			}
+			return nil, errors.New("the database server refused the query")
+		case 0xAB, 0xE3, 0xAD, 0xA9, 0x79: // INFO, ENVCHANGE, LOGINACK, RETURNSTATUS: skip (length-prefixed, or 4 bytes)
+			if tok == 0x79 {
+				if len(b) < 4 {
+					return nil, errors.New("the database server's answer is cut short")
+				}
+				b = b[4:]
+				continue
+			}
+			if len(b) < 2 {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			l := int(binary.LittleEndian.Uint16(b))
+			if len(b) < 2+l {
+				return nil, errors.New("the database server's answer is cut short")
+			}
+			b = b[2+l:]
+		default:
+			return nil, errors.New("unexpected data in the database server's answer")
+		}
+	}
+	return rows, nil
+}
 
 // msIdent quotes a SQL Server identifier; msString a Unicode string literal.
 func msIdent(s string) string  { return "[" + strings.ReplaceAll(s, "]", "]]") + "]" }

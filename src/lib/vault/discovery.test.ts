@@ -44,6 +44,15 @@ describe("account discovery", () => {
     expect(acceptAccounts([{ name: "multi", uid: 0, blocked: "x".repeat(300), passAgeDays: -1 }])[0].blocked).toHaveLength(200);
   });
 
+  it("takes over a SQL Server login, but only lists Redis and MongoDB accounts", () => {
+    const d = (o: Partial<DiscoveredRow> = {}) => row({ name: "app", uid: 0, shell: "", login: true, ...o });
+    expect(adoptProblem(d(), "prov", "mssql")).toBeNull();
+    expect(adoptProblem(d({ login: false }), "prov", "mssql")).toMatch(/cannot sign in/);
+    const blocked = "Captivo does not change Redis or MongoDB passwords yet, so this account cannot be taken over.";
+    expect(adoptProblem(d({ blocked }), "default", "redis")).toMatch(/does not change Redis or MongoDB/);
+    expect(adoptProblem(d({ blocked }), "default", "mongodb")).toMatch(/does not change/);
+  });
+
   it("names the new resource after the one it came from", () => {
     expect(adoptedName("Build box", "deploy")).toBe("Build box · deploy");
     expect(adoptedName("x".repeat(100), "deploy").length).toBe(80);
