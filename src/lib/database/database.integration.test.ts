@@ -196,6 +196,21 @@ describe.skipIf(!OWNER_URL)("database access", () => {
     await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.46.0' WHERE id = $1`, conn);
   });
 
+  it("makes a user per connection only from connector 2.70.0, and tells the data plane the role", async () => {
+    const was = (await owner.$queryRawUnsafe<{ dbParams: unknown }[]>(`SELECT "dbParams" FROM "VaultCredential" WHERE "siteId" = $1`, site))[0].dbParams;
+    await owner.$executeRawUnsafe(`UPDATE "VaultCredential" SET "dbParams" = $2::jsonb WHERE "siteId" = $1`, site, JSON.stringify({ ...(was as object), sessionRole: "app_readonly" }));
+    const old = await check(ticket);
+    expect(old.status).toBe(409);
+    expect((await old.json()).error).toBe("connector_outdated");
+    await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.70.0' WHERE id = $1`, conn);
+    const c = await check(ticket);
+    expect(c.status).toBe(200);
+    expect((await c.json()).sessionRole).toBe("app_readonly");
+    await owner.$executeRawUnsafe(`UPDATE "VaultCredential" SET "dbParams" = $2::jsonb WHERE "siteId" = $1`, site, JSON.stringify(was));
+    await owner.$executeRawUnsafe(`UPDATE "Connector" SET version = '2.46.0' WHERE id = $1`, conn);
+    expect((await (await check(ticket)).json()).sessionRole).toBe("");
+  });
+
   it("ends the ticket with the sign-in", async () => {
     await owner.$executeRawUnsafe(`DELETE FROM "Session" WHERE id = $1`, session);
     expect((await check(ticket)).status).toBe(404);

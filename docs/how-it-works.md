@@ -936,6 +936,37 @@ flowchart LR
   `--ssl-mode=REQUIRED` accept; SQL Server clients need Trust server
   certificate for it.
 
+### A database user per connection (PostgreSQL, MySQL, MariaDB)
+
+A PostgreSQL or MySQL resource can name a **Session role**. The saved account then
+only provisions: it is never used by a person.
+
+- **What happens.** For each connection a user's client opens, the connector signs
+  in as the saved account, creates a user named `captivo_tmp_<time>_<random>`
+  with a random password that inherits the session role, signs in as it, relays
+  the session, and drops it when the connection closes. The client works with
+  exactly the session role's rights, and the server's own log and
+  `pg_stat_activity` show a user that exists for that connection only. Captivo's
+  query log has who it was.
+- **Nothing standing.** The password exists only inside the connector for the
+  length of the connection. PostgreSQL also stamps the user `VALID UNTIL` ten
+  minutes ahead, so a leftover cannot sign in. A user a crash left behind is
+  dropped by the next connection that provisions, once it is six hours old.
+  Objects the user created in PostgreSQL are reassigned to the session role so
+  the user can be dropped.
+- **Setting it up, once.** The resource form shows the statements. PostgreSQL: the
+  saved account needs `CREATEROLE` and `ADMIN OPTION` on the session role.
+  MySQL 8: `CREATE USER` and `ROLE_ADMIN` (plus `SELECT` on `mysql.user` to remove
+  leftovers). MariaDB: `CREATE USER`, the role `WITH ADMIN OPTION` and `UPDATE`
+  on `mysql.*` (it sets another user's default role that way). The session role
+  carries the privileges users get: make it with `CREATE ROLE` and `GRANT`.
+- **One user per connection**, so a client that opens a pool makes several. In
+  MySQL a `KILL QUERY` from a second connection (Ctrl-C in the `mysql` client)
+  cannot reach another user's thread; PostgreSQL's cancel is unaffected.
+- **Not combined with** password check-out (there is no shared password to take).
+  Rotating the saved account's own password still works.
+- **Requirements:** a connector on 2.70.0 or later.
+
 ## Connectors without Docker (Windows and Linux services)
 
 The Docker install is the default: it brings guacd and the isolated browser

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -242,7 +243,35 @@ func (s *pgSession) exec(sql string) error {
 	return s.ready()
 }
 
-func (s *pgSession) column(string) ([]string, error) { return nil, errors.New("not used") }
+// column runs a query and returns its first column.
+func (s *pgSession) column(sql string) ([]string, error) {
+	if err := pgSend(s.conn, 'Q', append([]byte(sql), 0)); err != nil {
+		return nil, err
+	}
+	var out []string
+	var first error
+	for {
+		t, body, err := pgRead(s.br)
+		if err != nil {
+			return nil, errors.New("the database server closed the connection")
+		}
+		switch t {
+		case 'E':
+			if first == nil {
+				first = parsePgError(body)
+			}
+		case 'D':
+			if len(body) >= 6 {
+				n := int(int32(binary.BigEndian.Uint32(body[2:6])))
+				if n >= 0 && 6+n <= len(body) {
+					out = append(out, string(body[6:6+n]))
+				}
+			}
+		case 'Z':
+			return out, first
+		}
+	}
+}
 
 type mySession struct{ c *myConn }
 

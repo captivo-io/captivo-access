@@ -54,6 +54,7 @@ async function handler(req: NextRequest) {
     databases: t.params.databases,
     tls: t.params.tls,
     caCertPem: t.params.caCertPem ?? "",
+    sessionRole: t.params.sessionRole,
     connectors: t.connectors,
     record: t.record,
   });

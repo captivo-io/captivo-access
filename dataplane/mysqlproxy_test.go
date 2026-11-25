@@ -185,7 +185,7 @@ func TestMySQLProxyEndToEnd(t *testing.T) {
 	p := &pgProxy{
 		d: pgProxyDeps{
 			ctrl: fakeDbCtrl{t: dbTarget{
-				Engine: "mysql", SiteID: "s1", UserID: "u1", Host: "10.0.0.9", Port: 3306, Username: "app", Database: "crm", TLS: "disable",
+				Engine: "mysql", SiteID: "s1", UserID: "u1", Host: "10.0.0.9", Port: 3306, Username: "app", Database: "crm", TLS: "disable", SessionRole: "reader",
 				Connectors: []routeCandidate{{ID: "c1", SealedSecret: "sealed"}},
 			}},
 			session: func(string) *Session { return &Session{mux: dp} },
@@ -220,7 +220,7 @@ func TestMySQLProxyEndToEnd(t *testing.T) {
 	fc.mu.Lock()
 	req := fc.req
 	fc.mu.Unlock()
-	if req.Engine != "mysql" || req.Username != "app" || req.Database != "crm" || req.Sealed != "sealed" {
+	if req.Engine != "mysql" || req.Username != "app" || req.Database != "crm" || req.Sealed != "sealed" || req.SessionRole != "reader" {
 		t.Fatalf("connector asked %+v", req)
 	}
 	if req.Capabilities&(myCapSSL|myCapConnectAttrs|myCapAuthLenenc) != 0 || req.Capabilities&myCapMultiResults == 0 {

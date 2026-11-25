@@ -4,7 +4,8 @@ import { classifyGrant } from "@/lib/access/classify";
 import { getVaultCredential } from "@/lib/vault/store";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
-import { databaseBlock, dbEngineOf, dbEngineWire, dbMinConnector, parseDbParams, type DbBlock, type DbParams } from "@/lib/database/params";
+import { compareSemver } from "@/lib/updates/semver";
+import { databaseBlock, dbEngineOf, dbEngineWire, dbMinConnector, parseDbParams, SESSION_USER_MIN_CONNECTOR, type DbBlock, type DbParams } from "@/lib/database/params";
 
 export type DatabaseTarget =
   | {
@@ -31,10 +32,14 @@ export async function databaseTarget(userId: string, siteId: string, now: Date):
   const engine = dbEngineOf(site.vaultCredential?.protocol);
   const block = databaseBlock({ accessMode: site.accessMode, connectorVersion: newestVersion(site), engine });
   if (block) return { ok: false, status: 409, error: block };
+  const params = parseDbParams(site.vaultCredential?.dbParams, engine);
+  // A resource on one connector is never filtered by version below; an older connector would sign in as the provisioning account itself.
+  if (params.sessionRole && compareSemver(newestVersion(site), SESSION_USER_MIN_CONNECTOR) === -1) return { ok: false, status: 409, error: "connector_outdated" };
   const cred = await getVaultCredential(siteId);
   if (!cred || !cred.sealedSecret || cred.stale) return { ok: false, status: 409, error: "vault_secret_reenter" };
   const members = routeMembers(site, { minVersion: dbMinConnector(engine), canOpen: (m) => !!m.vaultPublicKey && !!cred.seals[m.vaultPublicKey] }).eligible;
-  if (members.length === 0) return { ok: false, status: 409, error: "connector_outdated" };
+  const sessionMembers = params.sessionRole ? members.filter((m) => compareSemver(m.version, SESSION_USER_MIN_CONNECTOR) !== -1) : members;
+  if (sessionMembers.length === 0) return { ok: false, status: 409, error: "connector_outdated" };
   return {
     ok: true,
     siteName: site.name,
@@ -42,8 +47,8 @@ export async function databaseTarget(userId: string, siteId: string, now: Date):
     targetHost: cred.targetHost,
     targetPort: cred.targetPort,
     username: cred.username,
-    params: parseDbParams(site.vaultCredential?.dbParams, engine),
-    connectors: candidatesFor(members, (m) => ({ sealedSecret: (m.vaultPublicKey && cred.seals[m.vaultPublicKey]) || cred.sealedSecret })),
+    params,
+    connectors: candidatesFor(sessionMembers, (m) => ({ sealedSecret: (m.vaultPublicKey && cred.seals[m.vaultPublicKey]) || cred.sealedSecret })),
     record: await effectiveSiteRecording(site.recordSessions),
   };
 }

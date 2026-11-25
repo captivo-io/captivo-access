@@ -298,7 +298,7 @@ func (p *pgProxy) openMySQL(c *myClientConn, seq byte, hello myHello, connID uin
 	}
 	up, resp, err := dialDb(p.d.session(s.connectorID), tunnel.DbDialRequest{
 		Engine: "mysql", Host: t.Host, Port: strconv.Itoa(t.Port), Username: t.Username, Database: db,
-		Sealed: sealed, TLS: t.TLS, CACertPEM: t.CACertPEM,
+		Sealed: sealed, TLS: t.TLS, CACertPEM: t.CACertPEM, SessionRole: t.SessionRole,
 		Capabilities: hello.caps & myGreetCaps &^ mySignInOnly, Collation: hello.collation,
 	})
 	if err != nil {
