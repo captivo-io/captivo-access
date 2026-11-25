@@ -17,7 +17,7 @@ const OWNER_URL = process.env.TEST_DATABASE_URL;
 const suffix = crypto.randomUUID().slice(0, 8);
 const tA = { id: `ag-a-${suffix}`, slug: `ag-a-${suffix}` };
 const conn = `ag-c-${suffix}`;
-const [sshSite, rdpSite] = [`ags-ssh-${suffix}`, `ags-rdp-${suffix}`];
+const [sshSite, rdpSite, dbSite, kubeSite] = [`ags-ssh-${suffix}`, `ags-rdp-${suffix}`, `ags-db-${suffix}`, `ags-kube-${suffix}`];
 const admin = `ag-adm-${suffix}`;
 const DP_SECRET = `ag-dp-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "deploy" };
@@ -41,6 +41,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
   let access: typeof import("@/app/api/agent/v1/access/route");
   let accessId: typeof import("@/app/api/agent/v1/access/[id]/route");
   let connect: typeof import("@/app/api/agent/v1/connect/[siteId]/route");
+  let mcp: typeof import("@/app/api/agent/mcp/route");
   let fakeDataplane: Server;
   let token = "";
   let tokenId = "";
@@ -65,6 +66,7 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     fakeDataplane = createServer(async (rq, res) => {
       for await (const _ of rq) void _;
       if (rq.headers["x-dataplane-secret"] !== DP_SECRET) return void res.writeHead(403).end();
+      if (rq.url === "/db-info") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ enabled: true, mysql: true }));
       if (rq.url === "/ssh-ticket") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true, fingerprint: "SHA256:jump" }));
       res.writeHead(404).end();
     });
@@ -76,18 +78,23 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,'admin@a.test','Admin','ADMIN','ACTIVE')`, admin, tA.id);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","nativeSsh","recordSessions") VALUES($1,$2,$3,'Build box','GATEWAY',true,true)`, sshSite, tA.id, conn);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Desktop','GATEWAY')`, rdpSite, tA.id, conn);
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Orders DB','DATABASE')`, dbSite, tA.id, conn);
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Prod cluster','KUBERNETES')`, kubeSite, tA.id, conn);
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
     vi.resetModules();
     const { sealSecret } = await import("@/lib/vault/seal");
     const s = await sealSecret(pub, "deploy-pass", target);
     await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","updatedAt") VALUES($1,$2,$3,'SSH',$4,$5,$6,$7,$8,now())`, `agv1-${suffix}`, tA.id, sshSite, target.host, target.port, target.username, s, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","updatedAt") VALUES($1,$2,$3,'RDP',$4,3389,'Administrator',$5,$6,now())`, `agv2-${suffix}`, tA.id, rdpSite, target.host, s, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","updatedAt") VALUES($1,$2,$3,'POSTGRES',$4,5432,'app',$5,$6,'{"database":"orders","databases":[],"tls":"require"}'::jsonb,now())`, `agv3-${suffix}`, tA.id, dbSite, target.host, s, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","kubeParams","updatedAt") VALUES($1,$2,$3,'KUBERNETES',$4,6443,'captivo',$5,$6,$7::jsonb,now())`, `agv4-${suffix}`, tA.id, kubeSite, target.host, s, pub, JSON.stringify({ caCertPem: null, identity: "service_account", groups: [], namespaces: ["default"], readOnly: false, portForward: false }));
     agents = await import("@/app/api/admin/agents/route");
     agentById = await import("@/app/api/admin/agents/[id]/route");
     me = await import("@/app/api/agent/v1/me/route");
     access = await import("@/app/api/agent/v1/access/route");
     accessId = await import("@/app/api/agent/v1/access/[id]/route");
     connect = await import("@/app/api/agent/v1/connect/[siteId]/route");
+    mcp = await import("@/app/api/agent/mcp/route");
   });
 
   afterAll(async () => {
@@ -149,6 +156,37 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     expect((await call(accessId.GET as never, "GET", `/api/agent/v1/access/${r.body.id}`, "cat_other", undefined, { params: Promise.resolve({ id: r.body.id }) })).status).toBe(401);
   });
 
+  it("connects to a database and a cluster too, with a ticket and not a password", async () => {
+    const made = await json(await call(agents.POST as never, "POST", "/api/admin/agents", null, { name: "data", siteIds: [dbSite, kubeSite], maxMinutes: 30, autoApprove: true }));
+    expect(made.status).toBe(201);
+    const tk = made.body.token as string;
+    const ctx = (id: string) => ({ params: Promise.resolve({ siteId: id }) });
+    // Before access: refused, not failed.
+    expect((await json(await call(connect.POST as never, "POST", `/api/agent/v1/connect/${dbSite}`, tk, undefined, ctx(dbSite)))).body.error).toBe("no_active_access");
+    for (const id of [dbSite, kubeSite]) {
+      const r = await json(await call(access.POST as never, "POST", "/api/agent/v1/access", tk, { siteId: id, minutes: 20, reason: "Check the orders after the migration" }));
+      expect(r.body.status).toBe("approved");
+    }
+    const d = await json(await call(connect.POST as never, "POST", `/api/agent/v1/connect/${dbSite}`, tk, undefined, ctx(dbSite)));
+    expect(d.status).toBe(200);
+    expect(d.body).toMatchObject({ kind: "database", engine: "postgres", database: "orders", recorded: expect.any(Boolean) });
+    expect(d.body.command).toContain("psql");
+    expect(d.body.command).toContain(d.body.ticket);
+    // The ticket ends with the grant, and hangs off a session nobody can use as a cookie.
+    expect(new Date(d.body.expiresAt).getTime() - Date.now()).toBeLessThanOrEqual(20 * 60_000 + 2000);
+    const sess = await owner.$queryRawUnsafe<{ mobile: boolean; userAgent: string }[]>(`SELECT s.mobile, s."userAgent" FROM "DbTicket" t JOIN "Session" s ON s.id = t."sessionId" WHERE t."siteId" = $1`, dbSite);
+    expect(sess).toEqual([{ mobile: true, userAgent: "agent-api" }]);
+    const k = await json(await call(connect.POST as never, "POST", `/api/agent/v1/connect/${kubeSite}`, tk, undefined, ctx(kubeSite)));
+    expect(k.status).toBe(200);
+    expect(k.body.kind).toBe("kubernetes");
+    expect(k.body.kubeconfig).toContain("kind: Config");
+    expect(k.body.kubeconfig).toContain(`/k8s/${kubeSite}`);
+    // A second call reuses the agent's session.
+    await call(connect.POST as never, "POST", `/api/agent/v1/connect/${dbSite}`, tk, undefined, ctx(dbSite));
+    const n = await owner.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM "Session" WHERE "userAgent" = 'agent-api' AND "tenantId" = $1`, tA.id);
+    expect(Number(n[0].n)).toBe(1);
+  });
+
   it("a token made to approve its own requests is approved at once, and the audit log says so", async () => {
     const made = await json(await call(agents.POST as never, "POST", "/api/admin/agents", null, { name: "nightly", siteIds: [sshSite], maxMinutes: 15, autoApprove: true }));
     autoToken = made.body.token;
@@ -157,6 +195,26 @@ describe.skipIf(!OWNER_URL)("agent API", () => {
     expect((await grantOf(r.body.id)).approvedAt).not.toBeNull();
     const audit = await owner.$queryRawUnsafe<{ summary: string }[]>(`SELECT summary FROM "AdminAuditEvent" WHERE "tenantId" = $1 AND action = 'grant.auto_approved'`, tA.id);
     expect(audit.some((a) => a.summary.includes("nightly") && a.summary.includes("without a person's approval"))).toBe(true);
+  });
+
+  it("speaks MCP: the same four operations, with the same checks", async () => {
+    const rpc = async (tk: string | null, msg: unknown) => json(await mcp.POST(new Request(`${H}/api/agent/mcp`, { method: "POST", headers: { "content-type": "application/json", ...(tk ? { authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(msg) })));
+    expect((await rpc(null, { jsonrpc: "2.0", id: 1, method: "initialize" })).status).toBe(401);
+    expect((await rpc("cat_nope", { jsonrpc: "2.0", id: 1, method: "initialize" })).status).toBe(401);
+    expect((await rpc(autoToken, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } })).body.result.serverInfo.name).toBe("captivo-access");
+    const text = (r: { body: Record<string, any> }) => JSON.parse(r.body.result.content[0].text); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const list = await rpc(autoToken, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_resources", arguments: {} } });
+    expect(text(list).agent.name).toBe("nightly");
+    // A second connection through MCP asks for access like the REST call does: held, already requested.
+    const dup = await rpc(autoToken, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "request_access", arguments: { siteId: sshSite, reason: "Nightly log collection again" } } });
+    expect(dup.body.result.isError).toBe(true);
+    expect(text(dup).error).toBe("already_requested");
+    const st = await rpc(autoToken, { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "access_status", arguments: { id: text(dup).id } } });
+    expect(text(st).status).toBe("active");
+    const cn = await rpc(autoToken, { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "connect", arguments: { siteId: sshSite } } });
+    expect(cn.body.result.isError).toBe(false);
+    expect(text(cn).command).toContain("ssh -J");
+    // Revoked tokens are refused at the door.
   });
 
   it("stops working when it is revoked, and takes its access with it", async () => {

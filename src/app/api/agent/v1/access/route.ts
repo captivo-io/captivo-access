@@ -73,4 +73,4 @@ export const POST = withTenantRoute(withAgent(async (req, agent) => {
   }
   await notifyApprovers({ who: `Agent "${agent.token.name}"`, email: agent.user.email, siteName: site.name, grantId: result.id, reason, ticketRef: gate.ticket?.ticketRef });
   return NextResponse.json({ id: result.id, status: "pending", ...window }, { status: 201 });
-}), { budgetMs: SLOW_SCOPE_BUDGET_MS });
+}, { action: "access" }), { budgetMs: SLOW_SCOPE_BUDGET_MS });
