@@ -1,10 +1,6 @@
 import { CommandBlock } from "@/app/(app)/_shell/command-block";
 import { formatShellCommand } from "@/lib/format/docker-command";
-
-// The documented server-side upgrade command (manager + data-plane + auto
-// migration). Kept as a single copy-pasteable line.
-const SERVER_UPGRADE_COMMAND =
-  "cd captivo-access/deploy && git pull && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d";
+import { serverUpgradeCommand } from "@/lib/updates/server-upgrade";
 
 // Renders the "How to upgrade" card. Displays commands only — the app never runs
 // them. `connectorCommand` is null when no connector is outdated (lib/updates/semver.ts).
@@ -21,6 +17,7 @@ export function UpgradeGuide({
   connectorCommand: string | null;
   outdatedConnectors: number;
 }) {
+  const serverCommand = serverUpgradeCommand(latestVersion);
   return (
     <div className="card">
       <div className="card-head">
@@ -43,11 +40,12 @@ export function UpgradeGuide({
       <div className="field">
         <label className="field-label">On your server</label>
         <p className="cell-sub">
-          Upgrades the manager and data-plane and applies any schema change automatically.
+          Moves <code>CAPTIVO_VERSION</code> in <code>.env</code> to v{latestVersion}, then upgrades the manager and
+          data-plane and applies any schema change automatically.
         </p>
         <CommandBlock
-          command={SERVER_UPGRADE_COMMAND}
-          display={SERVER_UPGRADE_COMMAND.replace(/ && /g, " && \\\n  ")}
+          command={serverCommand}
+          display={serverCommand.replace(/ && /g, " && \\\n  ")}
           title="server-upgrade"
         />
       </div>

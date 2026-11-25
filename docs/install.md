@@ -470,6 +470,9 @@ the tamper-evident hash chain. Both fail closed without a valid `CRON_SECRET`.
 ```bash
 cd captivo-access/deploy
 git pull
+# setup.sh pinned CAPTIVO_VERSION in .env, and that beats the compose default, so `git pull`
+# alone stays on your current release. Move it to the release you want (see the release page):
+sed -i 's/^CAPTIVO_VERSION=.*/CAPTIVO_VERSION=<release>/' .env   # or add the line if .env has none
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 
