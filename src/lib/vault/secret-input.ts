@@ -1,4 +1,4 @@
-export const SECRET_SOURCES = ["hashicorp", "cyberark", "azure", "aws"] as const;
+export const SECRET_SOURCES = ["hashicorp", "cyberark", "azure", "aws", "sshca"] as const;
 export type SecretSource = (typeof SECRET_SOURCES)[number];
 
 export type SecretInput = (

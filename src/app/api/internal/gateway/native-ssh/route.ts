@@ -52,6 +52,7 @@ async function handler(req: NextRequest) {
       secretKind: t.secretKind,
       ...(t.secret !== undefined ? { secret: t.secret } : {}),
       sshHostKey: t.sshHostKey ?? "",
+      keyId: t.keyId ?? "",
     } : {}),
     ...(moderation ? { moderation } : {}),
   });

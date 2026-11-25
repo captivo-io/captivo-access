@@ -11,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/kurtserdar/captivo-access/tunnel"
+	"golang.org/x/crypto/ssh"
 )
 
 // tunnelRateLimit and tunnelRateWindow bound how many /tunnel connection
@@ -62,11 +63,11 @@ func (s *Server) HandleTunnel(w http.ResponseWriter, r *http.Request) {
 
 	sess := &Session{mux: mux, kasmToken: kasmTokenFromHeader(r.Header.Get("X-Kasm-Control-Token"))}
 	s.reg.Set(connectorID, sess)
-	policy, logLevel, rec := s.ctrl.ReportStatus(connectorID, "ONLINE", r.RemoteAddr, r.Header.Get("X-Connector-Version"), vaultPublicKeyFromHeader(r.Header.Get("X-Vault-Public-Key")), connectorPlatform(r.Header.Get("X-Connector-Platform")))
+	policy, logLevel, rec := s.ctrl.ReportStatus(connectorID, "ONLINE", r.RemoteAddr, r.Header.Get("X-Connector-Version"), vaultPublicKeyFromHeader(r.Header.Get("X-Vault-Public-Key")), connectorPlatform(r.Header.Get("X-Connector-Platform")), sshCAKeyFromHeader(r.Header.Get("X-SSH-CA-Public-Key")))
 	go runControl(sess, connectorID, s.ctrl, policy, logLevel, rec)
 	defer func() {
 		if s.reg.RemoveIfSame(connectorID, sess) {
-			_, _, _ = s.ctrl.ReportStatus(connectorID, "OFFLINE", r.RemoteAddr, "", "", "")
+			_, _, _ = s.ctrl.ReportStatus(connectorID, "OFFLINE", r.RemoteAddr, "", "", "", "")
 		}
 		mux.Close()
 	}()
@@ -120,6 +121,18 @@ func vaultPublicKeyFromHeader(v string) string {
 		return ""
 	}
 	return v
+}
+
+// sshCAKeyFromHeader accepts only one ssh-ed25519 public key line: servers are
+// told to trust it, so nothing else (a comment with line breaks, another key
+// type) may pass through the control plane to an admin's screen.
+func sshCAKeyFromHeader(v string) string {
+	v = strings.TrimSpace(v)
+	pk, comment, _, rest, err := ssh.ParseAuthorizedKey([]byte(v))
+	if err != nil || len(rest) != 0 || comment != "" || pk.Type() != ssh.KeyAlgoED25519 {
+		return ""
+	}
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pk)))
 }
 
 // kasmTokenFromHeader accepts only a plain token: it is written into raw HTTP

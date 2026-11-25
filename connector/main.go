@@ -51,6 +51,11 @@ func runConnector() {
 		log.Fatalf("vault key: %v", err)
 	}
 	vaultKey = vk
+	ca, err := loadOrCreateSSHCA(envOr("SSH_CA_KEY_FILE", dataPath("ssh-ca.key")))
+	if err != nil {
+		log.Fatalf("ssh CA key: %v", err)
+	}
+	sshCA = ca
 	// Warn loudly if the store will not outlive the container. Recordings are no
 	// longer held by the control plane, so if this volume is lost nobody has a copy.
 	if warn := recordingVolumeWarning(recDir); warn != "" && !standalone {

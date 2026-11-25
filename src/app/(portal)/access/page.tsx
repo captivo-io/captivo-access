@@ -86,6 +86,7 @@ async function AccessPageImpl() {
       rdpRecorded: rdpMode === "recorded",
       sshHref: sshMode === "recorded" || (!moderated && sshMode === "direct") ? `/api/portal/ssh/${g.site.id}` : null,
       sshRecorded: sshMode === "recorded",
+      sshCa: g.site.vaultCredential?.secretSource === "sshca",
       tunnelHref: g.site.accessMode === "TUNNEL" && tunnelBlock({ accessMode: g.site.accessMode, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/ssh/${g.site.id}` : null,
       kubeHref: kubeBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/kube/${g.site.id}` : null,
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,

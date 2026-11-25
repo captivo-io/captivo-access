@@ -17,12 +17,14 @@ import { liveHostAction, remoteControl, updateTarget, type StoredHostAction } fr
 import { isConnectorOutdated } from "@/lib/updates/semver";
 import { RepairConnectorButton } from "../repair-connector-button";
 import type { Tab } from "./tabs";
+import { SSH_CA_MIN_CONNECTOR } from "@/lib/vault/providers";
+import { CopyButton } from "@/app/(app)/_shell/copy-button";
 
 type Tele = { online: boolean; ageMs?: number; telemetry?: ConnectorTelemetry | null; status?: string; lastSeenAt?: string | null; version?: string | null; hostAction?: StoredHostAction | null };
 type Res = { tile: SiteTile; publicHost: string | null; ok: boolean | null; latencyMs: number | null; detail: string | null };
 type Conn = {
   id: string; name: string; status: string; version: string | null; outdated: boolean; mgr: string;
-  lastSeenAt: string | null; remoteAddr: string | null; createdAt: string; egressPolicy: string; logLevel: string;
+  lastSeenAt: string | null; remoteAddr: string | null; createdAt: string; egressPolicy: string; logLevel: string; sshCaPublicKey: string | null;
   hostAction: StoredHostAction | null;
   platform: string | null;
 };
@@ -214,7 +216,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
       {tab === "activity" && <Activity rows={activity} auditHref={auditHref} />}
       {tab === "settings" && (
         <>
-          <Settings s={settings} defaultLogLevel={defaultLogLevel} connectorId={c.id} onToast={setToast} />
+          <Settings s={settings} defaultLogLevel={defaultLogLevel} connectorId={c.id} onToast={setToast} caKey={c.sshCaPublicKey} />
           {!revoked && <RemoveCard c={c} resources={sites.length} remote={remote} />}
         </>
       )}
@@ -476,7 +478,7 @@ function useSettings(c: Conn) {
   };
 }
 
-function Settings({ s, defaultLogLevel, connectorId, onToast }: { s: SettingsState; defaultLogLevel: string; connectorId: string; onToast: (t: { msg: string; ok: boolean }) => void }) {
+function Settings({ s, defaultLogLevel, connectorId, onToast, caKey }: { s: SettingsState; defaultLogLevel: string; connectorId: string; onToast: (t: { msg: string; ok: boolean }) => void; caKey: string | null }) {
   const [busy, setBusy] = useState(false);
   const bad = s.parsed.invalid.length > 0;
   const n = s.parsed.targets.length;
@@ -532,6 +534,17 @@ function Settings({ s, defaultLogLevel, connectorId, onToast }: { s: SettingsSta
             ))}
           </div>
           <span className={s.lg === "debug" || s.lg === "error" ? "cd-egst warn" : "cd-egst"}>{LEVEL_SUB[s.lg] ?? ""}</span>
+        </div>
+      </section>
+      <section className="cd-card">
+        <CardHead icon="shield" title="SSH certificate authority" sub="Servers that trust it accept this connector's short-lived certificates, with no password or key." />
+        <div className="cd-setb">
+          {caKey ? (
+            <div className="rf-code"><pre className="mono">{caKey}</pre><CopyButton value={caKey} /></div>
+          ) : (
+            <span className="cd-hint">Not reported yet: it appears once this connector runs {SSH_CA_MIN_CONNECTOR} or later and is online.</span>
+          )}
+          <span className="cd-hint">Put this line in the SSH server&apos;s <span className="mono">TrustedUserCAKeys</span> file. A resource uses it when its sign-in is set to SSH certificate.</span>
         </div>
       </section>
       {s.dirty > 0 && (

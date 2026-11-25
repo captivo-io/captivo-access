@@ -99,6 +99,9 @@ func parseSecretRef(plain string) (*secretRef, bool, error) {
 }
 
 func (r *secretRef) validate() error {
+	if r.Provider == "sshca" {
+		return nil // nothing to look up: the connector signs a certificate (sshca.go)
+	}
 	if r.Provider == "aws" && r.Address == "" {
 		r.Address = awsEndpoint(r.Region)
 	}
@@ -364,6 +367,19 @@ func escapePath(p string) string {
 // the credential it points to. Everything that signs in with a saved
 // credential calls it instead of openSealed.
 func openSecret(k *ecdh.PrivateKey, sealed string, aad []byte) (string, error) {
+	s, err := openSecretOrCA(k, sealed, aad)
+	if err == nil && s == sshCAMarker {
+		return "", errSSHCAOnly
+	}
+	return s, err
+}
+
+var errSSHCAOnly = errors.New("this resource signs in with SSH certificates, which only a native SSH client can use")
+
+// openSecretOrCA is openSecret for the callers that can sign in with a
+// certificate (recorded native SSH): a certificate sign-in comes back as
+// sshCAMarker, never as something that looks like a password.
+func openSecretOrCA(k *ecdh.PrivateKey, sealed string, aad []byte) (string, error) {
 	plain, err := openSealed(k, sealed, aad)
 	if err != nil {
 		return "", err
@@ -374,6 +390,9 @@ func openSecret(k *ecdh.PrivateKey, sealed string, aad []byte) (string, error) {
 	}
 	if err != nil {
 		return "", err
+	}
+	if ref.Provider == "sshca" {
+		return sshCAMarker, nil
 	}
 	return resolveSecretRef(context.Background(), ref)
 }

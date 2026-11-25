@@ -32,7 +32,7 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
     where: { id },
     select: {
       id: true, name: true, status: true, version: true, lastSeenAt: true, remoteAddr: true, createdAt: true,
-      egressPolicy: true, logLevel: true, hostAction: true, platform: true,
+      egressPolicy: true, logLevel: true, hostAction: true, platform: true, sshCaPublicKey: true,
       sites: {
         select: { ...SITE_TILE_SELECT, hostname: true, probeOk: true, probeLatencyMs: true, probeDetail: true, probedAt: true },
         orderBy: { name: "asc" },
@@ -73,7 +73,7 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
           outdated: isConnectorOutdated(connector.version, mgr), mgr,
           lastSeenAt: connector.lastSeenAt?.toISOString() ?? null, remoteAddr: connector.remoteAddr,
           createdAt: connector.createdAt.toISOString(), egressPolicy: connector.egressPolicy ?? "", logLevel: connector.logLevel ?? "",
-          hostAction: storedHostAction(connector.hostAction), platform: connector.platform,
+          hostAction: storedHostAction(connector.hostAction), platform: connector.platform, sshCaPublicKey: connector.sshCaPublicKey,
         }}
         tele0={tele}
         sites={connector.sites.map((s) => ({

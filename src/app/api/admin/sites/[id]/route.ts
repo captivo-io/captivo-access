@@ -24,6 +24,7 @@ import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { reshareGroupSecrets } from "@/lib/vault/reshare";
 import { nativeBlocksRotation, rotationOn } from "@/lib/vault/rotation";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
+import { sshCaProblem } from "@/lib/vault/ssh-ca";
 
 export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -111,6 +112,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     return NextResponse.json({ ok: true });
   }
 
+  if ((v.mode === "KUBERNETES" || v.mode === "DATABASE") && v.secret?.source === "sshca") return NextResponse.json({ error: "ssh_ca_ssh_only" }, { status: 400 });
   if (v.mode === "KUBERNETES") {
     // The token is sealed to the API server's address and the account's name: change
     // either and it must be entered again. A credential of another kind isn't kept.
@@ -189,6 +191,12 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
 
   // GATEWAY update: a first-time credential must include a secret.
   const hadVault = (await db.vaultCredential.count({ where: { siteId: id } })) > 0;
+  // A certificate sign-in is the recorded native SSH path's: it is checked against what the resource will be after this save.
+  const prevCred = hadVault ? await db.vaultCredential.findUnique({ where: { siteId: id }, select: { secretSource: true } }) : null;
+  if ((v.secret ? v.secret.source : prevCred?.secretSource) === "sshca") {
+    const bad = sshCaProblem({ protocol: v.protocol, nativeSsh: v.nativeSsh, recorded: await effectiveSiteRecording(v.recordSessions) });
+    if (bad) return NextResponse.json({ error: bad }, { status: 400 });
+  }
   // A native client signs in with a password the user types; a rotated one nobody
   // knows. Recorded native SSH is the exception: Captivo signs in for the user.
   if (nativeBlocksRotation({ nativeRdp: v.nativeRdp, nativeSsh: v.nativeSsh, recorded: await effectiveSiteRecording(v.recordSessions) })) {

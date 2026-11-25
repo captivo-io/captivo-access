@@ -57,7 +57,7 @@ func openConnectorSSH(s *Session, target sshTarget, sealed string) (*ssh.Client,
 	}
 	req := tunnel.SshDialRequest{
 		Kind: "ssh", Host: target.Host, Port: target.Port, Username: target.Username,
-		Sealed: sealed, SecretKind: target.SecretKind, PinnedHostKey: target.PinnedHostKey,
+		Sealed: sealed, SecretKind: target.SecretKind, PinnedHostKey: target.PinnedHostKey, KeyID: target.KeyID,
 	}
 	if sealed == "" {
 		req.Secret = target.Secret

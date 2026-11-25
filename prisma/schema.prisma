@@ -289,6 +289,7 @@ model Connector {
   remoteAddr       String?
   egressPolicy     String?
   logLevel         String? // debug | info | warn | error; null = inherit the policy default — pushed to the connector live
+  sshCaPublicKey   String? // the connector's SSH certificate authority (ssh-ed25519 line) servers are told to trust; the private half stays on the connector
   vaultPublicKey   String? // X25519 public key (base64) resource secrets are sealed to; the private half stays on the connector
   /// "windows" or "linux" for a connector installed as a program (no guacd or isolated browser beside it); null for the Docker image.
   platform         String?
@@ -474,7 +475,7 @@ model VaultCredential {
   secret     String // sealed to the connector ("cv1:", src/lib/vault/seal.ts) or, before that, AES-256-GCM under ENCRYPTION_KEY
   sealedTo   String? // the connector vault public key `secret` is sealed to; null = legacy server-side encryption
   extraSeals Json? // group resources: { [vaultPublicKey]: sealed } for the other members' keys (src/lib/vault/store.ts)
-  /// "hashicorp" or "cyberark" when `secret` seals a reference to the customer's own vault instead of a password (connector/vaultprovider.go); null = a password
+  /// "hashicorp", "cyberark", "azure" or "aws" when `secret` seals a reference to the customer's own vault instead of a password (connector/vaultprovider.go); "sshca" when it seals a sign-in with certificates the connector signs per session (connector/sshca.go); null = a password
   secretSource String?
   secretKind VaultSecretKind @default(PASSWORD)
   guacParams Json? // curated per-resource Guacamole connection params (validated allowlist)

@@ -41,4 +41,17 @@ describe("connector status reports", () => {
     expect(data.version).toBe("2.41.0");
     expect(vi.mocked(recordConnectorEvent).mock.calls.map((c) => c[2])).toEqual(["Tunnel opened", "Updated 2.35.1 → 2.41.0"]);
   });
+
+  const CA = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ9bX0m1cV7eT0b1Yk2pQ0o5a3o0sY0xv7oQe3Xc2kqL";
+
+  it("keeps the connector's SSH certificate authority, one clean ed25519 line only", async () => {
+    vi.mocked(db.connector.findUnique).mockResolvedValue({ status: "ONLINE", version: "2.69.0" } as never);
+    await report({ status: "ONLINE", version: "2.69.0", sshCaPublicKey: CA });
+    expect((vi.mocked(db.connector.updateMany).mock.calls[0][0] as { data: Record<string, unknown> }).data.sshCaPublicKey).toBe(CA);
+    for (const bad of [CA + " ana@acme", CA + "\nssh-rsa AAAA", "ssh-rsa AAAA", "", 7]) {
+      vi.mocked(db.connector.updateMany).mockClear();
+      await report({ status: "ONLINE", version: "2.69.0", sshCaPublicKey: bad });
+      expect((vi.mocked(db.connector.updateMany).mock.calls[0][0] as { data: Record<string, unknown> }).data).not.toHaveProperty("sshCaPublicKey");
+    }
+  });
 });

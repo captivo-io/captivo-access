@@ -64,6 +64,10 @@ func connectHeader(token string) http.Header {
 		// The public half of the vault key; resource secrets are sealed to it.
 		"X-Vault-Public-Key": {vaultPublicKeyB64(vaultKey)},
 	}
+	// The SSH certificate authority's public half, for servers to trust.
+	if line := sshCAPublicLine(); line != "" {
+		h.Set("X-SSH-CA-Public-Key", line)
+	}
 	// Absent for the Docker image, which has every engine beside it.
 	if p := platformName(); p != "" {
 		h.Set("X-Connector-Platform", p)

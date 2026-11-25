@@ -18,6 +18,7 @@ import { CredentialSource, type CredentialSource as CredentialSourceKind } from 
 import { platformLabel } from "@/lib/connector/platform-label";
 import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
+import { SSH_CA_BLOCK_TEXT } from "@/lib/vault/ssh-ca";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import type { KeystrokeMode } from "@/lib/settings/platform";
 import { LocalTime } from "@/app/(app)/_shell/local-time";
@@ -27,7 +28,7 @@ type Kind = "web" | "isolated" | "remote" | "ssh" | "database" | "tunnel" | "kub
 type Probe = { state: "idle" | "busy" | "ok" | "fail"; ms?: number; error?: string };
 
 export interface ResourceContext {
-  connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null; version?: string | null; platform?: string | null }[];
+  connectors: { id: string; name: string; online: boolean; vaultPublicKey?: string | null; sshCaPublicKey?: string | null; version?: string | null; platform?: string | null }[];
   /** Connector groups: a resource on one is served by any eligible member. */
   groups?: ResourceGroup[];
   recordingEnabled: boolean;
@@ -49,7 +50,7 @@ export interface ResourceContext {
   moderators?: number;
 }
 
-export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; version: string | null; platform?: string | null }[] };
+export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; sshCaPublicKey?: string | null; version: string | null; platform?: string | null }[] };
 
 export interface ResourceInitial {
   id: string;
@@ -125,6 +126,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "invalid_database": return "Database names can't have spaces or quotes, at most 63 characters, at most 50 of them.";
     case "invalid_ca_cert": return "Paste the CA certificate in PEM form (-----BEGIN CERTIFICATE-----).";
     case "vault_connector_key_required": return "The secret is sealed to its connector, and this connector has no vault key yet. Update the connector.";
+    case "ssh_ca_ssh_only": case "ssh_ca_needs_native": case "ssh_ca_needs_recording": return SSH_CA_BLOCK_TEXT[code];
     case "tunnel_target_required": return "Enter the service's address as host:port.";
     case "invalid_api_server": return "Enter the API server as host:port, as kubectl cluster-info shows it.";
     case "kube_token_required": return "Paste the service account's token.";
@@ -430,6 +432,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const moderatedOn = moderatedShown && moderated;
   const nativeSshOn = nativeSshShown && nativeSsh;
   const nativeSshRecorded = nativeUnrecorded || nativeRdpLocked;
+  if (source === "sshca" && !(nativeSshOn && effRecord)) missing.push("Native SSH client and recording (certificates are used there)");
   const sshRecordedReady = routeConnectors.length === 0 || routeConnectors.some((c) => compareSemver(c.version, NATIVE_SSH_RECORDED_MIN_CONNECTOR) !== -1);
   const nativeSshOldConnector = nativeSshOn && routeConnectors.length > 0 && routeConnectors.every((c) => compareSemver(c.version, NATIVE_SSH_MIN_CONNECTOR) === -1);
   const nativeSshNeedsUpdate = nativeSshOn && nativeSshRecorded && !sshRecordedReady && !nativeSshOldConnector;
@@ -674,7 +677,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
             <div className="rf-creds">
               <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Service account" : "Username"}</span></span>
                 <input className="input mono" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" placeholder={kind === "ssh" ? "root" : isDb ? "app_readonly" : isKube ? "captivo-access" : "Administrator"} /></label>
-              {vaultKey && <CredentialSource source={source} onSource={setSource} saved={!!vault?.secretSource && vault.secretSource === source} onRef={onRef} />}
+              {vaultKey && <CredentialSource source={source} onSource={setSource} saved={!!vault?.secretSource && vault.secretSource === source} onRef={onRef} ssh={kind === "ssh"} caKeys={routeConnectors.map((c) => ({ name: c.name, key: c.sshCaPublicKey ?? null }))} />}
               {source === "local" && <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Token" : "Password"}</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>}
@@ -795,7 +798,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               <div className="rf-row-c"><Pills value={checkoutMinutes} onChange={setCheckoutMinutes} options={[["60", "1 hour"], ["240", "4 hours"], ["480", "8 hours"], ["1440", "24 hours"]]} label="Longest check-out" /></div>
             </div>
           )}
-          {checkoutShown && checkout && (moderatedOn || source !== "local") && <p className="rf-msg warn">{moderatedOn ? "A resource that needs a moderator can't offer password check-out." : "A credential kept in your own vault can't be checked out here; read it there."} It is left off when you save.</p>}
+          {checkoutShown && checkout && (moderatedOn || source !== "local") && <p className="rf-msg warn">{moderatedOn ? "A resource that needs a moderator can't offer password check-out." : source === "sshca" ? "A certificate sign-in has no password to check out." : "A credential kept in your own vault can't be checked out here; read it there."} It is left off when you save.</p>}
           {moderatedShown && (
             <Row title="Requires a moderator" custom={moderatedOn} desc="Four eyes: a session starts only when a moderator joins it from Live sessions, and the user can work only while the moderator watches. If the moderator leaves, the user's keyboard and mouse pause, and the session ends 2 minutes later unless a moderator joins. Who can moderate is set on the Policy page.">
               <button type="button" role="switch" aria-checked={moderatedOn} aria-label="Requires a moderator" className={moderatedOn ? "toggle on" : "toggle"} onClick={() => setModerated(!moderated)}><span /></button>

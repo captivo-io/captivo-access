@@ -48,14 +48,20 @@ func handleSsh(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 	}
 	secret := req.Secret
 	if req.Sealed != "" {
-		s, err := openSecret(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
+		s, err := openSecretOrCA(vaultKey, req.Sealed, vaultTargetAAD(req.Host, req.Port, req.Username))
 		if err != nil {
 			writeSshResp(st, tunnel.SshDialResponse{Error: "the saved password does not open on this connector; enter it again"})
 			return
 		}
 		secret = s
 	}
-	auth, err := sshAuthFor(req.SecretKind, secret)
+	var auth []ssh.AuthMethod
+	var err error
+	if secret == sshCAMarker {
+		auth, err = sshCertAuth(req.Username, req.KeyID)
+	} else {
+		auth, err = sshAuthFor(req.SecretKind, secret)
+	}
 	if err != nil {
 		writeSshResp(st, tunnel.SshDialResponse{Error: err.Error()})
 		return
@@ -137,7 +143,7 @@ func sshSignInError(err error) string {
 	case errors.Is(err, errSSHHostKeyChanged):
 		return errSSHHostKeyChanged.Error()
 	case strings.Contains(err.Error(), "unable to authenticate"):
-		return "the server refused the saved account; an admin can enter its password or key again"
+		return "the server refused the saved account; an admin can enter its password or key again (for a certificate: the server must trust this connector's CA and accept the account name)"
 	case strings.Contains(err.Error(), "i/o timeout"), strings.Contains(err.Error(), "connection refused"), strings.Contains(err.Error(), "no route"):
 		return "the server can't be reached from its connector"
 	}
