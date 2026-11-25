@@ -7,6 +7,6 @@
 // Raise it to the release's version whenever that release changes one of
 // CONNECTOR_PATHS. scripts/check-connector-release.sh fails the tag's publish
 // run when it was not raised.
-export const CONNECTOR_RELEASE = "2.71.0";
+export const CONNECTOR_RELEASE = "2.72.0";
 
 export const CONNECTOR_PATHS = ["connector", "tunnel", "updater", "guacd", "kasm-browser"] as const;
