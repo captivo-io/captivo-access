@@ -163,7 +163,7 @@ func verifyCertSignIn(allow *TargetMatcher, req tunnel.RotateRequest) tunnel.Rot
 	}
 	c, _, err := sshSignIn(addr, req.Username, auth, "")
 	if err != nil {
-		if strings.Contains(err.Error(), "unable to authenticate") {
+		if isAuthRefused(err) {
 			return tunnel.RotateResponse{Outcome: "mismatch", Detail: "the server did not accept the certificate: it must list this connector's CA in TrustedUserCAKeys and allow the account " + req.Username}
 		}
 		return tunnel.RotateResponse{Outcome: "mismatch", Detail: sshSignInError(err)}

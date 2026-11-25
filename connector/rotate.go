@@ -141,6 +141,10 @@ func rotate(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatcher, req t
 	if k == nil {
 		return tunnel.RotateResponse{Error: "no vault key"}
 	}
+	// Discovery needs the administrator account only; the resource's own password is not involved.
+	if req.Op == "discover" {
+		return discoverAccounts(ctx, k, allow, req)
+	}
 	aad := vaultTargetAAD(req.Host, req.Port, req.Username)
 	cur, err := openSealed(k, req.Current, aad)
 	if err != nil {

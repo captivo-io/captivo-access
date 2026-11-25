@@ -89,11 +89,20 @@ func (t *linuxTarget) check(ctx context.Context, pw string) authResult {
 	return authResult{kind: authOK}
 }
 
+// isAuthRefused is the server saying no to every method it was offered. Some
+// servers (OpenSSH without PAM) turn keyboard-interactive down with a plain
+// failure instead of a prompt, which the SSH library words as a protocol
+// error (message 51, USERAUTH_FAILURE, where it expected 60).
+func isAuthRefused(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "unable to authenticate") || strings.Contains(m, "unexpected message type 51")
+}
+
 func sshAuthResult(err error) authResult {
 	switch {
 	case errors.Is(err, errHostKeyChanged):
 		return authResult{kind: authOther, detail: errHostKeyChanged.Error()}
-	case strings.Contains(err.Error(), "unable to authenticate"):
+	case isAuthRefused(err):
 		return authResult{kind: authBad, detail: "the password was not accepted"}
 	}
 	return authResult{kind: authOther, detail: "could not reach the server over SSH: " + err.Error()}
@@ -221,21 +230,68 @@ func (t *linuxTarget) adminClient(ctx context.Context) (*ssh.Client, error) {
 	return c, nil
 }
 
-// adminRun runs cmd as root: directly for root, else through sudo (without a
-// password when it may, with the account's own otherwise).
-func (t *linuxTarget) adminRun(c *ssh.Client, cmd, input string, secrets ...string) error {
+// adminPrefix is what goes before a command (and before its input) to run it
+// as root: nothing for root, "sudo -n" when sudo needs no password, "sudo -S"
+// with the account's own password on stdin otherwise.
+func (t *linuxTarget) adminPrefix(c *ssh.Client) (cmd, in string, err error) {
 	r := t.reconcile
 	if r.username == "root" {
-		return runWithInput(c, cmd, input, secrets...)
+		return "", "", nil
 	}
 	if runWithInput(c, "sudo -n true", "", "") == nil {
-		return runWithInput(c, "sudo -n "+cmd, input, secrets...)
+		return "sudo -n ", "", nil
 	}
 	if r.isKey {
-		return errors.New("the reconcile account needs sudo without a password (it signs in with a key)")
+		return "", "", errors.New("the reconcile account needs sudo without a password (it signs in with a key)")
 	}
-	// sudo reads its password from the first line, the command the rest.
-	return runWithInput(c, "sudo -S -p '' "+cmd, r.secret+"\n"+input, append(secrets, r.secret)...)
+	return "sudo -S -p '' ", r.secret + "\n", nil
+}
+
+// adminRun runs cmd as root.
+func (t *linuxTarget) adminRun(c *ssh.Client, cmd, input string, secrets ...string) error {
+	p, in, err := t.adminPrefix(c)
+	if err != nil {
+		return err
+	}
+	if in != "" {
+		secrets = append(secrets, t.reconcile.secret)
+	}
+	return runWithInput(c, p+cmd, in+input, secrets...)
+}
+
+// adminOutput runs cmd as root and returns what it printed.
+func (t *linuxTarget) adminOutput(c *ssh.Client, cmd string, secrets ...string) (string, error) {
+	p, in, err := t.adminPrefix(c)
+	if err != nil {
+		return "", err
+	}
+	if in != "" {
+		secrets = append(secrets, t.reconcile.secret)
+	}
+	return runOutput(c, p+cmd, in, secrets...)
+}
+
+// runOutput is runWithInput that returns the command's standard output.
+func runOutput(c *ssh.Client, cmd, input string, secrets ...string) (string, error) {
+	s, err := c.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer s.Close()
+	s.Stdin = strings.NewReader(input)
+	out, errOut := &lockedBuffer{}, &lockedBuffer{}
+	s.Stdout, s.Stderr = out, errOut
+	done := make(chan error, 1)
+	go func() { done <- s.Run(cmd) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			return "", fmt.Errorf("%s failed: %s", strings.Fields(cmd)[0], lastLine(redact(errOut.String(), secrets...)))
+		}
+		return out.String(), nil
+	case <-time.After(sshStepTimeout):
+		return "", fmt.Errorf("%s did not finish in time", strings.Fields(cmd)[0])
+	}
 }
 
 func runWithInput(c *ssh.Client, cmd, input string, secrets ...string) error {
