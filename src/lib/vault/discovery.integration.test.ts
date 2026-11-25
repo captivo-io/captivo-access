@@ -45,7 +45,7 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
   let owner: PrismaClient;
   let route: typeof import("@/app/api/admin/sites/[id]/discovery/route");
   let fakeDataplane: Server;
-  let asked: Record<string, unknown>[] = [];
+  const asked: Record<string, unknown>[] = [];
 
   const post = (body: Record<string, unknown>) => route.POST(new Request(`http://x/api/admin/sites/${site}/discovery`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }) as unknown as NextRequest, { params: Promise.resolve({ id: site }) });
 
