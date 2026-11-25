@@ -32,6 +32,8 @@ import { consoleBaseUrl } from "@/lib/tenant/console-url";
 export const ROTATION_MIN_CONNECTOR = "2.45.0";
 /** Database accounts (PostgreSQL, MySQL) rotate from this release on; SQL Server logins from MSSQL_MIN_CONNECTOR, the release that has it. */
 export const DB_ROTATION_MIN_CONNECTOR = "2.54.0";
+/** Redis and MongoDB passwords are changed from this release on. */
+export const NOSQL_ROTATION_MIN_CONNECTOR = "2.78.0";
 /** Local Windows accounts (over SMB) rotate from this release on. */
 export const WINDOWS_ROTATION_MIN_CONNECTOR = "2.63.0";
 
@@ -46,13 +48,13 @@ export function retryDelayMs(failures: number): number {
   return failures <= 0 ? 0 : steps[failures - 1] ?? 6 * 60 * 60_000;
 }
 
-export type RotationMethod = "linux" | "windows" | "ad" | "postgres" | "mysql" | "mssql";
+export type RotationMethod = "linux" | "windows" | "ad" | "postgres" | "mysql" | "mssql" | "redis" | "mongodb";
 
-export const isDbMethod = (m: RotationMethod | null | undefined) => m === "postgres" || m === "mysql" || m === "mssql";
+export const isDbMethod = (m: RotationMethod | null | undefined) => m === "postgres" || m === "mysql" || m === "mssql" || m === "redis" || m === "mongodb";
 
 /** The connector release a method needs. */
 export function rotationMinConnector(m?: RotationMethod | null): string {
-  return m === "mssql" ? MSSQL_MIN_CONNECTOR : isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : m === "windows" ? WINDOWS_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
+  return m === "redis" || m === "mongodb" ? NOSQL_ROTATION_MIN_CONNECTOR : m === "mssql" ? MSSQL_MIN_CONNECTOR : isDbMethod(m) ? DB_ROTATION_MIN_CONNECTOR : m === "windows" ? WINDOWS_ROTATION_MIN_CONNECTOR : ROTATION_MIN_CONNECTOR;
 }
 
 export type DirectoryForRotation = {
@@ -95,7 +97,8 @@ export function rotationMethod(c: { protocol: string; secretKind: string; userna
   if (c.protocol === "POSTGRES") return { method: "postgres" };
   if (c.protocol === "MYSQL") return { method: "mysql" };
   if (c.protocol === "MSSQL") return { method: "mssql" };
-  if (c.protocol === "REDIS" || c.protocol === "MONGODB") return { unsupported: `${c.protocol === "REDIS" ? "Redis" : "MongoDB"} passwords are not rotated yet.` };
+  if (c.protocol === "REDIS") return { method: "redis" };
+  if (c.protocol === "MONGODB") return { method: "mongodb" };
   return { unsupported: "VNC passwords are not rotated." };
 }
 

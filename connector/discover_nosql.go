@@ -11,11 +11,8 @@ import (
 	"github.com/kurtserdar/captivo-access/tunnel"
 )
 
-// Account discovery in Redis and MongoDB. Both are listed for the admin to see;
-// neither is taken over (Captivo does not rotate their passwords), so the
-// accounts carry the reason.
-
-const noRotationReason = "Captivo does not change Redis or MongoDB passwords yet, so this account cannot be taken over."
+// Account discovery in Redis and MongoDB. Neither has a reconcile account, so
+// the resource's own saved account lists the others.
 
 // discoverRedis lists a Redis server's ACL users (Redis 6 and later): who is
 // on, who has no password, who may run every command. Never a password hash.
@@ -82,7 +79,7 @@ func parseRedisACL(lines []string) []tunnel.DiscoveredAccount {
 		if len(f) < 3 || f[0] != "user" || !dbAccountNameRe.MatchString(f[1]) {
 			continue
 		}
-		a := tunnel.DiscoveredAccount{Name: f[1], PassAgeDays: -1, Blocked: noRotationReason}
+		a := tunnel.DiscoveredAccount{Name: f[1], PassAgeDays: -1}
 		for _, w := range f[2:] {
 			switch {
 			case w == "on":
@@ -168,7 +165,7 @@ func parseMongoUsers(body []byte) []tunnel.DiscoveredAccount {
 			return true
 		}
 		seen[label] = true
-		out = append(out, tunnel.DiscoveredAccount{Name: label, Login: true, Admin: admin, PassAgeDays: -1, Blocked: noRotationReason})
+		out = append(out, tunnel.DiscoveredAccount{Name: label, Login: true, Admin: admin, PassAgeDays: -1})
 		return true
 	})
 	sortAccounts(out)

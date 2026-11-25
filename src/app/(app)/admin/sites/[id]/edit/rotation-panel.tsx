@@ -38,9 +38,9 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
   const [everyDays, setEveryDays] = useState<number | null>(initial.everyDays);
   const [verifyDaily, setVerifyDaily] = useState(initial.verifyDaily);
   const [recOpen, setRecOpen] = useState(false);
-  const dbAccount = s.method === "postgres" || s.method === "mysql" || s.method === "mssql";
+  const dbAccount = s.method === "postgres" || s.method === "mysql" || s.method === "mssql" || s.method === "redis" || s.method === "mongodb";
   const winAccount = s.method === "windows";
-  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : initial.method === "mssql" ? "sa" : initial.method === "windows" ? "Administrator" : "root"));
+  const [recUser, setRecUser] = useState(initial.reconcile?.username ?? (initial.method === "postgres" ? "postgres" : initial.method === "mssql" ? "sa" : initial.method === "mongodb" ? "admin" : initial.method === "redis" ? "default" : initial.method === "windows" ? "Administrator" : "root"));
   const [recKind, setRecKind] = useState<"PASSWORD" | "KEY">(initial.reconcile?.kind ?? "PASSWORD");
   const [recSecret, setRecSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -202,7 +202,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
       ) : s.unsupported ? <>{accountRow}<p className="rf-msg warn">{s.unsupported}</p>{msg && <p className={`rf-msg ${msg.tone}`} role="status">{msg.text}</p>}</> : (
         <>
           <dl className="rot-facts">
-            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "windows" ? " · Windows (SMB)" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : s.method === "mssql" ? " · SQL Server" : " · SSH"}</dd></div>
+            <div><dt>Account</dt><dd className="mono">{s.target.username}@{s.target.host}{s.method === "ad" ? " · Active Directory" : s.method === "windows" ? " · Windows (SMB)" : s.method === "postgres" ? " · PostgreSQL" : s.method === "mysql" ? " · MySQL" : s.method === "mssql" ? " · SQL Server" : s.method === "redis" ? " · Redis" : s.method === "mongodb" ? " · MongoDB" : " · SSH"}</dd></div>
             <div><dt>Last rotated</dt><dd>{s.rotatedAt ? <LocalTime iso={s.rotatedAt} /> : "Never"}</dd></div>
             <div><dt>Next</dt><dd>{s.dueAt ? <LocalTime iso={s.dueAt} /> : s.afterSession ? "After the next session" : "—"}</dd></div>
             {s.verifyDaily && <div><dt>Last checked</dt><dd>{s.verifiedAt ? <LocalTime iso={s.verifiedAt} /> : "Not yet"}</dd></div>}
@@ -249,7 +249,7 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
                 <p className="cell-sub">{s.reconcile
                   ? <>Signs in as <b className="mono">{s.reconcile.username}</b> ({s.reconcile.kind === "KEY" ? "SSH key" : "password"}) to reset the password when the account cannot change its own or when it no longer matches.{s.reconcile.missingFor.length ? ` ${s.reconcile.missingFor.join(", ")} has no copy yet; it is copied within a few minutes.` : ""}</>
                   : dbAccount
-                    ? `Optional: a database account on this server that may change other accounts' passwords (${s.method === "postgres" ? "CREATEROLE, or a superuser" : s.method === "mssql" ? "ALTER ANY LOGIN, such as sa" : "CREATE USER, such as root"}). Used only when the account cannot change its own password or when it no longer matches; never for a session.`
+                    ? `Optional: a database account on this server that may change other accounts' passwords (${s.method === "postgres" ? "CREATEROLE, or a superuser" : s.method === "mssql" ? "ALTER ANY LOGIN, such as sa" : s.method === "redis" ? "an ACL user with +acl, such as default" : s.method === "mongodb" ? "the userAdmin role, signed in to the admin database" : "CREATE USER, such as root"}). Used only when the account cannot change its own password or when it no longer matches; never for a session.`
                     : winAccount
                       ? "Optional: the built-in Administrator of this server, or a domain account in its Administrators group. Used only when the account cannot change its own password (a minimum password age, the history rule) or when it no longer matches; never for a session."
                       : "Optional: root, or a sudo account, on this server. Used only when the account cannot change its own password or when it no longer matches; never for a session."}</p>

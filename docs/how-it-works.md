@@ -183,7 +183,13 @@ by the connector, so that nobody, Captivo included, knows the password in use.
   (with TLS off the new password crosses the network in the clear, and the
   panel says so). The account should be one only Captivo uses: an application
   that shares it stops connecting at the first rotation. Open database
-  connections are not cut. VNC passwords and SSH keys are not rotated.
+  connections are not cut. A Redis account (connector 2.78.0) is changed with
+  `ACL SETUSER <user> resetpass ><new>` (`CONFIG SET requirepass` for the default
+  user of a server older than Redis 6), then `ACL SAVE` when the server keeps an ACL
+  file; an ACL change is in memory, so a server whose users are written in
+  `redis.conf` starts again with those. A MongoDB account (2.78.0) is changed with
+  `updateUser` in the database it was made in; its reconcile account signs in to
+  `admin`. VNC passwords and SSH keys are not rotated.
 - **When.** Off by default. Per resource: a minute after the last session on it
   ends (a session still open holds it), on a schedule (7, 30 or 90 days), and
   with "Rotate now". "Check it daily" signs in once a day with the saved
@@ -474,8 +480,11 @@ under *Administrator rights during sessions*, also used by password rotation),
 - **Redis and MongoDB.** They have no reconcile account, so the resource's own saved
   account lists the others, as far as its rights allow: Redis ACL users (who is on,
   who has no password, who may run every command) and MongoDB users with their
-  database and whether a role is administrative. These are listed so you can see
-  them; Captivo does not change their passwords yet, so none can be taken over.
+  database (`name@database`) and whether a role is administrative. A take-over
+  needs a reconcile account on the resource (an account that may change others'
+  passwords: an ACL user with `+acl` in Redis, `userAdmin` in MongoDB, signed in to
+  `admin`), set under Password rotation; the new resource gets the account's
+  own name and, for MongoDB, its database.
 
 ## Agents (scripts, pipelines and AI agents)
 
@@ -1094,7 +1103,7 @@ flowchart LR
   `SUBSCRIBE` the replies no longer pair with commands, so logging stops for
   that connection (the session's feed says so). The resource's database number
   is selected at sign-in; a client can `SELECT` another one, so the account's
-  ACL decides what it reaches. Redis passwords are not rotated yet.
+  ACL decides what it reaches. Redis passwords can be rotated (see Password rotation).
 - **MongoDB specifics.** A driver signs in with `authMechanism=PLAIN` and
   `authSource=$external` over TLS: the ticket is the user name. (SCRAM would
   need a password the client knows; a client left on its default sign-in is
@@ -1108,7 +1117,7 @@ flowchart LR
   Signing in again, managing users and roles, `shutdown`, `setParameter`,
   `getCmdLineOpts` and replica set administration are refused by the proxy.
   Compressed messages and the legacy opcodes (except the first `isMaster`) are
-  not relayed. MongoDB passwords are not rotated yet.
+  not relayed. MongoDB passwords can be rotated (see Password rotation).
 - **Requirements:** a connector on 2.46.0 or later (2.51.0 for MySQL, 2.56.0
   for SQL Server, 2.64.0 for Redis and MongoDB; it signs in), the database's
   `host:port` in the connector's `ALLOWED_TARGETS` if that is set, and port

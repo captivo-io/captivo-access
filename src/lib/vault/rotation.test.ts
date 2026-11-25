@@ -6,7 +6,7 @@ vi.mock("@/lib/connector/history", () => ({ recordConnectorEvent: vi.fn() }));
 vi.mock("@/lib/mobile/push", () => ({ pushToCapability: vi.fn() }));
 vi.mock("@/lib/tenant/console-url", () => ({ consoleBaseUrl: async () => "" }));
 
-import { acceptPrepared, canRotate, nativeBlocksRotation, nextScheduled, planJob, retryDelayMs, rotationMethod, runJob, windowsAccountOf, type RotationJob } from "./rotation";
+import { acceptPrepared, canRotate, isDbMethod, rotationMinConnector, nativeBlocksRotation, nextScheduled, planJob, retryDelayMs, rotationMethod, runJob, windowsAccountOf, type RotationJob } from "./rotation";
 import { planCopy } from "./reconcile-reshare";
 
 const SEAL = (n: number) => "cv1:" + Buffer.alloc(60, n).toString("base64");
@@ -25,6 +25,15 @@ function row(over: Record<string, unknown> = {}) {
 }
 
 describe("rotationMethod", () => {
+  it("changes Redis and MongoDB passwords from 2.78.0 on, as a database account", () => {
+    expect(isDbMethod("redis")).toBe(true);
+    expect(isDbMethod("mongodb")).toBe(true);
+    expect(rotationMinConnector("redis")).toBe("2.78.0");
+    expect(rotationMinConnector("mongodb")).toBe("2.78.0");
+    expect(canRotate({ status: "ONLINE", version: "2.77.0" }, "redis")).toBe(false);
+    expect(canRotate({ status: "ONLINE", version: "2.78.0" }, "mongodb")).toBe(true);
+  });
+
   it("rotates SSH passwords and directory accounts over an encrypted connection only", () => {
     expect(rotationMethod({ protocol: "SSH", secretKind: "PASSWORD" }, null)).toEqual({ method: "linux" });
     expect(rotationMethod({ protocol: "SSH", secretKind: "KEY" }, null)).toHaveProperty("unsupported");
@@ -41,8 +50,9 @@ describe("rotationMethod", () => {
     expect(rotationMethod({ protocol: "POSTGRES", secretKind: "PASSWORD" }, null)).toEqual({ method: "postgres" });
     expect(rotationMethod({ protocol: "MYSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mysql" });
     expect(rotationMethod({ protocol: "MSSQL", secretKind: "PASSWORD" }, null)).toEqual({ method: "mssql" });
-    expect(rotationMethod({ protocol: "REDIS", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
-    expect(rotationMethod({ protocol: "MONGODB", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
+    expect(rotationMethod({ protocol: "REDIS", secretKind: "PASSWORD" }, null)).toEqual({ method: "redis" });
+    expect(rotationMethod({ protocol: "MONGODB", secretKind: "PASSWORD" }, null)).toEqual({ method: "mongodb" });
+    expect(rotationMethod({ protocol: "VNC", secretKind: "PASSWORD" }, null)).toHaveProperty("unsupported");
   });
 });
 
