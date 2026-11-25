@@ -22,6 +22,8 @@ type RdpRecRequest struct {
 	// Names the session's live picture, which a viewer asks for with an
 	// RdpWatchRequest; empty: none is kept.
 	WatchID string `json:"watchId,omitempty"`
+	// Administrator rights for this session (connector/elevate.go).
+	Elevate *ElevateRequest `json:"elevate,omitempty"`
 }
 
 // RdpRecResponse reports the sign-in. An empty Error means the connector is

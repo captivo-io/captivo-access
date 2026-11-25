@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"io"
@@ -334,6 +335,15 @@ func handleGuacd(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		logDenied("guacd", gr.Target)
 		writeGuacdErr(st, "target not allowed") // egress boundary — fail closed
 		return
+	}
+	// Administrator rights for the length of this session, before guacd signs in.
+	if gr.Elevate != nil {
+		release, err := elevateAccount(context.Background(), allow, elevSpec{platform: gr.Elevate.Platform, host: gr.Elevate.Host, port: gr.Elevate.Port, account: gr.Elevate.Account, admin: &gr.Elevate.Admin, pinned: gr.Elevate.SSHHostKey})
+		if err != nil {
+			writeGuacdErr(st, err.Error())
+			return
+		}
+		defer release()
 	}
 	var sr *sealedRelay
 	if gr.Sealed != "" {

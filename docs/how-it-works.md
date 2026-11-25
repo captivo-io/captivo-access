@@ -366,53 +366,71 @@ made for that session.
 - **Requirements:** a connector on 2.69.0 or later (every connector reports its
   CA once updated).
 
-## Administrator rights during a session (Linux)
+## Administrator rights during a session (Linux and Windows)
 
-The account an SSH resource signs in with can stay an ordinary user all day and
-have administrator rights only while someone is working on it. On the resource's
-page, **Administrator rights during sessions** turns this on.
+The account a resource signs in with can stay an ordinary user all day and have
+administrator rights only while someone is working on it. On the resource's page,
+**Administrator rights during sessions** turns this on, for an SSH resource (a
+Linux server) or a remote-desktop resource (a local account of a Windows server).
 
-- **What happens.** When a recorded native SSH session opens, the connector signs
-  in as the resource's **administrator account** (root, or one that can use
-  sudo), writes `/etc/sudoers.d/captivo-<user>` containing
-  `<user> ALL=(ALL:ALL) NOPASSWD: ALL` (checked with `visudo -cf` before it is put
-  in place), and then signs in as the account. When the last session on that
-  account closes, the entry is removed. Sessions on the same account share the
-  entry; it goes with the last. A leftover from a crash is removed by the next
-  elevation once it is a day old.
-- **What the user sees.** The session's banner says it has administrator rights
-  for this session only. The session is recorded as always, so what was done
-  with them is on the recording and in the keystroke log.
+- **Linux.** When a session opens, the connector signs in as the resource's
+  **administrator account** (root, or one that can use sudo), writes
+  `/etc/sudoers.d/captivo-<user>` containing `<user> ALL=(ALL:ALL) NOPASSWD: ALL`
+  (checked with `visudo -cf` before it is put in place), and then signs in as the
+  account.
+- **Windows.** The connector signs in over SMB (port 445) as the administrator
+  account (the built-in Administrator, or a domain account in the server's
+  Administrators group) and adds the account to the local **Administrators** group
+  through the account service (samr). An account that already was a member stays
+  one: nothing of ours to take away.
+- **Which sessions.** Sessions in the browser (SSH, remote desktop) and sessions in
+  the user's own app when they are recorded: the connector carries those and sees
+  them open and close. A user's own SSH or Remote Desktop app that is not recorded
+  signs in by itself, so the resource must be recorded (or the native client
+  off) to turn this on.
+- **Taking it away.** When the last session on that account closes, the entry (or
+  the group membership) is removed. Sessions on the same account share it; it goes
+  with the last. Before changing anything the connector writes what it is about to
+  do in a journal on its own disk; a connector that stopped in between takes the
+  rights away when it starts again, and keeps trying while the server cannot be
+  reached. (On Linux an entry is also swept by the next elevation after a day.)
+- **What the user sees.** A recorded SSH session's banner says it has
+  administrator rights for this session only. The session is recorded as always,
+  so what was done with them is on the recording and in the keystroke log.
 - **If it cannot be given, the session does not open** (it is not opened without
   the rights the user expected). The reason is in the message: the administrator
-  account cannot sign in, sudo needs a password it was not given, `visudo`
-  refused the entry.
+  account cannot sign in, sudo needs a password it was not given, `visudo` refused
+  the entry, the server's file-sharing port is not reachable.
 - **The administrator account** is sealed in the admin's browser to each of the
-  resource's connectors, like the reconcile account password rotation uses, and
-  is the same account: entering it in either place sets both. A key or a
-  password both work; with a password and sudo that asks for one, the password
-  is given to sudo.
-- **What it needs.** An SSH resource with Native SSH client and session recording
-  on (the rights are given to recorded sessions only), an ordinary account
-  (lower case letters, digits, `_` and `-`; sudoers.d skips names with a dot, and
-  root needs nothing), and a connector on 2.71.0 or later. A Linux server with
-  sudo and `/etc/sudoers.d` included (the default). Windows is not covered yet.
-- **Not the same as** a check-out or a rotation: no password is shown or
-  changed. It combines with certificate sign-in, so an account can have neither
-  a password nor a standing sudo.
+  resource's connectors, like the reconcile account password rotation uses, and is
+  the same account: entering it in either place sets both. On Linux a key or a
+  password both work; on Windows it is a password.
+- **What it needs.** An ordinary account (Linux: lower case letters, digits, `_`
+  and `-`, not root, since sudoers.d skips names with a dot; Windows: a local
+  account, not the built-in Administrator), and a connector on 2.75.0 or later (a
+  recorded native SSH session works from 2.71.0). Windows needs SMB reachable
+  from the connector. It combines with SSH certificate sign-in, so an account can
+  have neither a password nor a standing sudo.
+- **Not the same as** a check-out or a rotation: no password is shown or changed.
+- **Checked against** a real OpenSSH server with sudo and a Samba server speaking
+  the same account protocol as Windows; not yet against a Windows Server.
 
-## Finding and taking over accounts (Linux)
+## Finding and taking over accounts (Linux and Windows)
 
-A server has more accounts than anyone wrote down. On an SSH resource that has
-an **administrator account** (root, or one that can use sudo; the one entered
+A server has more accounts than anyone wrote down. On an SSH resource (Linux) or a
+remote-desktop resource (a local account of a Windows server) that has an
+**administrator account** (root, or one that can use sudo; the one entered
 under *Administrator rights during sessions*, also used by password rotation),
 **Accounts on this server** lists them.
 
-- **What the scan shows.** The connector signs in as the administrator account and
-  reads `/etc/passwd`, `/etc/group` and `/etc/shadow`. For each account: its uid and
+- **What the scan shows.** On Linux the connector signs in as the administrator
+  account and reads `/etc/passwd`, `/etc/group` and `/etc/shadow`. For each account: its uid and
   shell, whether it can sign in, whether it is an administrator (uid 0, or in
   `sudo`, `wheel` or `admin`), whether its password is locked or empty, and how
-  old it is. Only those facts leave the server; a password hash never does. Accounts
+  old it is. On Windows it signs in over SMB and lists the local accounts through the account
+  service (samr): normal accounts, who is in the Administrators group, who is
+  disabled, locked or needs no password, how old each password is. Only those
+  facts leave the server; a password hash never does. Accounts
   that are already resources are marked. Looking changes nothing and is audited
   (`resource.discovery_scan`).
 - **Taking an account over.** Pick up to 20 accounts that can sign in, confirm,
@@ -429,13 +447,15 @@ under *Administrator rights during sessions*, also used by password rotation),
   use, not one a service depends on, unless the service can be given the new
   password.
 - **Never offered:** the administrator account itself (changing its password
-  would lock Captivo out), root, accounts without a shell, accounts that are
-  already resources. If the source resource's sessions are not recorded, the new
+  would lock Captivo out), root (Linux) and the built-in Administrator and Guest
+  (Windows), accounts that cannot sign in, accounts that are already resources. If the source resource's sessions are not recorded, the new
   resources have the native SSH client off, because a native client needs a
   password the user knows.
-- **Requirements:** a Linux server with `/etc/shadow` readable by the
-  administrator account, and a connector on 2.72.0 or later that holds the
-  administrator account. Windows and database accounts are not scanned yet.
+- **Requirements:** on Linux a server with `/etc/shadow` readable by the
+  administrator account and a connector on 2.72.0 or later; on Windows a local
+  account (not a domain one), SMB reachable from the connector and a connector on
+  2.75.0 or later. Both need a connector that holds the administrator account.
+  Database accounts are not scanned.
 
 ## Agents (scripts, pipelines and AI agents)
 

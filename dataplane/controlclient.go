@@ -143,6 +143,8 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		KeystrokeLogging bool              `json:"keystrokeLogging"`
 		Params           map[string]string `json:"params"`
 		Moderation       moderationRef     `json:"moderation"`
+		Elevate          *elevateTarget    `json:"elevate"`
+		SSHHostKey       string            `json:"sshHostKey"`
 	}
 	if err := c.post("/api/internal/gateway/descriptor", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return GuacConn{}, "", nil, "", false, false, moderationRef{}, err
@@ -156,6 +158,8 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		SealedSecret: out.SealedSecret,
 		SecretKind:   out.SecretKind,
 		Params:       out.Params,
+		Elevate:      out.Elevate,
+		SSHHostKey:   out.SSHHostKey,
 	}, out.GuacdAddress, candidatesOr(out.Connectors, out.ConnectorID), out.TenantID, out.Record, out.KeystrokeLogging, out.Moderation, nil
 }
 
@@ -175,6 +179,8 @@ type rdpTarget struct {
 	// Every connector that may carry the tunnel; ConnectorID is set to the one
 	// picked from them when the tunnel is dialled.
 	Candidates []routeCandidate
+	// Administrator rights for the session (recorded RDP): who gives them.
+	RdpElevate *elevateTarget
 }
 
 // NativeRdpTarget authorizes (userID, siteID) for a native RDP client and
@@ -195,6 +201,7 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 		Secret        string           `json:"secret"`
 		BlockChannels []string         `json:"blockChannels"`
 		Keystrokes    bool             `json:"keystrokes"`
+		Elevate       *elevateTarget   `json:"elevate"`
 	}
 	if err := c.post("/api/internal/gateway/native-rdp", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return rdpTarget{}, err
@@ -203,6 +210,7 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 		Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName,
 		RedirectFlags: out.RedirectFlags, Candidates: candidatesOr(out.Connectors, out.ConnectorID),
 		Recorded: out.Mode == "recorded", Keystrokes: out.Keystrokes, Username: out.Username, Secret: out.Secret, BlockChannels: out.BlockChannels,
+		RdpElevate: out.Elevate,
 	}, nil
 }
 
@@ -211,8 +219,19 @@ func (c *ControlClient) NativeRdpTarget(userID, siteID string) (rdpTarget, error
 // its secret (sealed per candidate, or plain for a connector without a vault
 // key), the pinned host key, and what the session may do.
 type elevateTarget struct {
+	Platform string `json:"platform"` // "linux" | "windows"; empty reads as linux (an older manager)
 	Username string `json:"username"`
 	Kind     string `json:"kind"`
+}
+
+// request is what the connector is asked to do to give the account its rights
+// for a session, given this connector's seal of the administrator account.
+func (e *elevateTarget) request(host, port, account, sealed, sshHostKey string) *tunnel.ElevateRequest {
+	p := e.Platform
+	if p == "" {
+		p = "linux"
+	}
+	return &tunnel.ElevateRequest{Platform: p, Host: host, Port: port, Account: account, SSHHostKey: sshHostKey, Admin: tunnel.RotateReconcile{Host: host, Port: port, Username: e.Username, Sealed: sealed, SecretKey: e.Kind == "KEY"}}
 }
 
 type sshTarget struct {

@@ -69,7 +69,7 @@ func handleSsh(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 	}
 	elevated := false
 	if req.Elevate != nil {
-		release, err := elevateAccount(context.Background(), allow, req)
+		release, err := elevateAccount(context.Background(), allow, elevSpec{platform: "linux", host: req.Host, port: req.Port, account: req.Username, admin: req.Elevate, pinned: req.PinnedHostKey})
 		if err != nil {
 			writeSshResp(st, tunnel.SshDialResponse{Error: err.Error()})
 			return

@@ -2,8 +2,10 @@
 // resource's administrator account (connector/discover.go), and "take over":
 // make one of them a resource of its own whose password only Captivo knows.
 
-/** Connectors that list a server's accounts. */
+/** Connectors that list a Linux server's accounts. */
 export const DISCOVER_MIN_CONNECTOR = "2.72.0";
+/** Connectors that list a Windows server's accounts. */
+export const DISCOVER_WINDOWS_MIN_CONNECTOR = "2.75.0";
 /** How many accounts one take-over handles. */
 export const ADOPT_MAX = 20;
 
@@ -24,7 +26,7 @@ export type DiscoveredRow = DiscoveredAccount & {
   managedBy: { id: string; name: string } | null;
 };
 
-const NAME = /^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}\$?$/;
+const NAME = /^[A-Za-z0-9._$][A-Za-z0-9._$-]{0,63}$/;
 
 /** Reads the connector's list, keeping only what it should have sent. */
 export function acceptAccounts(v: unknown): DiscoveredAccount[] {
@@ -44,9 +46,16 @@ export function acceptAccounts(v: unknown): DiscoveredAccount[] {
 }
 
 /** Why an account cannot be taken over, or null. */
-export function adoptProblem(a: DiscoveredRow, administrator: string): string | null {
-  if (a.name === administrator) return "This is the administrator account Captivo signs in with; changing its password would lock Captivo out.";
+export function adoptProblem(a: DiscoveredRow, administrator: string, platform: "linux" | "windows" = "linux"): string | null {
+  const bare = (n: string) => n.trim().replace(/^.*\\/, "").toLowerCase();
+  if (bare(a.name) === bare(administrator)) return "This is the administrator account Captivo signs in with; changing its password would lock Captivo out.";
   if (a.managedBy) return `Already a resource: ${a.managedBy.name}.`;
+  if (platform === "windows") {
+    if (!a.login) return "It is disabled or is not a normal account.";
+    if (a.uid === 500) return "The built-in Administrator is not taken over here.";
+    if (a.uid === 501) return "The built-in Guest is not taken over here.";
+    return null;
+  }
   if (!a.login) return "It has no shell to sign in with.";
   if (a.uid === 0) return "root is not taken over here.";
   return null;

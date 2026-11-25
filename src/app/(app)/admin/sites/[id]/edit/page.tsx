@@ -87,8 +87,8 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
         }}
       />
       {rotation && vault?.sealed && <RotationPanel siteId={site.id} siteName={site.name} initial={rotation} />}
-      {rotation && vault?.sealed && vault.protocol === "SSH" && site.nativeSsh && <ElevationPanel siteId={site.id} initial={rotation} />}
-      {rotation && vault?.sealed && vault.protocol === "SSH" && rotation.reconcile && <DiscoveryPanel siteId={site.id} host={rotation.target.host} />}
+      {rotation && vault?.sealed && (vault.protocol === "SSH" || (vault.protocol === "RDP" && rotation.windowsAccount?.account !== "domain")) && <ElevationPanel siteId={site.id} initial={rotation} />}
+      {rotation && vault?.sealed && (vault.protocol === "SSH" || (vault.protocol === "RDP" && rotation.windowsAccount?.account !== "domain")) && rotation.reconcile && <DiscoveryPanel siteId={site.id} host={rotation.target.host} windows={vault.protocol === "RDP"} />}
     </main>
   );
 }

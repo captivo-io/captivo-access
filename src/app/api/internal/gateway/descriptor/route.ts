@@ -1,3 +1,4 @@
+import { elevationPlan } from "@/lib/vault/elevation";
 import { NextRequest, NextResponse } from "next/server";
 import { effectiveEgress } from "@/lib/isolation/egress";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
@@ -106,7 +107,12 @@ async function handler(req: NextRequest) {
   const sealed = !!cred.sealedSecret;
   const { eligible } = routeMembers(site, { engines: true, ...(sealed ? { canOpen: (m) => !!m.vaultPublicKey && !!cred.seals[m.vaultPublicKey] } : {}) });
   if (eligible.length === 0) return NextResponse.json({ error: sealed ? "vault_secret_reenter" : "no_connector" }, { status: sealed ? 409 : 503 });
-  const first = eligible[0];
+  // Administrator rights for this session: connectors new enough that hold the administrator account's seal.
+  const elev = await db.vaultCredential.findUnique({ where: { siteId }, select: { elevate: true, protocol: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true, sshHostKey: true } });
+  const plan = elevationPlan(elev, eligible, "session");
+  if (plan.on && !plan.ok) return NextResponse.json({ error: plan.error }, { status: 409 });
+  const carriers = plan.on ? plan.carriers : eligible;
+  const first = carriers[0];
   const sealFor = (m: { vaultPublicKey: string | null }) => (m.vaultPublicKey ? cred.seals[m.vaultPublicKey] : undefined) ?? cred.sealedSecret;
 
   const resolved = resolveGuacParams(parseGuacParams(cred.guacParams), await resolvedGuacParamDefaults());
@@ -126,7 +132,8 @@ async function handler(req: NextRequest) {
     guacdAddress: (process.env.GUACD_ADDR ?? "captivo-guacd:4822").trim(),
     connectorId: first.id,
     // Every member that may carry it, each with the secret sealed to its own key.
-    connectors: candidatesFor(eligible, (m) => (sealed ? { sealedSecret: sealFor(m) } : {})),
+    connectors: candidatesFor(carriers, (m) => ({ ...(sealed ? { sealedSecret: sealFor(m) } : {}), ...(plan.on && plan.ok ? { elevateSealed: plan.sealOf(m) } : {}) })),
+    ...(plan.on && plan.ok ? { elevate: plan.elevate, ...(elev?.sshHostKey ? { sshHostKey: elev.sshHostKey } : {}) } : {}),
     record,
     keystrokeLogging: effectiveKeystrokeLogging({
       mode: await resolvedKeystrokeLoggingMode(),

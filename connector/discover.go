@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/ecdh"
+	"github.com/jfjallid/go-smb/dcerpc/mssamr"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,8 +29,8 @@ func discoverAccounts(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatc
 	if k == nil {
 		return tunnel.RotateResponse{Error: "no vault key"}
 	}
-	if req.Method != "linux" {
-		return tunnel.RotateResponse{Error: "accounts can be listed on a Linux server only"}
+	if req.Method != "linux" && req.Method != "windows" {
+		return tunnel.RotateResponse{Error: "accounts can be listed on a Linux or a Windows server"}
 	}
 	if req.Reconcile == nil {
 		return tunnel.RotateResponse{Error: "listing accounts needs the administrator account"}
@@ -40,6 +42,17 @@ func discoverAccounts(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatc
 	secret, err := openSealed(k, r.Sealed, vaultReconcileAAD(r.Host, r.Port, r.Username))
 	if err != nil {
 		return tunnel.RotateResponse{Error: "the administrator account does not open here"}
+	}
+	if req.Method == "windows" {
+		if r.SecretKey {
+			return tunnel.RotateResponse{Error: "a Windows administrator account signs in with a password"}
+		}
+		if !egressAllowed(allow, windowsAddr(req.Host)) {
+			denied()
+			logDenied("discover", windowsAddr(req.Host))
+			return tunnel.RotateResponse{Error: "the server's file-sharing port is not allowed by this connector"}
+		}
+		return discoverWindows(ctx, &windowsTarget{host: req.Host, port: windowsSMBPort, reconcile: &reconcileSecret{username: r.Username, secret: secret}})
 	}
 	addr := net.JoinHostPort(req.Host, req.Port)
 	if !egressAllowed(allow, addr) {
@@ -147,3 +160,75 @@ func parseAccounts(passwd, group, shadow string, now time.Time) []tunnel.Discove
 	}
 	return out
 }
+
+// SAMR's account flags (MS-SAMR 2.2.1.12).
+const (
+	samUserDisabled   = 0x1
+	samUserNoPassword = 0x4
+	samUserNormal     = 0x10
+	samUserAutoLocked = 0x400
+	samEnumMax        = 0xffff
+)
+
+// discoverWindows lists the local accounts of a Windows server over SMB (samr)
+// as its administrator account: which are normal accounts that can sign in,
+// which are in the Administrators group, which are disabled, locked or need
+// no password, and how old each password is. The uid column is the RID.
+func discoverWindows(ctx context.Context, wt *windowsTarget) tunnel.RotateResponse {
+	s, builtin, err := wt.openSamr(ctx)
+	if err != nil {
+		return tunnel.RotateResponse{Error: err.Error()}
+	}
+	defer s.close()
+	ah, err := s.adminsAlias(builtin)
+	if err != nil {
+		return tunnel.RotateResponse{Error: err.Error()}
+	}
+	members, err := s.r.SamrGetMembersInAlias(ah)
+	if err != nil {
+		return tunnel.RotateResponse{Error: "could not read the Administrators group: " + err.Error()}
+	}
+	users, err := s.r.SamrEnumDomainUsers(s.local, 0, samEnumMax)
+	if err != nil {
+		return tunnel.RotateResponse{Error: "could not list the server's accounts: " + err.Error()}
+	}
+	now := time.Now()
+	var out []tunnel.DiscoveredAccount
+	for _, u := range users {
+		name := u.Name.Value
+		if name == "" || !windowsNameRe.MatchString(name) {
+			continue
+		}
+		a := tunnel.DiscoveredAccount{Name: name, UID: int(u.RelativeId), PassAgeDays: -1}
+		if sid, err := s.r.SamrRidToSid(s.local, u.RelativeId); err == nil {
+			a.Admin = hasSID(members, sid)
+		}
+		uh, err := s.r.SamrOpenUser(s.local, maximumAllowed, u.RelativeId)
+		if err == nil {
+			if info, err := s.r.SamrGetUserInfo2(uh, mssamr.UserAllInformation); err == nil && info != nil {
+				f := info.UserAccountControl
+				a.Login = f&samUserNormal != 0 && f&samUserDisabled == 0
+				a.Locked = f&samUserDisabled != 0 || f&samUserAutoLocked != 0
+				a.NoPass = f&samUserNoPassword != 0
+				if t := filetimeToTime(info.PasswordLastSet); !t.IsZero() {
+					a.PassAgeDays = int(now.Sub(t).Hours() / 24)
+				}
+			}
+			_ = s.r.SamrCloseHandle(uh)
+		}
+		out = append(out, a)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Login != out[j].Login {
+			return out[i].Login
+		}
+		return out[i].UID < out[j].UID
+	})
+	if len(out) > discoverMax {
+		out = out[:discoverMax]
+	}
+	return tunnel.RotateResponse{Outcome: "ok", Accounts: out}
+}
+
+// A Windows account name Captivo can use as a resource's user name.
+var windowsNameRe = regexp.MustCompile(`^[A-Za-z0-9._$-]{1,20}$`)

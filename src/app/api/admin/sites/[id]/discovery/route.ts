@@ -7,13 +7,13 @@ import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
-import { callConnector, nativeBlocksRotation } from "@/lib/vault/rotation";
+import { callConnector, nativeBlocksRotation, windowsAccountOf } from "@/lib/vault/rotation";
 import { kickRotation } from "@/lib/vault/rotation-pass";
 import { storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { compareSemver } from "@/lib/updates/semver";
 import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
-import { ADOPT_MAX, acceptAccounts, adoptProblem, adoptedName, DISCOVER_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
+import { ADOPT_MAX, acceptAccounts, adoptProblem, adoptedName, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
 import type { Prisma } from "@/generated/prisma/client";
 
 export const runtime = "nodejs";
@@ -25,38 +25,43 @@ export const dynamic = "force-dynamic";
 /** The password a new resource starts with: it does not sign in, and is replaced at once by the takeover. */
 const placeholderPassword = () => randomBytes(24).toString("base64url");
 
+type Platform = "linux" | "windows";
+
 type Admin = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
-async function scan(siteId: string): Promise<{ error: string; status: number; detail?: string } | { rows: DiscoveredRow[]; admin: string; src: NonNullable<Awaited<ReturnType<typeof load>>>; hostKey?: string }> {
+async function scan(siteId: string): Promise<{ error: string; status: number; detail?: string } | { rows: DiscoveredRow[]; admin: string; platform: Platform; src: NonNullable<Awaited<ReturnType<typeof load>>> }> {
   const src = await load(siteId);
   if (!src || !src.vaultCredential) return { error: "not_found", status: 404 };
   const c = src.vaultCredential;
-  if (c.protocol !== "SSH") return { error: "discovery_ssh_only", status: 400, detail: "Accounts can be listed on a Linux server reached over SSH." };
+  const platform: Platform | null = c.protocol === "SSH" ? "linux" : c.protocol === "RDP" ? "windows" : null;
+  if (!platform) return { error: "discovery_ssh_only", status: 400, detail: "Accounts can be listed on a Linux server reached over SSH, or a Windows server reached over remote desktop." };
+  if (platform === "windows" && windowsAccountOf({ username: c.username, guacParams: c.guacParams, rotationAccount: c.rotationAccount }).account === "domain") return { error: "discovery_local_only", status: 400, detail: "Only the local accounts of a Windows server can be listed; this resource's account is a domain account." };
+  const min = platform === "windows" ? DISCOVER_WINDOWS_MIN_CONNECTOR : DISCOVER_MIN_CONNECTOR;
   const seals = c.reconcileSeals && typeof c.reconcileSeals === "object" && !Array.isArray(c.reconcileSeals) ? (c.reconcileSeals as Record<string, string>) : {};
   if (!c.reconcileUsername || Object.keys(seals).length === 0) return { error: "discovery_needs_account", status: 409, detail: "Add the administrator account (root, or one that can use sudo) in Administrator rights during sessions first." };
-  const holders = (src.connectorGroup ? src.connectorGroup.members.map((m) => m.connector) : [src.connector]).filter((h) => h.status === "ONLINE" && h.vaultPublicKey && seals[h.vaultPublicKey] && compareSemver(h.version, DISCOVER_MIN_CONNECTOR) !== -1);
+  const holders = (src.connectorGroup ? src.connectorGroup.members.map((m) => m.connector) : [src.connector]).filter((h) => h.status === "ONLINE" && h.vaultPublicKey && seals[h.vaultPublicKey] && compareSemver(h.version, min) !== -1);
   const pick = holders[0];
-  if (!pick) return { error: "discovery_waiting", status: 409, detail: `Needs an online connector on ${DISCOVER_MIN_CONNECTOR} or later that holds the administrator account.` };
+  if (!pick) return { error: "discovery_waiting", status: 409, detail: `Needs an online connector on ${min} or later that holds the administrator account.` };
   const ans = await callConnector(pick.id, {
-    op: "discover", method: "linux", host: c.targetHost, port: String(c.targetPort), username: c.username,
+    op: "discover", method: platform, host: c.targetHost, port: String(c.targetPort), username: c.username,
     reconcile: { host: c.targetHost, port: String(c.targetPort), username: c.reconcileUsername, sealed: seals[pick.vaultPublicKey!], secretKey: c.reconcileKind === "KEY" },
-    ...(c.sshHostKey ? { sshHostKey: c.sshHostKey } : {}),
+    ...(platform === "linux" && c.sshHostKey ? { sshHostKey: c.sshHostKey } : {}),
   } as Record<string, unknown>);
   if (ans.error || ans.outcome !== "ok") return { error: "discovery_failed", status: 502, detail: ans.error ?? ans.detail ?? "The connector could not list the accounts." };
   const accounts = acceptAccounts((ans as { accounts?: unknown }).accounts);
-  const taken = await db.vaultCredential.findMany({ where: { targetHost: c.targetHost, targetPort: c.targetPort, protocol: "SSH" }, select: { username: true, site: { select: { id: true, name: true } } } });
+  const taken = await db.vaultCredential.findMany({ where: { targetHost: c.targetHost, targetPort: c.targetPort, protocol: c.protocol }, select: { username: true, site: { select: { id: true, name: true } } } });
   const by = new Map(taken.map((t) => [t.username, t.site]));
-  return { rows: accounts.map((a) => ({ ...a, managedBy: by.get(a.name) ?? null })), admin: c.reconcileUsername, src };
+  return { rows: accounts.map((a) => ({ ...a, managedBy: by.get(a.name) ?? null })), admin: c.reconcileUsername, platform, src };
 }
 
 function load(siteId: string) {
   return db.site.findUnique({
     where: { id: siteId },
     select: {
-      id: true, name: true, connectorId: true, connectorGroupId: true, recordSessions: true, keystrokeLogging: true, watermark: true, clipboardMode: true, nativeSsh: true, requireModerator: true,
+      id: true, name: true, connectorId: true, connectorGroupId: true, recordSessions: true, keystrokeLogging: true, watermark: true, clipboardMode: true, nativeSsh: true, nativeRdp: true, requireModerator: true,
       connector: { select: { id: true, status: true, version: true, vaultPublicKey: true } },
       connectorGroup: { select: { members: { orderBy: { createdAt: "asc" }, select: { connector: { select: { id: true, status: true, version: true, vaultPublicKey: true } } } } } },
-      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true } },
+      vaultCredential: { select: { protocol: true, targetHost: true, targetPort: true, username: true, guacParams: true, rotationAccount: true, sshHostKey: true, reconcileUsername: true, reconcileKind: true, reconcileSeals: true } },
     },
   });
 }
@@ -81,7 +86,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
 
   if (b.action === "scan") {
     await recordAdminAction({ actor, action: "resource.discovery_scan", targetType: "resource", targetId: id, summary: `Listed the accounts of ${res.src.vaultCredential!.targetHost} (${res.rows.length}) from "${res.src.name}"`, clientIp: ip });
-    return NextResponse.json({ accounts: res.rows, administrator: res.admin });
+    return NextResponse.json({ accounts: res.rows, administrator: res.admin, platform: res.platform });
   }
 
   if (b.action === "adopt") {
@@ -97,12 +102,13 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     }
     const recorded = await effectiveSiteRecording(src.recordSessions);
     // A native client needs a password the user knows; rotation is what takes the account over, so it stays off unless sessions are recorded.
-    const keepNative = src.nativeSsh && !nativeBlocksRotation({ nativeRdp: false, nativeSsh: true, recorded });
+    const wasNative = res.platform === "windows" ? src.nativeRdp : src.nativeSsh;
+    const keepNative = wasNative && !nativeBlocksRotation({ nativeRdp: res.platform === "windows", nativeSsh: res.platform === "linux", recorded });
     const created: { id: string; name: string; username: string }[] = [];
     const refused: { name: string; reason: string }[] = [];
     for (const name of names) {
       const row = res.rows.find((r) => r.name === name);
-      const why = !row ? "The server does not have this account any more." : adoptProblem(row, res.admin);
+      const why = !row ? "The server does not have this account any more." : adoptProblem(row, res.admin, res.platform);
       if (why) { refused.push({ name, reason: why }); continue; }
       const target = { host: cred.targetHost, port: cred.targetPort, username: name };
       let stored;
@@ -119,14 +125,14 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
           data: {
             connectorId: src.connectorId, connectorGroupId: src.connectorGroupId, name: siteName, hostname: null, upstreamUrl: null,
             description: `Taken over from "${src.name}" by account discovery.`, recordSessions: src.recordSessions, keystrokeLogging: src.keystrokeLogging,
-            watermark: src.watermark, clipboardMode: src.clipboardMode, nativeSsh: keepNative, requireModerator: src.requireModerator, accessMode: "GATEWAY",
+            watermark: src.watermark, clipboardMode: src.clipboardMode, nativeSsh: res.platform === "linux" && keepNative, nativeRdp: res.platform === "windows" && keepNative, requireModerator: src.requireModerator, accessMode: "GATEWAY",
           },
           select: { id: true },
         });
         await tx.vaultCredential.create({
           data: {
-            siteId: s.id, protocol: "SSH", targetHost: cred.targetHost, targetPort: cred.targetPort, username: name, ...storedSecretColumns(stored), secretKind: "PASSWORD",
-            guacParams: (cred.guacParams ?? {}) as Prisma.InputJsonValue, sshHostKey: cred.sshHostKey,
+            siteId: s.id, protocol: cred.protocol, targetHost: cred.targetHost, targetPort: cred.targetPort, username: name, ...storedSecretColumns(stored), secretKind: "PASSWORD",
+            guacParams: (cred.guacParams ?? {}) as Prisma.InputJsonValue, sshHostKey: cred.sshHostKey, rotationAccount: res.platform === "windows" ? cred.rotationAccount ?? "local" : null,
             reconcileUsername: cred.reconcileUsername, reconcileKind: cred.reconcileKind, reconcileSeals: (cred.reconcileSeals ?? {}) as Prisma.InputJsonValue,
             rotateDueAt: new Date(),
           },
@@ -138,7 +144,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
       kickRotation(0, { siteId: site.id, force: true, actor });
       created.push({ id: site.id, name: siteName, username: name });
     }
-    return NextResponse.json({ created, refused, nativeLeftOff: src.nativeSsh && !keepNative });
+    return NextResponse.json({ created, refused, nativeLeftOff: wasNative && !keepNative });
   }
   return NextResponse.json({ error: "unknown_action" }, { status: 400 });
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });

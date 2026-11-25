@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ecdh"
 	"crypto/rand"
+	"encoding/json"
 	"net"
 	"os"
 	"strings"
@@ -27,11 +28,11 @@ func TestElevateRefusesWhatItCouldNotWriteSafely(t *testing.T) {
 	old := vaultKey
 	vaultKey = nil
 	defer func() { vaultKey = old }()
-	_, err := elevateAccount(t.Context(), &TargetMatcher{open: true}, tunnel.SshDialRequest{Host: "h", Port: "22", Username: "root", Elevate: &tunnel.RotateReconcile{Host: "h", Port: "22", Username: "root"}})
+	_, err := elevateAccount(t.Context(), &TargetMatcher{open: true}, elevSpec{platform: "linux", host: "h", port: "22", account: "root", admin: &tunnel.RotateReconcile{Host: "h", Port: "22", Username: "root"}})
 	if err == nil {
 		t.Fatal("root is never elevated")
 	}
-	_, err = elevateAccount(t.Context(), &TargetMatcher{open: true}, tunnel.SshDialRequest{Host: "h", Port: "22", Username: "deploy", Elevate: &tunnel.RotateReconcile{Host: "other", Port: "22", Username: "root"}})
+	_, err = elevateAccount(t.Context(), &TargetMatcher{open: true}, elevSpec{platform: "linux", host: "h", port: "22", account: "deploy", admin: &tunnel.RotateReconcile{Host: "other", Port: "22", Username: "root"}})
 	if err == nil || !strings.Contains(err.Error(), "another host") {
 		t.Fatalf("a seal for another host must be refused: %v", err)
 	}
@@ -94,5 +95,41 @@ func TestElevateE2E(t *testing.T) {
 	}
 	if err := runWithInput(cl, "test ! -e /etc/sudoers.d/captivo-"+user, ""); err != nil {
 		t.Fatal("the sudoers entry is still there")
+	}
+}
+
+// A browser session (guacd) and a recorded RDP session raise the rights first,
+// and when that cannot be done nothing is dialled.
+func TestGuacdStreamFailsClosedWhenTheRightsCannotBeGiven(t *testing.T) {
+	dp, cn := tcpPair(t)
+	req := tunnel.GuacdDialRequest{Kind: "guacd", Target: "127.0.0.1:1", Elevate: &tunnel.ElevateRequest{Platform: "linux", Host: "10.0.0.5", Port: "22", Account: "deploy", Admin: tunnel.RotateReconcile{Host: "other", Port: "22", Username: "root"}}}
+	b, _ := json.Marshal(req)
+	go handleGuacd(cn, &TargetMatcher{open: true}, b)
+	_ = dp.SetDeadline(time.Now().Add(5 * time.Second))
+	rb, err := tunnel.ReadFrame(dp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resp tunnel.GuacdDialResponse
+	_ = json.Unmarshal(rb, &resp)
+	if !strings.Contains(resp.Error, "another host") {
+		t.Fatalf("answer %+v", resp)
+	}
+}
+
+func TestRdpRecStreamFailsClosedWhenTheRightsCannotBeGiven(t *testing.T) {
+	dp, cn := tcpPair(t)
+	req := tunnel.RdpRecRequest{Kind: "rdp-rec", Host: "10.0.0.5", Port: "3389", Username: "alice", Secret: "x", Elevate: &tunnel.ElevateRequest{Platform: "windows", Host: "10.0.0.5", Port: "3389", Account: "alice", Admin: tunnel.RotateReconcile{Host: "other", Port: "3389", Username: "Administrator"}}}
+	b, _ := json.Marshal(req)
+	go handleRdpRec(cn, &TargetMatcher{open: true}, b)
+	_ = dp.SetDeadline(time.Now().Add(5 * time.Second))
+	rb, err := tunnel.ReadFrame(dp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resp tunnel.RdpRecResponse
+	_ = json.Unmarshal(rb, &resp)
+	if !strings.Contains(resp.Error, "another host") {
+		t.Fatalf("answer %+v", resp)
 	}
 }

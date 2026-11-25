@@ -421,3 +421,15 @@ func TestRecordedSSHRefusesWhenTheConnectorHasNoAdministratorSeal(t *testing.T) 
 		t.Fatalf("the connector was asked anyway: %+v", r.conn.dials)
 	}
 }
+
+func TestElevateTargetBuildsTheConnectorsRequest(t *testing.T) {
+	win := (&elevateTarget{Platform: "windows", Username: "Administrator", Kind: "PASSWORD"}).request("10.0.0.9", "3389", "alice", "cv1:seal", "")
+	if win.Platform != "windows" || win.Host != "10.0.0.9" || win.Port != "3389" || win.Account != "alice" || win.Admin.Username != "Administrator" || win.Admin.Sealed != "cv1:seal" || win.Admin.Host != "10.0.0.9" || win.Admin.SecretKey {
+		t.Fatalf("%+v", win)
+	}
+	// An older manager names no platform: it meant Linux, and a key.
+	lin := (&elevateTarget{Username: "root", Kind: "KEY"}).request("10.0.0.5", "22", "deploy", "cv1:s", "SHA256:pin")
+	if lin.Platform != "linux" || !lin.Admin.SecretKey || lin.SSHHostKey != "SHA256:pin" {
+		t.Fatalf("%+v", lin)
+	}
+}

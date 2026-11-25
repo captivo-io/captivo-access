@@ -41,7 +41,7 @@ async function handler(req: NextRequest) {
     targetPort: t.targetPort,
     redirectFlags: redirectFlags(t.redirection),
     mode: t.mode,
-    ...(t.mode === "recorded" ? { username: t.username, secret: t.secret ?? "", blockChannels: t.blockChannels, keystrokes: t.keystrokeLogging } : {}),
+    ...(t.mode === "recorded" ? { username: t.username, secret: t.secret ?? "", blockChannels: t.blockChannels, keystrokes: t.keystrokeLogging, ...(t.elevate ? { elevate: t.elevate } : {}) } : {}),
   });
 }
 

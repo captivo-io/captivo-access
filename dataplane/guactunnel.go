@@ -66,6 +66,16 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 	if picked.SealedSecret != "" {
 		conn.SealedSecret = picked.SealedSecret // sealed to this member's own key
 	}
+	var elev *tunnel.ElevateRequest
+	if conn.Elevate != nil {
+		if picked.ElevateSealed == "" {
+			// A session that should have administrator rights does not open without them.
+			log.Printf("guac-tunnel site=%s user=%s: connector %s has no copy of the administrator account", siteID, userID, connectorID)
+			http.Error(w, "administrator rights unavailable", http.StatusBadGateway)
+			return
+		}
+		elev = conn.Elevate.request(conn.Hostname, conn.Port, conn.Username, picked.ElevateSealed, conn.SSHHostKey)
+	}
 	log.Printf("guac-tunnel site=%s user=%s: descriptor ok protocol=%s target=%s:%s guacd=%s connector=%s", siteID, userID, conn.Protocol, conn.Hostname, conn.Port, guacdAddr, connectorID)
 	ft := newFTObserver(userID, siteID, conn.Hostname, firstHop(r.Header.Get("X-Forwarded-For")), r.UserAgent())
 	sess := reg.Get(connectorID)
@@ -80,9 +90,9 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		// The secret is sealed to this connector; only it can open it. The
 		// handshake carries a per-session placeholder in its place.
 		conn.Secret = vaultPlaceholder()
-		guac, err = dialGuacdSealed(sess, guacdAddr, conn.SealedSecret, conn.Secret)
+		guac, err = dialGuacdReq(sess, tunnel.GuacdDialRequest{Kind: "guacd", Target: guacdAddr, Sealed: conn.SealedSecret, Placeholder: conn.Secret, Elevate: elev})
 	} else {
-		guac, err = dialGuacd(sess, guacdAddr)
+		guac, err = dialGuacdReq(sess, tunnel.GuacdDialRequest{Kind: "guacd", Target: guacdAddr, Elevate: elev})
 	}
 	if err != nil {
 		log.Printf("guac-tunnel site=%s: dialGuacd(%s) failed err=%v", siteID, guacdAddr, err)

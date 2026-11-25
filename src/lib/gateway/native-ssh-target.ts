@@ -9,7 +9,7 @@ import { getVaultCredential } from "@/lib/vault/store";
 import { rotationOn } from "@/lib/vault/rotation";
 import { SSH_CA_MIN_CONNECTOR } from "@/lib/vault/providers";
 import { compareSemver } from "@/lib/updates/semver";
-import { ELEVATE_MIN_CONNECTOR } from "@/lib/vault/elevation";
+import { elevationPlan } from "@/lib/vault/elevation";
 import { isSshCa, type SshCaBlock } from "@/lib/vault/ssh-ca";
 import { nativeSshMode, NATIVE_SSH_MIN_CONNECTOR, NATIVE_SSH_RECORDED_MIN_CONNECTOR, type NativeSshBlock, type NativeSshMode } from "@/lib/gateway/native-ssh";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
@@ -110,21 +110,16 @@ export async function nativeSshTarget(userId: string, siteId: string, now: Date)
   }).eligible;
   if (members.length === 0) return { ok: false, status: 409, error: sealed ? "vault_secret_reenter" : "connector_outdated" };
   // Administrator rights: a connector new enough, holding the administrator account's seal.
-  const elevSeals = cred.elevate && cred.reconcileSeals && typeof cred.reconcileSeals === "object" && !Array.isArray(cred.reconcileSeals) ? (cred.reconcileSeals as Record<string, string>) : {};
-  let carriers = members;
-  if (cred.elevate) {
-    if (!cred.reconcileUsername) return { ok: false, status: 409, error: "elevate_reenter" };
-    if (compareSemver(newestVersion(site), ELEVATE_MIN_CONNECTOR) === -1) return { ok: false, status: 409, error: "connector_outdated" };
-    carriers = members.filter((m) => compareSemver(m.version, ELEVATE_MIN_CONNECTOR) !== -1 && !!m.vaultPublicKey && !!elevSeals[m.vaultPublicKey]);
-    if (carriers.length === 0) return { ok: false, status: 409, error: "elevate_reenter" };
-  }
+  const plan = elevationPlan(cred, members, "native-ssh");
+  if (plan.on && !plan.ok) return { ok: false, status: 409, error: plan.error };
+  const carriers = plan.on ? plan.carriers : members;
   const who = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
   const params = resolveGuacParams(parseGuacParams(vault.guacParams), await resolvedGuacParamDefaults());
   return {
     ok: true, mode, ...where, moderated,
     connectorId: carriers[0].id,
-    connectors: candidatesFor(carriers, (m) => ({ ...(sealed ? { sealedSecret: sealFor(m) } : {}), ...(cred.elevate && m.vaultPublicKey ? { elevateSealed: elevSeals[m.vaultPublicKey] } : {}) })),
-    ...(cred.elevate ? { elevate: { username: cred.reconcileUsername!, kind: cred.reconcileKind === "KEY" ? "KEY" : "PASSWORD" } } : {}),
+    connectors: candidatesFor(carriers, (m) => ({ ...(sealed ? { sealedSecret: sealFor(m) } : {}), ...(plan.on && plan.ok ? { elevateSealed: plan.sealOf(m) } : {}) })),
+    ...(plan.on && plan.ok ? { elevate: { username: plan.elevate.username, kind: plan.elevate.kind } } : {}),
     keystrokeLogging: effectiveKeystrokeLogging({
       mode: await resolvedKeystrokeLoggingMode(), recordingEnabled: recordingEnabled(),
       recordSessions: true, siteFlag: site.keystrokeLogging,

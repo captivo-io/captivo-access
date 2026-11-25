@@ -22,7 +22,7 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { reshareGroupSecrets } from "@/lib/vault/reshare";
-import { nativeBlocksRotation, rotationOn } from "@/lib/vault/rotation";
+import { nativeBlocksRotation, rotationOn, windowsAccountOf } from "@/lib/vault/rotation";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { sshCaProblem } from "@/lib/vault/ssh-ca";
 import { elevationProblem } from "@/lib/vault/elevation";
@@ -193,10 +193,10 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   // GATEWAY update: a first-time credential must include a secret.
   const hadVault = (await db.vaultCredential.count({ where: { siteId: id } })) > 0;
   // A certificate sign-in is the recorded native SSH path's: it is checked against what the resource will be after this save.
-  const prevCred = hadVault ? await db.vaultCredential.findUnique({ where: { siteId: id }, select: { secretSource: true, elevate: true } }) : null;
+  const prevCred = hadVault ? await db.vaultCredential.findUnique({ where: { siteId: id }, select: { secretSource: true, elevate: true, rotationAccount: true } }) : null;
   // Administrator rights during sessions need the recorded native SSH path the resource is being saved with.
   if (prevCred?.elevate) {
-    const bad = elevationProblem({ protocol: v.protocol, nativeSsh: v.nativeSsh, recorded: await effectiveSiteRecording(v.recordSessions), account: "kept", username: v.username });
+    const bad = elevationProblem({ protocol: v.protocol, nativeSsh: v.nativeSsh, nativeRdp: v.nativeRdp, recorded: await effectiveSiteRecording(v.recordSessions), account: "kept", username: v.username, windowsLocal: windowsAccountOf({ username: v.username, guacParams: v.guacParams, rotationAccount: prevCred.rotationAccount }).account === "local" });
     if (bad) return NextResponse.json({ error: bad }, { status: 400 });
   }
   if ((v.secret ? v.secret.source : prevCred?.secretSource) === "sshca") {

@@ -24,6 +24,16 @@ describe("account discovery", () => {
     expect(adoptProblem(row({ name: "root", uid: 0 }), "ops")).toMatch(/root/);
   });
 
+  it("takes over a Windows account unless it is built in, disabled or the administrator Captivo uses", () => {
+    const w = (o: Partial<DiscoveredRow> = {}) => row({ name: "alice", uid: 1001, shell: "", login: true, ...o });
+    expect(adoptProblem(w(), "Administrator", "windows")).toBeNull();
+    expect(adoptProblem(w({ name: "Administrator", uid: 500 }), "HOST\\administrator", "windows")).toMatch(/lock Captivo out/);
+    expect(adoptProblem(w({ name: "Administrator", uid: 500 }), "root", "windows")).toMatch(/built-in Administrator/);
+    expect(adoptProblem(w({ name: "Guest", uid: 501 }), "x", "windows")).toMatch(/Guest/);
+    expect(adoptProblem(w({ login: false }), "x", "windows")).toMatch(/disabled/);
+    expect(acceptAccounts([{ name: "svc$", uid: 1010, passAgeDays: 3 }])[0].name).toBe("svc$");
+  });
+
   it("names the new resource after the one it came from", () => {
     expect(adoptedName("Build box", "deploy")).toBe("Build box · deploy");
     expect(adoptedName("x".repeat(100), "deploy").length).toBe(80);

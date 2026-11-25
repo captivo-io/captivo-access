@@ -19,6 +19,7 @@ const suffix = crypto.randomUUID().slice(0, 8);
 const tA = { id: `di-a-${suffix}`, slug: `di-a-${suffix}` };
 const conn = `di-c-${suffix}`;
 const site = `dis-${suffix}`;
+const winSite = `disw-${suffix}`;
 const admin = `di-adm-${suffix}`;
 const DP_SECRET = `di-dp-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "ana" };
@@ -47,7 +48,7 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
   let fakeDataplane: Server;
   const asked: Record<string, unknown>[] = [];
 
-  const post = (body: Record<string, unknown>) => route.POST(new Request(`http://x/api/admin/sites/${site}/discovery`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }) as unknown as NextRequest, { params: Promise.resolve({ id: site }) });
+  const post = (body: Record<string, unknown>, id = site) => route.POST(new Request(`http://x/api/admin/sites/${id}/discovery`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }) as unknown as NextRequest, { params: Promise.resolve({ id }) });
 
   beforeAll(async () => {
     process.env.DI_SUFFIX = suffix;
@@ -72,7 +73,7 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     process.env.DATAPLANE_URL = `http://127.0.0.1:${(fakeDataplane.address() as AddressInfo).port}`;
 
     await owner.$executeRawUnsafe(`INSERT INTO "Tenant"(id,slug,name,status) VALUES($1,$2,'Di A','ACTIVE')`, tA.id, tA.slug);
-    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.72.0',$3)`, conn, tA.id, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.75.0',$3)`, conn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,'admin@a.test','Admin','ADMIN','ACTIVE')`, admin, tA.id);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","recordSessions") VALUES($1,$2,$3,'Build box','GATEWAY',true)`, site, tA.id, conn);
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
@@ -83,6 +84,14 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     await owner.$executeRawUnsafe(
       `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","sshHostKey","reconcileUsername","reconcileKind","reconcileSeals","updatedAt") VALUES($1,$2,$3,'SSH',$4,$5,$6,$7,$8,'SHA256:hostkey','ops','PASSWORD',$9::jsonb,now())`,
       `div-${suffix}`, tA.id, site, target.host, target.port, target.username, s, pub, JSON.stringify({ [pub]: r }),
+    );
+    // A Windows server: a local account, the built-in Administrator as the administrator account.
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","recordSessions","nativeRdp") VALUES($1,$2,$3,'File server','GATEWAY',true,true)`, winSite, tA.id, conn);
+    const ws = await sealSecret(pub, "alice-pass", { host: "10.0.0.9", port: 3389, username: "alice" });
+    const wr = await sealSecret(pub, "admin-pass", { host: "10.0.0.9", port: 3389, username: "Administrator" }, "reconcile");
+    await owner.$executeRawUnsafe(
+      `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","rotationAccount","reconcileUsername","reconcileKind","reconcileSeals","updatedAt") VALUES($1,$2,$3,'RDP',$4,3389,'alice',$5,$6,'local','Administrator','PASSWORD',$7::jsonb,now())`,
+      `divw-${suffix}`, tA.id, winSite, "10.0.0.9", ws, pub, JSON.stringify({ [pub]: wr }),
     );
     route = await import("@/app/api/admin/sites/[id]/discovery/route");
   });
@@ -126,6 +135,20 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     // A second time it is already a resource.
     const again = await (await post({ action: "adopt", accounts: ["deploy"] })).json();
     expect(again.created).toHaveLength(0);
+  });
+
+  it("lists a Windows server's local accounts the same way, and takes one over as a remote-desktop resource", async () => {
+    asked.length = 0;
+    const scan = await (await post({ action: "scan" }, winSite)).json();
+    expect(scan.platform).toBe("windows");
+    expect(asked[0]).toMatchObject({ op: "discover", method: "windows", host: "10.0.0.9" });
+    expect((asked[0] as { reconcile: { username: string } }).reconcile.username).toBe("Administrator");
+    const res = await post({ action: "adopt", accounts: ["deploy", "root"] }, winSite);
+    const j = await res.json();
+    expect(j.created.map((c: { username: string }) => c.username)).toEqual(["deploy", "root"]);
+    const rows = await owner.$queryRawUnsafe<{ protocol: string; rotationAccount: string; reconcileUsername: string; name: string }[]>(
+      `SELECT v.protocol, v."rotationAccount", v."reconcileUsername", s.name FROM "VaultCredential" v JOIN "Site" s ON s.id = v."siteId" WHERE v.username = 'deploy' AND v."targetHost" = '10.0.0.9' AND s."tenantId" = $1`, tA.id);
+    expect(rows).toEqual([{ protocol: "RDP", rotationAccount: "local", reconcileUsername: "Administrator", name: "File server · deploy" }]);
   });
 
   it("asks for one to twenty accounts", async () => {

@@ -228,17 +228,24 @@ func rdpFront(c net.Conn, up net.Conn, negFlags uint8, cert func(*tls.ClientHell
 // openRecorded signs in through the connector and returns the gateway's end
 // of the tunnel: what the client sends goes in, what it receives comes out.
 func (t *rdpgwTunnel) openRecorded() (net.Conn, error) {
-	sealed := ""
+	sealed, elevateSealed := "", ""
 	for _, c := range t.target.Candidates {
 		if c.ID == t.target.ConnectorID {
-			sealed = c.SealedSecret
+			sealed, elevateSealed = c.SealedSecret, c.ElevateSealed
 		}
+	}
+	var elev *tunnel.ElevateRequest
+	if t.target.RdpElevate != nil {
+		if elevateSealed == "" {
+			return nil, errors.New("this resource gives administrator rights during sessions, and its connector has no copy of the administrator account; an admin must enter it again")
+		}
+		elev = t.target.RdpElevate.request(t.target.Host, t.target.Port, t.target.Username, elevateSealed, "")
 	}
 	t.watchID = newSessionID()
 	up, resp, err := t.d.dialRec(t.target.ConnectorID, tunnel.RdpRecRequest{
 		Host: t.target.Host, Port: t.target.Port, Username: t.target.Username,
 		Sealed: sealed, Secret: t.target.Secret, BlockChannels: t.target.BlockChannels,
-		WatchID: t.watchID,
+		WatchID: t.watchID, Elevate: elev,
 	})
 	if err != nil {
 		return nil, err
