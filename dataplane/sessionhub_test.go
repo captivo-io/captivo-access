@@ -49,3 +49,32 @@ func TestIsolatedFileTarget(t *testing.T) {
 		t.Fatal("expected no match for other site")
 	}
 }
+
+// A session is listed from Register, a moment before its tunnel can say how to
+// close it. An admin ending it in that moment used to be told "ended" and nothing
+// happened; now the end runs as soon as the closer is set, once.
+func TestTerminateBeforeTheCloserIsSetStillEndsTheSession(t *testing.T) {
+	h := NewSessionHub()
+	h.RegisterNative("s1", "rdp", "site", "user", "10.0.0.5", time.Now(), "c1", "203.0.113.5")
+	if !h.Terminate("s1") {
+		t.Fatal("a listed session is ended")
+	}
+	n := 0
+	h.SetCloser("s1", func() { n++ })
+	if n != 1 {
+		t.Fatalf("the end that was asked for runs when the closer is set: ran %d times", n)
+	}
+	// A session nobody asked to end is not closed by setting its closer.
+	h.RegisterNative("s2", "rdp", "site", "user", "10.0.0.5", time.Now(), "c1", "203.0.113.5")
+	m := 0
+	h.SetCloser("s2", func() { m++ })
+	if m != 0 {
+		t.Fatalf("closed without being asked: %d", m)
+	}
+	if !h.Terminate("s2") || m != 1 {
+		t.Fatalf("a session with its closer ends at once: %d", m)
+	}
+	if h.Terminate("nobody") {
+		t.Fatal("there is no such session")
+	}
+}
