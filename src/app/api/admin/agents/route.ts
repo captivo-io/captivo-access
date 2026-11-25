@@ -26,7 +26,7 @@ async function admin(): Promise<{ error: NextResponse } | { user: Admin }> {
 export const GET = withTenantRoute(async () => {
   const a = await admin();
   if ("error" in a) return a.error;
-  const rows = await db.apiToken.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true, prefix: true, siteIds: true, maxMinutes: true, autoApprove: true, expiresAt: true, lastUsedAt: true, revokedAt: true, createdAt: true } });
+  const rows = await db.apiToken.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true, prefix: true, siteIds: true, maxMinutes: true, ratePerMinute: true, autoApprove: true, expiresAt: true, lastUsedAt: true, revokedAt: true, createdAt: true } });
   return NextResponse.json({ tokens: rows });
 });
 
@@ -51,14 +51,14 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     const idn = await tx.user.create({ data: { email: `pending-${t.prefix}@agents.invalid`, name: `Agent: ${input.name}`, role: "VENDOR", status: "ACTIVE" }, select: { id: true } });
     await tx.user.update({ where: { id: idn.id }, data: { email: agentIdentityEmail(idn.id) } });
     return tx.apiToken.create({
-      data: { name: input.name, userId: idn.id, tokenHash: t.hash, prefix: t.prefix, siteIds: input.siteIds, maxMinutes: input.maxMinutes, autoApprove: input.autoApprove, expiresAt, createdById: a.user.id },
+      data: { name: input.name, userId: idn.id, tokenHash: t.hash, prefix: t.prefix, siteIds: input.siteIds, maxMinutes: input.maxMinutes, ratePerMinute: input.ratePerMinute, autoApprove: input.autoApprove, expiresAt, createdById: a.user.id },
       select: { id: true },
     });
   });
   await recordAdminAction({
     actor: { id: a.user.id, email: a.user.email }, action: "agent.token_create", targetType: "agent", targetId: row.id,
     summary: `Made the agent token "${input.name}" for ${sites.map((s) => s.name).join(", ")}: up to ${input.maxMinutes} minutes at a time, ${input.autoApprove ? "approved without a person" : "approved by a person"}, valid ${input.days} days`,
-    metadata: { siteIds: input.siteIds, maxMinutes: input.maxMinutes, autoApprove: input.autoApprove, days: input.days },
+    metadata: { siteIds: input.siteIds, maxMinutes: input.maxMinutes, autoApprove: input.autoApprove, days: input.days, ratePerMinute: input.ratePerMinute },
     clientIp: clientIp(req.headers) ?? null,
   });
   return NextResponse.json({ id: row.id, token: t.token, prefix: t.prefix, expiresAt: expiresAt.toISOString() }, { status: 201, headers: { "cache-control": "no-store" } });

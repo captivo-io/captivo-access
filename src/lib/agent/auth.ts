@@ -6,7 +6,7 @@ import { agentTokenFrom, hashAgentToken } from "./tokens";
 // token of another workspace is simply not found.
 
 export type AgentAuth = {
-  token: { id: string; name: string; siteIds: string[]; maxMinutes: number; autoApprove: boolean; expiresAt: Date };
+  token: { id: string; name: string; siteIds: string[]; maxMinutes: number; autoApprove: boolean; ratePerMinute: number; expiresAt: Date };
   user: { id: string; email: string; name: string };
 };
 
@@ -17,11 +17,11 @@ export async function authenticateAgent(authorization: string | null | undefined
   if (!raw) return null;
   const t = await db.apiToken.findFirst({
     where: { tokenHash: hashAgentToken(raw), revokedAt: null, expiresAt: { gt: now } },
-    select: { id: true, name: true, siteIds: true, maxMinutes: true, autoApprove: true, expiresAt: true, lastUsedAt: true, user: { select: { id: true, email: true, name: true, status: true } } },
+    select: { id: true, name: true, siteIds: true, maxMinutes: true, autoApprove: true, ratePerMinute: true, expiresAt: true, lastUsedAt: true, user: { select: { id: true, email: true, name: true, status: true } } },
   });
   if (!t || t.user.status !== "ACTIVE") return null;
   if (!t.lastUsedAt || now.getTime() - t.lastUsedAt.getTime() > TOUCH_MS) {
     await db.apiToken.update({ where: { id: t.id }, data: { lastUsedAt: now } }).catch(() => undefined);
   }
-  return { token: { id: t.id, name: t.name, siteIds: t.siteIds, maxMinutes: t.maxMinutes, autoApprove: t.autoApprove, expiresAt: t.expiresAt }, user: { id: t.user.id, email: t.user.email, name: t.user.name } };
+  return { token: { id: t.id, name: t.name, siteIds: t.siteIds, maxMinutes: t.maxMinutes, autoApprove: t.autoApprove, ratePerMinute: t.ratePerMinute, expiresAt: t.expiresAt }, user: { id: t.user.id, email: t.user.email, name: t.user.name } };
 }

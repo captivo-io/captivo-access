@@ -34,6 +34,16 @@ describe("account discovery", () => {
     expect(acceptAccounts([{ name: "svc$", uid: 1010, passAgeDays: 3 }])[0].name).toBe("svc$");
   });
 
+  it("takes over a database user that can sign in and the server does not block", () => {
+    const d = (o: Partial<DiscoveredRow> = {}) => row({ name: "app", uid: 0, shell: "", login: true, ...o });
+    expect(adoptProblem(d(), "prov", "postgres")).toBeNull();
+    expect(adoptProblem(d(), "prov", "mysql")).toBeNull();
+    expect(adoptProblem(d({ name: "prov" }), "prov", "postgres")).toMatch(/lock Captivo out/);
+    expect(adoptProblem(d({ login: false }), "prov", "postgres")).toMatch(/cannot sign in/);
+    expect(adoptProblem(d({ blocked: "This user exists for 2 hosts; Captivo cannot tell which one to take over." }), "prov", "mysql")).toMatch(/2 hosts/);
+    expect(acceptAccounts([{ name: "multi", uid: 0, blocked: "x".repeat(300), passAgeDays: -1 }])[0].blocked).toHaveLength(200);
+  });
+
   it("names the new resource after the one it came from", () => {
     expect(adoptedName("Build box", "deploy")).toBe("Build box · deploy");
     expect(adoptedName("x".repeat(100), "deploy").length).toBe(80);

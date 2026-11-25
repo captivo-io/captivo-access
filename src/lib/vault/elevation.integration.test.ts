@@ -71,6 +71,7 @@ describe.skipIf(!OWNER_URL)("administrator rights during sessions", () => {
     };
     await mk(sites.ssh, newConn, "SSH", true, true, "'SHA256:pinned'");
     await mk(sites.rdp, newConn, "RDP", true, true);
+    await owner.$executeRawUnsafe(`UPDATE "VaultCredential" SET "guacParams" = '{"domain":"CORP"}'::jsonb WHERE "siteId" = $1`, sites.rdp);
     await mk(sites.old, oldConn, "SSH", true, true);
     await mk(sites.bare, newConn, "SSH", true, false);
     await mk(sites.off, newConn, "SSH", false, false);
@@ -96,6 +97,8 @@ describe.skipIf(!OWNER_URL)("administrator rights during sessions", () => {
     const r = await run(sites.rdp);
     expect(r.status).toBe(200);
     expect(r.body.elevate.platform).toBe("windows");
+    // The domain kept apart from the user name is put back together for the server to look up.
+    expect(r.body.elevate.account).toBe("CORP\\deploy");
     expect(r.body.connectors[0].elevateSealed).toBe(adminSeal);
   });
 
@@ -115,6 +118,7 @@ describe.skipIf(!OWNER_URL)("administrator rights during sessions", () => {
     const t = await (await import("@/lib/tenant/scope")).withTenant(tA.id, () => rdp.nativeRdpTarget(ana, sites.rdp, new Date()));
     if (!t.ok || t.mode !== "recorded") throw new Error(JSON.stringify(t));
     expect(t.elevate?.platform).toBe("windows");
+    expect(t.elevate?.account).toBe("CORP\\deploy");
     expect(t.connectors[0].elevateSealed).toBe(adminSeal);
   });
 });

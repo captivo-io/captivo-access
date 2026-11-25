@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/kurtserdar/captivo-access/tunnel"
@@ -39,6 +40,9 @@ type elevOps interface {
 	grant(ctx context.Context) (alreadyHad bool, err error)
 	revoke(ctx context.Context) error
 }
+
+// A domain account name as sent to the server: DOMAIN\name or name@domain.
+var windowsLookupRe = regexp.MustCompile(`^(?:[A-Za-z0-9._-]{1,64}\\[A-Za-z0-9._$ -]{1,64}|[A-Za-z0-9._$ -]{1,64}@[A-Za-z0-9.-]{1,255})$`)
 
 var elevations = struct {
 	sync.Mutex
@@ -76,14 +80,23 @@ func (sp elevSpec) ops(allow *TargetMatcher) (elevOps, string, error) {
 		if e.SecretKey {
 			return nil, "", errors.New("a Windows administrator account signs in with a password")
 		}
-		wt, err := newWindowsTarget(sp.host, sp.account, &reconcileSecret{username: e.Username, secret: secret})
-		if err != nil {
-			return nil, "", err
-		}
 		if !egressAllowed(allow, windowsAddr(sp.host)) {
 			denied()
 			logDenied("elevate", windowsAddr(sp.host))
 			return nil, "", errors.New("the server's file-sharing port is not allowed by this connector")
+		}
+		rec := &reconcileSecret{username: e.Username, secret: secret}
+		raw := strings.TrimSpace(sp.account)
+		// A name with a domain (DOMAIN\name, name@domain) is looked up by the server; a bare name or .\name is its own.
+		if strings.Contains(raw, "@") || (strings.Contains(raw, `\`) && !strings.HasPrefix(raw, `.\`)) {
+			if !windowsLookupRe.MatchString(raw) {
+				return nil, "", errors.New("the account name has characters Captivo does not pass to the server")
+			}
+			return &windowsElev{t: &windowsTarget{host: sp.host, port: windowsSMBPort, username: raw, reconcile: rec}, lookup: raw}, secret, nil
+		}
+		wt, err := newWindowsTarget(sp.host, sp.account, rec)
+		if err != nil {
+			return nil, "", err
 		}
 		return &windowsElev{t: wt}, secret, nil
 	}

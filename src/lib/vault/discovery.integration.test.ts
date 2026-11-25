@@ -20,6 +20,7 @@ const tA = { id: `di-a-${suffix}`, slug: `di-a-${suffix}` };
 const conn = `di-c-${suffix}`;
 const site = `dis-${suffix}`;
 const winSite = `disw-${suffix}`;
+const dbSite = `disd-${suffix}`;
 const admin = `di-adm-${suffix}`;
 const DP_SECRET = `di-dp-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "ana" };
@@ -73,7 +74,7 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     process.env.DATAPLANE_URL = `http://127.0.0.1:${(fakeDataplane.address() as AddressInfo).port}`;
 
     await owner.$executeRawUnsafe(`INSERT INTO "Tenant"(id,slug,name,status) VALUES($1,$2,'Di A','ACTIVE')`, tA.id, tA.slug);
-    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.75.0',$3)`, conn, tA.id, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.76.0',$3)`, conn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,'admin@a.test','Admin','ADMIN','ACTIVE')`, admin, tA.id);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","recordSessions") VALUES($1,$2,$3,'Build box','GATEWAY',true)`, site, tA.id, conn);
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
@@ -92,6 +93,14 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     await owner.$executeRawUnsafe(
       `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","rotationAccount","reconcileUsername","reconcileKind","reconcileSeals","updatedAt") VALUES($1,$2,$3,'RDP',$4,3389,'alice',$5,$6,'local','Administrator','PASSWORD',$7::jsonb,now())`,
       `divw-${suffix}`, tA.id, winSite, "10.0.0.9", ws, pub, JSON.stringify({ [pub]: wr }),
+    );
+    // A PostgreSQL server whose administrator role is the saved reconcile account.
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","recordSessions") VALUES($1,$2,$3,'Orders DB','DATABASE',true)`, dbSite, tA.id, conn);
+    const ds = await sealSecret(pub, "app-pass", { host: "10.0.0.8", port: 5432, username: "app" });
+    const dr = await sealSecret(pub, "prov-pass", { host: "10.0.0.8", port: 5432, username: "prov" }, "reconcile");
+    await owner.$executeRawUnsafe(
+      `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","reconcileUsername","reconcileKind","reconcileSeals","updatedAt") VALUES($1,$2,$3,'POSTGRES',$4,5432,'app',$5,$6,$7::jsonb,'prov','PASSWORD',$8::jsonb,now())`,
+      `divd-${suffix}`, tA.id, dbSite, "10.0.0.8", ds, pub, JSON.stringify({ database: "orders", databases: [], tls: "require", caCertPem: null, sessionRole: "reader" }), JSON.stringify({ [pub]: dr }),
     );
     route = await import("@/app/api/admin/sites/[id]/discovery/route");
   });
@@ -149,6 +158,22 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     const rows = await owner.$queryRawUnsafe<{ protocol: string; rotationAccount: string; reconcileUsername: string; name: string }[]>(
       `SELECT v.protocol, v."rotationAccount", v."reconcileUsername", s.name FROM "VaultCredential" v JOIN "Site" s ON s.id = v."siteId" WHERE v.username = 'deploy' AND v."targetHost" = '10.0.0.9' AND s."tenantId" = $1`, tA.id);
     expect(rows).toEqual([{ protocol: "RDP", rotationAccount: "local", reconcileUsername: "Administrator", name: "File server · deploy" }]);
+  });
+
+  it("lists a database server's users and takes one over as a database resource, without the session role", async () => {
+    asked.length = 0;
+    const scan = await (await post({ action: "scan" }, dbSite)).json();
+    expect(scan.platform).toBe("postgres");
+    expect(asked[0]).toMatchObject({ op: "discover", method: "postgres", host: "10.0.0.8", db: { database: "orders", tls: "require" } });
+    const j = await (await post({ action: "adopt", accounts: ["deploy", "prov"] }, dbSite)).json();
+    expect(j.created.map((c: { username: string }) => c.username)).toEqual(["deploy"]);
+    expect(j.refused[0]).toMatchObject({ name: "prov" });
+    const rows = await owner.$queryRawUnsafe<{ protocol: string; mode: string; dbParams: { database: string; sessionRole: string }; guacParams: unknown; reconcileUsername: string }[]>(
+      `SELECT v.protocol, s."accessMode" AS mode, v."dbParams", v."guacParams", v."reconcileUsername" FROM "VaultCredential" v JOIN "Site" s ON s.id = v."siteId" WHERE v.username = 'deploy' AND v."targetHost" = '10.0.0.8' AND s."tenantId" = $1`, tA.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ protocol: "POSTGRES", mode: "DATABASE", reconcileUsername: "prov" });
+    expect(rows[0].dbParams).toMatchObject({ database: "orders", sessionRole: "" });
+    expect(rows[0].guacParams).toBeNull();
   });
 
   it("asks for one to twenty accounts", async () => {

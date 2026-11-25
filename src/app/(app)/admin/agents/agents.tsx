@@ -5,7 +5,7 @@ import { LocalTime } from "../../_shell/local-time";
 import { CopyButton } from "../../_shell/copy-button";
 import { Modal } from "../../_shell/modal";
 
-export type TokenRow = { id: string; name: string; prefix: string; sites: string[]; maxMinutes: number; autoApprove: boolean; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null; createdAt: string };
+export type TokenRow = { id: string; name: string; prefix: string; sites: string[]; maxMinutes: number; ratePerMinute: number; autoApprove: boolean; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null; createdAt: string };
 export type SiteChoice = { id: string; name: string; kind: string };
 
 const ERRORS: Record<string, string> = {
@@ -14,19 +14,21 @@ const ERRORS: Record<string, string> = {
   too_many_sites: "Pick at most 50 resources.",
   invalid_minutes: "The longest access must be between 5 minutes and 24 hours.",
   invalid_days: "The token's lifetime must be between 1 and 90 days.",
+  invalid_rate: "Calls per minute must be between 10 and 600.",
   site_not_found: "One of the resources no longer exists. Reload the page.",
   limit_reached: "This workspace has reached its user limit; an agent counts as one.",
 };
 
 const minutesLabel = (m: number) => (m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
 
-export function Agents({ tokens, sites, origin, limits }: { tokens: TokenRow[]; sites: SiteChoice[]; origin: string; limits: { defaultMinutes: number; maxMinutes: number; defaultDays: number; maxDays: number } }) {
+export function Agents({ tokens, sites, origin, limits }: { tokens: TokenRow[]; sites: SiteChoice[]; origin: string; limits: { defaultRate: number; minRate: number; maxRate: number; defaultMinutes: number; maxMinutes: number; defaultDays: number; maxDays: number } }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [minutes, setMinutes] = useState(String(limits.defaultMinutes));
   const [days, setDays] = useState(String(limits.defaultDays));
+  const [rate, setRate] = useState(String(limits.defaultRate));
   const [auto, setAuto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function Agents({ tokens, sites, origin, limits }: { tokens: TokenRow[]; 
   async function create() {
     setBusy(true); setErr(null);
     try {
-      const res = await fetch("/api/admin/agents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, siteIds: [...picked], maxMinutes: Number(minutes), days: Number(days), autoApprove: auto }) });
+      const res = await fetch("/api/admin/agents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, siteIds: [...picked], maxMinutes: Number(minutes), days: Number(days), ratePerMinute: Number(rate), autoApprove: auto }) });
       const j = (await res.json().catch(() => null)) as { token?: string; error?: string; detail?: string } | null;
       if (!res.ok || !j?.token) { setErr(j?.detail ?? ERRORS[j?.error ?? ""] ?? "Something went wrong. Try again."); return; }
       setMade({ token: j.token, name });
@@ -73,7 +75,7 @@ export function Agents({ tokens, sites, origin, limits }: { tokens: TokenRow[]; 
                 <div key={t.id} role="listitem" className="rf-row">
                   <span className="rf-row-t">
                     <b>{t.name}</b> <span className="mono t-muted">{t.prefix}…</span>
-                    <span className="cell-sub">{t.sites.join(", ")} · up to {minutesLabel(t.maxMinutes)} at a time · {t.autoApprove ? "approves its own requests" : "a person approves"} · {t.revokedAt ? "revoked" : off ? "expired" : <>expires <LocalTime iso={t.expiresAt} /></>} · {t.lastUsedAt ? <>last used <LocalTime iso={t.lastUsedAt} /></> : "never used"}</span>
+                    <span className="cell-sub">{t.sites.join(", ")} · up to {minutesLabel(t.maxMinutes)} at a time · {t.ratePerMinute} calls/min · {t.autoApprove ? "approves its own requests" : "a person approves"} · {t.revokedAt ? "revoked" : off ? "expired" : <>expires <LocalTime iso={t.expiresAt} /></>} · {t.lastUsedAt ? <>last used <LocalTime iso={t.lastUsedAt} /></> : "never used"}</span>
                   </span>
                   <div className="rf-row-c">{!t.revokedAt && <button type="button" className="btn sm" onClick={() => setRevoking(t)}>Revoke</button>}</div>
                 </div>
@@ -111,6 +113,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" ${api}/connect/<id>`}</pre><CopyB
           </fieldset>
           <label className="rq-sec"><span className="rq-label"><span>Longest access per request (minutes)</span></span><input id="ag-min" className="input mono" inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} /></label>
           <label className="rq-sec"><span className="rq-label"><span>Token lifetime (days, at most {limits.maxDays})</span></span><input id="ag-days" className="input mono" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} /></label>
+          <label className="rq-sec"><span className="rq-label"><span>Calls per minute ({limits.minRate} to {limits.maxRate}; a tenth of it for requests and connections)</span></span><input id="ag-rate" className="input mono" inputMode="numeric" value={rate} onChange={(e) => setRate(e.target.value)} /></label>
           <div className="rf-row">
             <span className="rf-row-t"><b>Approves its own requests</b><span className="cell-sub">Off: every request waits for a person, who gets it on their phone. On: it is approved at once, only for the resources and minutes above, and the audit log says so.</span></span>
             <div className="rf-row-c"><button type="button" role="switch" aria-checked={auto} aria-label="Approves its own requests" className={auto ? "toggle on" : "toggle"} onClick={() => setAuto(!auto)}><span /></button></div>

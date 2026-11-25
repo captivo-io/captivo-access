@@ -87,8 +87,8 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
         }}
       />
       {rotation && vault?.sealed && <RotationPanel siteId={site.id} siteName={site.name} initial={rotation} />}
-      {rotation && vault?.sealed && (vault.protocol === "SSH" || (vault.protocol === "RDP" && rotation.windowsAccount?.account !== "domain")) && <ElevationPanel siteId={site.id} initial={rotation} />}
-      {rotation && vault?.sealed && (vault.protocol === "SSH" || (vault.protocol === "RDP" && rotation.windowsAccount?.account !== "domain")) && rotation.reconcile && <DiscoveryPanel siteId={site.id} host={rotation.target.host} windows={vault.protocol === "RDP"} />}
+      {rotation && vault?.sealed && (vault.protocol === "SSH" || vault.protocol === "RDP") && <ElevationPanel siteId={site.id} initial={rotation} />}
+      {rotation && vault?.sealed && (vault.protocol === "SSH" || vault.protocol === "POSTGRES" || vault.protocol === "MYSQL" || (vault.protocol === "RDP" && rotation.windowsAccount?.account !== "domain")) && rotation.reconcile && <DiscoveryPanel siteId={site.id} host={rotation.target.host} kind={vault.protocol === "RDP" ? "windows" : vault.protocol === "POSTGRES" ? "postgres" : vault.protocol === "MYSQL" ? "mysql" : "linux"} />}
     </main>
   );
 }

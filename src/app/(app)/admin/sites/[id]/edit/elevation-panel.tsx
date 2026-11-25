@@ -62,7 +62,7 @@ export function ElevationPanel({ siteId, initial }: { siteId: string; initial: R
         <div>
           <h2 id="elev-h">Administrator rights during sessions</h2>
           <p className="cell-sub">
-            <b className="mono">{s.target.username}</b> stays an ordinary user. While someone has a session on it (in the browser, or in their own app when it is recorded), the connector {windows ? "adds it to the server's Administrators group" : "gives it sudo"}, and takes it away when the last session ends. A connector that stops in between takes it away when it starts again. Needs connector {ELEVATE_SESSIONS_MIN_CONNECTOR} or later{windows ? " and a local account of the Windows server (SMB, port 445, reachable from the connector)" : ""}.
+            <b className="mono">{s.target.username}</b> stays an ordinary user. While someone has a session on it (in the browser, or in their own app when it is recorded), the connector {windows ? "adds it to the server's Administrators group" : "gives it sudo"}, and takes it away when the last session ends. A connector that stops in between takes it away when it starts again. Needs connector {ELEVATE_SESSIONS_MIN_CONNECTOR} or later{windows ? ", SMB (port 445) reachable from the connector, and a local account of the server or a domain account (the server asks its domain controller who it is)" : ""}.
           </p>
         </div>
         <span className={`rot-pill ${s.elevate ? "ok" : "off"}`}><i aria-hidden="true" />{s.elevate ? "On" : "Off"}</span>

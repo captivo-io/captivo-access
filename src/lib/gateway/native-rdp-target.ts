@@ -8,14 +8,14 @@ import { effectiveKeystrokeLogging } from "@/lib/keystroke/policy";
 import { parseGuacParams, resolveGuacParams } from "@/lib/gateway/guac-params";
 import { getVaultCredential } from "@/lib/vault/store";
 import { rotationOn } from "@/lib/vault/rotation";
-import { elevationPlan } from "@/lib/vault/elevation";
+import { elevationAccountName, elevationPlan } from "@/lib/vault/elevation";
 import { blockedChannels, nativeRdpMode, NATIVE_RDP_MIN_CONNECTOR, NATIVE_RDP_RECORDED_MIN_CONNECTOR, nativeRedirection, type NativeRdpBlock, type NativeRdpMode, type NativeRedirection } from "@/lib/gateway/native-rdp";
 import { candidatesFor, newestVersion, routeMembers, siteRoutingSelect, type RouteCandidate } from "@/lib/connector/route";
 
 /** What a recorded session needs on top of where the server is. */
 export type NativeRdpRecorded = {
   /** Administrator rights for this session: the account that gives them. Each connector's seal is in its candidate. */
-  elevate?: { platform: string; username: string; kind: string };
+  elevate?: { platform: string; username: string; kind: string; account?: string };
   keystrokeLogging: boolean;
   username: string;
   /** A legacy secret (no connector vault key); otherwise each candidate carries its seal. */
@@ -88,7 +88,7 @@ export async function nativeRdpTarget(userId: string, siteId: string, now: Date)
     ok: true, mode, ...where,
     connectorId: carriers[0].id,
     connectors: candidatesFor(carriers, (m) => ({ ...(sealed ? { sealedSecret: sealFor(m) } : {}), ...(plan.on && plan.ok ? { elevateSealed: plan.sealOf(m) } : {}) })),
-    ...(plan.on && plan.ok ? { elevate: plan.elevate } : {}),
+    ...(plan.on && plan.ok ? { elevate: { ...plan.elevate, account: elevationAccountName(cred.protocol, vault.username, cred.guacParams) } } : {}),
     keystrokeLogging: effectiveKeystrokeLogging({
       mode: await resolvedKeystrokeLoggingMode(), recordingEnabled: recordingEnabled(),
       recordSessions: true, siteFlag: site.keystrokeLogging,

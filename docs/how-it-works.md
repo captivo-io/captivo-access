@@ -382,7 +382,10 @@ Linux server) or a remote-desktop resource (a local account of a Windows server)
   account (the built-in Administrator, or a domain account in the server's
   Administrators group) and adds the account to the local **Administrators** group
   through the account service (samr). An account that already was a member stays
-  one: nothing of ours to take away.
+  one: nothing of ours to take away. The account may be a local one or a domain
+  account (`DOMAIN\name` or `name@domain`, or the domain kept apart in the
+  resource's remote-desktop settings): the server asks its domain controller who it
+  is, so the connector needs no directory access.
 - **Which sessions.** Sessions in the browser (SSH, remote desktop) and sessions in
   the user's own app when they are recorded: the connector carries those and sees
   them open and close. A user's own SSH or Remote Desktop app that is not recorded
@@ -451,11 +454,21 @@ under *Administrator rights during sessions*, also used by password rotation),
   (Windows), accounts that cannot sign in, accounts that are already resources. If the source resource's sessions are not recorded, the new
   resources have the native SSH client off, because a native client needs a
   password the user knows.
+- **PostgreSQL and MySQL / MariaDB.** On a database resource that has a reconcile
+  account (the one password rotation uses), the same button lists the server's
+  users: who can sign in, who is a superuser, whose account is locked and, in MySQL
+  8, how old the password is. A MySQL user that exists for several hosts is listed
+  but not taken over (a reset cannot tell which one is meant). A taken-over
+  database account becomes a database resource with the same server, database and
+  TLS settings and no session role. PostgreSQL 16 lets an account with `CREATEROLE`
+  change only the roles it has `ADMIN OPTION` on, so a take-over needs a superuser as
+  the reconcile account, or that grant on each role.
 - **Requirements:** on Linux a server with `/etc/shadow` readable by the
   administrator account and a connector on 2.72.0 or later; on Windows a local
   account (not a domain one), SMB reachable from the connector and a connector on
-  2.75.0 or later. Both need a connector that holds the administrator account.
-  Database accounts are not scanned.
+  2.75.0 or later; for a database a connector on 2.76.0 or later. All need a
+  connector that holds the administrator account. SQL Server, Redis and MongoDB
+  are not scanned.
 
 ## Agents (scripts, pipelines and AI agents)
 
@@ -501,8 +514,9 @@ A machine can ask for access the way a person does, and get it for a few minutes
     (namespaces, read-only, port-forward) and exec recording as for a person.
   Combine them with SSH certificates, a user per database connection and sudo only
   while a session is open, and the agent never holds a standing credential.
-- **Rate.** A token may make 120 calls a minute, and 12 access requests or
-  connections a minute; past that the answer is 429 with `Retry-After`.
+- **Rate.** A token may make 120 calls a minute by default (10 to 600, set when the
+  token is made), and a tenth of that for access requests and connections (12 by
+  default); past that the answer is 429 with `Retry-After`.
 - **MCP.** The same operations are an MCP server at `/api/agent/mcp` (Streamable HTTP,
   stateless, POST only), with the agent token as the bearer. Tools: `list_resources`,
   `request_access`, `access_status`, `connect`. Point an MCP client (an AI agent's host)

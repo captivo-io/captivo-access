@@ -4,6 +4,8 @@
 
 /** Connectors that list a Linux server's accounts. */
 export const DISCOVER_MIN_CONNECTOR = "2.72.0";
+/** Connectors that list a PostgreSQL or MySQL server's accounts. */
+export const DISCOVER_DB_MIN_CONNECTOR = "2.76.0";
 /** Connectors that list a Windows server's accounts. */
 export const DISCOVER_WINDOWS_MIN_CONNECTOR = "2.75.0";
 /** How many accounts one take-over handles. */
@@ -19,6 +21,8 @@ export type DiscoveredAccount = {
   locked?: boolean;
   noPass?: boolean;
   passAgeDays: number;
+  /** Why the server says this account cannot be taken over. */
+  blocked?: string;
 };
 
 export type DiscoveredRow = DiscoveredAccount & {
@@ -40,16 +44,19 @@ export function acceptAccounts(v: unknown): DiscoveredAccount[] {
       name: o.name, uid: o.uid, shell: typeof o.shell === "string" ? o.shell.slice(0, 80) : "", home: typeof o.home === "string" ? o.home.slice(0, 120) : "",
       admin: o.admin === true, login: o.login === true, locked: o.locked === true, noPass: o.noPass === true,
       passAgeDays: typeof o.passAgeDays === "number" ? o.passAgeDays : -1,
+      ...(typeof o.blocked === "string" && o.blocked ? { blocked: o.blocked.slice(0, 200) } : {}),
     });
   }
   return out;
 }
 
 /** Why an account cannot be taken over, or null. */
-export function adoptProblem(a: DiscoveredRow, administrator: string, platform: "linux" | "windows" = "linux"): string | null {
+export function adoptProblem(a: DiscoveredRow, administrator: string, platform: "linux" | "windows" | "postgres" | "mysql" = "linux"): string | null {
   const bare = (n: string) => n.trim().replace(/^.*\\/, "").toLowerCase();
   if (bare(a.name) === bare(administrator)) return "This is the administrator account Captivo signs in with; changing its password would lock Captivo out.";
   if (a.managedBy) return `Already a resource: ${a.managedBy.name}.`;
+  if (a.blocked) return a.blocked;
+  if (platform === "postgres" || platform === "mysql") return a.login ? null : "It cannot sign in (locked, or a role that only groups privileges).";
   if (platform === "windows") {
     if (!a.login) return "It is disabled or is not a normal account.";
     if (a.uid === 500) return "The built-in Administrator is not taken over here.";

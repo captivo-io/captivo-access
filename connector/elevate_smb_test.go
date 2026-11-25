@@ -186,3 +186,64 @@ func TestTakeOverWindowsE2E(t *testing.T) {
 		t.Fatal("the placeholder still signs in")
 	}
 }
+
+func TestWindowsLookupNameShapes(t *testing.T) {
+	for _, ok := range []string{`CORP\bob`, `corp.test\svc-app$`, `bob@corp.test`, `Bob Smith@corp.test`} {
+		if !windowsLookupRe.MatchString(ok) {
+			t.Errorf("%q should be passed to the server", ok)
+		}
+	}
+	for _, bad := range []string{`CORP\bob;calc`, `a\b\c`, `@x`, `bob@`, "CORP\\bob\n", `CORP\"bob"`} {
+		if windowsLookupRe.MatchString(bad) {
+			t.Errorf("%q must not be passed", bad)
+		}
+	}
+}
+
+// An account named with its domain is looked up by the server's security
+// authority (lsarpc). A Samba server answers for its own netbios name the way a
+// domain member answers for its domain.
+func TestWindowsAccountNamedWithADomainE2E(t *testing.T) {
+	addr, nb := os.Getenv("ROT_WIN_ADDR"), os.Getenv("ROT_WIN_NETBIOS")
+	if addr == "" || nb == "" {
+		t.Skip("ROT_WIN_ADDR / ROT_WIN_NETBIOS not set")
+	}
+	host, port, _ := net.SplitHostPort(addr)
+	windowsSMBPort = port
+	user, admin, pass := os.Getenv("ROT_WIN_USER"), os.Getenv("ROT_WIN_ADMIN"), os.Getenv("ROT_WIN_ADMIN_PASS")
+	k, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	old, oldPath := vaultKey, journal.path
+	vaultKey = k
+	journal.path = t.TempDir() + "/elevations.json"
+	defer func() { vaultKey, journal.path = old, oldPath }()
+	sp := elevSpec{platform: "windows", host: host, port: "3389", account: nb + `\` + user, admin: &tunnel.RotateReconcile{Host: host, Port: "3389", Username: admin, Sealed: sealForTest(t, k.PublicKey(), pass, vaultReconcileAAD(host, "3389", admin))}}
+	allow := &TargetMatcher{open: true}
+	isAdmin := func() bool {
+		r := discoverWindows(t.Context(), &windowsTarget{host: host, port: port, reconcile: &reconcileSecret{username: admin, secret: pass}})
+		for _, a := range r.Accounts {
+			if a.Name == user {
+				return a.Admin
+			}
+		}
+		return false
+	}
+	release, err := elevateAccount(t.Context(), allow, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isAdmin() {
+		t.Fatal("the domain-named account is not an administrator during the session")
+	}
+	release()
+	if isAdmin() {
+		t.Fatal("still an administrator after the session")
+	}
+	if n := len(journalRead()); n != 0 {
+		t.Fatalf("the journal still has %d entries", n)
+	}
+	// A name the server does not know is refused with the reason.
+	sp.account = nb + `\nobody-here`
+	if _, err := elevateAccount(t.Context(), allow, sp); err == nil || !strings.Contains(err.Error(), "does not know") {
+		t.Fatalf("an unknown account: %v", err)
+	}
+}

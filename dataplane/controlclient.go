@@ -222,6 +222,9 @@ type elevateTarget struct {
 	Platform string `json:"platform"` // "linux" | "windows"; empty reads as linux (an older manager)
 	Username string `json:"username"`
 	Kind     string `json:"kind"`
+	// The account's full name when it differs from the one the session signs in as
+	// (a Windows account with its domain kept apart): what the server looks up.
+	Account string `json:"account"`
 }
 
 // request is what the connector is asked to do to give the account its rights
@@ -230,6 +233,9 @@ func (e *elevateTarget) request(host, port, account, sealed, sshHostKey string) 
 	p := e.Platform
 	if p == "" {
 		p = "linux"
+	}
+	if e.Account != "" {
+		account = e.Account
 	}
 	return &tunnel.ElevateRequest{Platform: p, Host: host, Port: port, Account: account, SSHHostKey: sshHostKey, Admin: tunnel.RotateReconcile{Host: host, Port: port, Username: e.Username, Sealed: sealed, SecretKey: e.Kind == "KEY"}}
 }
