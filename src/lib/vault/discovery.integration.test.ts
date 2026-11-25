@@ -22,6 +22,7 @@ const site = `dis-${suffix}`;
 const winSite = `disw-${suffix}`;
 const dbSite = `disd-${suffix}`;
 const redisSite = `disr-${suffix}`;
+const mongoSite = `dism-${suffix}`;
 const admin = `di-adm-${suffix}`;
 const DP_SECRET = `di-dp-${suffix}`;
 const target = { host: "10.0.0.7", port: 22, username: "ana" };
@@ -69,13 +70,16 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
       if (rq.headers["x-dataplane-secret"] !== DP_SECRET || rq.url !== "/vault-rotate") return void res.writeHead(404).end();
       const { request } = JSON.parse(raw) as { request: Record<string, unknown> };
       asked.push(request);
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ outcome: "ok", accounts: ACCOUNTS }));
+      const accounts = request.method === "mongodb"
+        ? [{ name: "app@shop", uid: 0, shell: "", home: "", login: true, passAgeDays: -1 }, { name: "ops", uid: 0, shell: "", home: "", login: true, admin: true, passAgeDays: -1 }]
+        : ACCOUNTS;
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ outcome: "ok", accounts }));
     });
     await new Promise<void>((r) => fakeDataplane.listen(0, "127.0.0.1", r));
     process.env.DATAPLANE_URL = `http://127.0.0.1:${(fakeDataplane.address() as AddressInfo).port}`;
 
     await owner.$executeRawUnsafe(`INSERT INTO "Tenant"(id,slug,name,status) VALUES($1,$2,'Di A','ACTIVE')`, tA.id, tA.slug);
-    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.77.0',$3)`, conn, tA.id, pub);
+    await owner.$executeRawUnsafe(`INSERT INTO "Connector"(id,"tenantId",name,"tokenHash",status,version,"vaultPublicKey") VALUES($1,$2,'one',$1,'ONLINE','2.78.0',$3)`, conn, tA.id, pub);
     await owner.$executeRawUnsafe(`INSERT INTO "User"(id,"tenantId",email,name,role,status) VALUES($1,$2,'admin@a.test','Admin','ADMIN','ACTIVE')`, admin, tA.id);
     await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode","recordSessions") VALUES($1,$2,$3,'Build box','GATEWAY',true)`, site, tA.id, conn);
     delete (globalThis as { prismaBase?: unknown }).prismaBase;
@@ -109,6 +113,14 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     await owner.$executeRawUnsafe(
       `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","updatedAt") VALUES($1,$2,$3,'REDIS',$4,6379,'default',$5,$6,$7::jsonb,now())`,
       `divr-${suffix}`, tA.id, redisSite, "10.0.0.6", rs, pub, JSON.stringify({ database: "", databases: [], tls: "require", caCertPem: null, sessionRole: "" }),
+    );
+    // MongoDB: users are listed as name@database.
+    await owner.$executeRawUnsafe(`INSERT INTO "Site"(id,"tenantId","connectorId",name,"accessMode") VALUES($1,$2,$3,'Docs DB','DATABASE')`, mongoSite, tA.id, conn);
+    const ms = await sealSecret(pub, "mongo-pass", { host: "10.0.0.5", port: 27017, username: "ops" });
+    const mr = await sealSecret(pub, "mongo-admin", { host: "10.0.0.5", port: 27017, username: "prov" }, "reconcile");
+    await owner.$executeRawUnsafe(
+      `INSERT INTO "VaultCredential"(id,"tenantId","siteId",protocol,"targetHost","targetPort",username,secret,"sealedTo","dbParams","reconcileUsername","reconcileKind","reconcileSeals","updatedAt") VALUES($1,$2,$3,'MONGODB',$4,27017,'ops',$5,$6,$7::jsonb,'prov','PASSWORD',$8::jsonb,now())`,
+      `divm-${suffix}`, tA.id, mongoSite, "10.0.0.5", ms, pub, JSON.stringify({ database: "admin", databases: [], tls: "require", caCertPem: null, sessionRole: "" }), JSON.stringify({ [pub]: mr }),
     );
     route = await import("@/app/api/admin/sites/[id]/discovery/route");
   });
@@ -193,6 +205,25 @@ describe.skipIf(!OWNER_URL)("account discovery", () => {
     expect(req.method).toBe("redis");
     expect(req.current).toMatch(/^cv1:/);
     expect(req.reconcile).toBeUndefined();
+    // Taking an account over needs a reconcile account that may change others' passwords.
+    const adopt = await post({ action: "adopt", accounts: ["reader"] }, redisSite);
+    expect(adopt.status).toBe(409);
+    expect((await adopt.json()).error).toBe("discovery_needs_account");
+  });
+
+  it("takes a MongoDB user over by name and database", async () => {
+    const scan = await (await post({ action: "scan" }, mongoSite)).json();
+    expect(scan.accounts.map((a: { name: string }) => a.name)).toEqual(["app@shop", "ops"]);
+    const j = await (await post({ action: "adopt", accounts: ["app@shop"] }, mongoSite)).json();
+    expect(j.created.map((c: { username: string }) => c.username)).toEqual(["app"]);
+    const rows = await owner.$queryRawUnsafe<{ username: string; dbParams: { database: string }; name: string }[]>(
+      `SELECT v.username, v."dbParams", s.name FROM "VaultCredential" v JOIN "Site" s ON s.id = v."siteId" WHERE s.name = $1 AND s."tenantId" = $2`, "Docs DB · app@shop", tA.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].dbParams.database).toBe("shop");
+    // Listed again, it is marked as a resource under its database.
+    const again = await (await post({ action: "scan" }, mongoSite)).json();
+    expect(again.accounts.find((a: { name: string }) => a.name === "app@shop").managedBy).not.toBeNull();
+    expect(again.accounts.find((a: { name: string }) => a.name === "ops").managedBy).not.toBeNull();
   });
 
   it("asks for one to twenty accounts", async () => {

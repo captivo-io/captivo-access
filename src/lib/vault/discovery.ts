@@ -34,7 +34,7 @@ export type DiscoveredRow = DiscoveredAccount & {
   managedBy: { id: string; name: string } | null;
 };
 
-const NAME = /^[A-Za-z0-9._$][A-Za-z0-9._$-]{0,63}$/;
+const NAME = /^[A-Za-z0-9._$][A-Za-z0-9._$@-]{0,127}$/;
 
 /** Reads the connector's list, keeping only what it should have sent. */
 export function acceptAccounts(v: unknown): DiscoveredAccount[] {
@@ -76,3 +76,12 @@ export function adoptProblem(a: DiscoveredRow, administrator: string, platform: 
 export function adoptedName(site: string, user: string): string {
   return `${site} · ${user}`.slice(0, 80);
 }
+
+/** A MongoDB user is listed as name@database (the database it was made in), plain name for admin. */
+export function mongoParts(label: string, fallbackDb: string): { username: string; database: string } {
+  const i = label.lastIndexOf("@");
+  return i > 0 ? { username: label.slice(0, i), database: label.slice(i + 1) } : { username: label, database: fallbackDb || "admin" };
+}
+
+/** What a take-over needs on a server whose accounts are listed by the resource's own account. */
+export const NEEDS_RECONCILE = "To take accounts over, add a reconcile account to this resource first (an account that may change others' passwords): Password rotation › Reconcile account.";

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { acceptAccounts, adoptProblem, adoptedName, type DiscoveredRow } from "@/lib/vault/discovery";
+import { acceptAccounts, adoptProblem, adoptedName, mongoParts, type DiscoveredRow } from "@/lib/vault/discovery";
 
 const row = (o: Partial<DiscoveredRow> = {}): DiscoveredRow => ({ name: "deploy", uid: 1001, shell: "/bin/bash", home: "/home/deploy", login: true, passAgeDays: 10, managedBy: null, ...o });
 
@@ -51,6 +51,13 @@ describe("account discovery", () => {
     const blocked = "Captivo does not change Redis or MongoDB passwords yet, so this account cannot be taken over.";
     expect(adoptProblem(d({ blocked }), "default", "redis")).toMatch(/does not change Redis or MongoDB/);
     expect(adoptProblem(d({ blocked }), "default", "mongodb")).toMatch(/does not change/);
+  });
+
+  it("splits a MongoDB user listed as name@database", () => {
+    expect(mongoParts("app@shop", "admin")).toEqual({ username: "app", database: "shop" });
+    expect(mongoParts("ops", "admin")).toEqual({ username: "ops", database: "admin" });
+    expect(mongoParts("ops", "")).toEqual({ username: "ops", database: "admin" });
+    expect(acceptAccounts([{ name: "app@shop", uid: 0, passAgeDays: -1 }])[0].name).toBe("app@shop");
   });
 
   it("names the new resource after the one it came from", () => {

@@ -13,7 +13,7 @@ import { sealsOf, storedSecretColumns, storedSecretFor, VaultInputError } from "
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { compareSemver } from "@/lib/updates/semver";
 import { assertWithinLimit, LimitError } from "@/lib/tenant/envelope";
-import { ADOPT_MAX, acceptAccounts, adoptProblem, adoptedName, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, DISCOVER_DB_MIN_CONNECTOR, DISCOVER_MORE_DB_MIN_CONNECTOR, isDbPlatform, type DiscoverPlatform, type DiscoveredRow } from "@/lib/vault/discovery";
+import { mongoParts, NEEDS_RECONCILE, ADOPT_MAX, acceptAccounts, adoptProblem, adoptedName, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, DISCOVER_DB_MIN_CONNECTOR, DISCOVER_MORE_DB_MIN_CONNECTOR, isDbPlatform, type DiscoverPlatform, type DiscoveredRow } from "@/lib/vault/discovery";
 import { Prisma } from "@/generated/prisma/client";
 import { parseDbParams, dbEngineOf } from "@/lib/database/params";
 
@@ -57,9 +57,11 @@ async function scan(siteId: string): Promise<{ error: string; status: number; de
   } as Record<string, unknown>);
   if (ans.error || ans.outcome !== "ok") return { error: "discovery_failed", status: 502, detail: ans.error ?? ans.detail ?? "The connector could not list the accounts." };
   const accounts = acceptAccounts((ans as { accounts?: unknown }).accounts);
-  const taken = await db.vaultCredential.findMany({ where: { targetHost: c.targetHost, targetPort: c.targetPort, protocol: c.protocol }, select: { username: true, site: { select: { id: true, name: true } } } });
-  const by = new Map(taken.map((t) => [t.username, t.site]));
-  return { rows: accounts.map((a) => ({ ...a, managedBy: by.get(a.name) ?? null })), admin: own ? c.username : c.reconcileUsername!, platform, src };
+  const taken = await db.vaultCredential.findMany({ where: { targetHost: c.targetHost, targetPort: c.targetPort, protocol: c.protocol }, select: { username: true, dbParams: true, site: { select: { id: true, name: true } } } });
+  // A MongoDB user is named by its database too (name@database; plain name in admin).
+  const label = (u: string, params: unknown) => { if (platform !== "mongodb") return u; const d = parseDbParams(params, "MONGODB").database || "admin"; return d === "admin" ? u : `${u}@${d}`; };
+  const by = new Map(taken.map((t) => [label(t.username, t.dbParams), t.site]));
+  return { rows: accounts.map((a) => ({ ...a, managedBy: by.get(a.name) ?? null })), admin: c.reconcileUsername ?? c.username, platform, src };
 }
 
 function load(siteId: string) {
@@ -102,6 +104,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     if (names.length === 0 || names.length > ADOPT_MAX) return NextResponse.json({ error: "invalid_accounts", detail: `Pick between 1 and ${ADOPT_MAX} accounts.` }, { status: 400 });
     const src = res.src;
     const cred = src.vaultCredential!;
+    if (!cred.reconcileUsername) return NextResponse.json({ error: "discovery_needs_account", detail: NEEDS_RECONCILE }, { status: 409 });
     try {
       await assertWithinLimit("maxSites", (await db.site.count()) + names.length - 1);
     } catch (e) {
@@ -119,7 +122,10 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
       const row = res.rows.find((r) => r.name === name);
       const why = !row ? "The server does not have this account any more." : adoptProblem(row, res.admin, res.platform);
       if (why) { refused.push({ name, reason: why }); continue; }
-      const target = { host: cred.targetHost, port: cred.targetPort, username: name };
+      // A MongoDB user is listed as name@database: the name signs in, the database is where it was made.
+      const mongo = res.platform === "mongodb" ? mongoParts(name, parseDbParams(cred.dbParams, "MONGODB").database) : null;
+      const account = mongo ? mongo.username : name;
+      const target = { host: cred.targetHost, port: cred.targetPort, username: account };
       let stored;
       try {
         stored = await storedSecretFor({ connectorId: src.connectorId, connectorGroupId: src.connectorGroupId }, { secret: placeholderPassword() }, target);
@@ -140,8 +146,8 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
         });
         await tx.vaultCredential.create({
           data: {
-            siteId: s.id, protocol: cred.protocol, targetHost: cred.targetHost, targetPort: cred.targetPort, username: name, ...storedSecretColumns(stored), secretKind: "PASSWORD",
-            guacParams: isDb ? Prisma.DbNull : ((cred.guacParams ?? {}) as Prisma.InputJsonValue), ...(isDb ? { dbParams: { ...(cred.dbParams as object), sessionRole: "" } as Prisma.InputJsonValue } : {}), sshHostKey: cred.sshHostKey, rotationAccount: res.platform === "windows" ? cred.rotationAccount ?? "local" : null,
+            siteId: s.id, protocol: cred.protocol, targetHost: cred.targetHost, targetPort: cred.targetPort, username: account, ...storedSecretColumns(stored), secretKind: "PASSWORD",
+            guacParams: isDb ? Prisma.DbNull : ((cred.guacParams ?? {}) as Prisma.InputJsonValue), ...(isDb ? { dbParams: { ...(cred.dbParams as object), sessionRole: "", ...(mongo ? { database: mongo.database } : {}) } as Prisma.InputJsonValue } : {}), sshHostKey: cred.sshHostKey, rotationAccount: res.platform === "windows" ? cred.rotationAccount ?? "local" : null,
             reconcileUsername: cred.reconcileUsername, reconcileKind: cred.reconcileKind, reconcileSeals: (cred.reconcileSeals ?? {}) as Prisma.InputJsonValue,
             rotateDueAt: new Date(),
           },
@@ -151,7 +157,7 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
       await recordAdminAction({ actor, action: "resource.create", targetType: "resource", targetId: site.id, summary: `Created resource "${siteName}" by taking over ${name}@${cred.targetHost} (account discovery on "${src.name}")`, clientIp: ip });
       // The password it starts with does not sign in: rotation resets it through the administrator account and keeps the new one sealed.
       kickRotation(0, { siteId: site.id, force: true, actor });
-      created.push({ id: site.id, name: siteName, username: name });
+      created.push({ id: site.id, name: siteName, username: account });
     }
     return NextResponse.json({ created, refused, nativeLeftOff: wasNative && !keepNative });
   }

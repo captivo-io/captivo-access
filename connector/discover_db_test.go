@@ -91,7 +91,7 @@ func TestTakeOverDatabaseE2E(t *testing.T) {
 		t.Fatalf("take-over: %+v", r)
 	}
 	next, _ := openSealed(k, p.Seals[pub], aad)
-	at := &dbAccountTarget{engine: engine, host: host, port: port, db: *db}
+	at := &dbAccountTarget{engine: engine, host: host, port: port, username: target, db: *db}
 	c, err := at.signIn(target, next)
 	if err != nil {
 		t.Fatalf("the new password does not sign in: %v", err)
@@ -113,7 +113,7 @@ func TestParseMSSQLRedisMongoAccounts(t *testing.T) {
 	for _, a := range rd {
 		r[a.Name] = a
 	}
-	if len(rd) != 4 || !r["default"].Admin || r["reader"].Admin || !r["open"].NoPass || r["dormant"].Login || r["reader"].Blocked == "" {
+	if len(rd) != 4 || !r["default"].Admin || r["reader"].Admin || !r["open"].NoPass || r["dormant"].Login {
 		t.Fatalf("redis %+v", rd)
 	}
 	for _, a := range rd {
@@ -178,5 +178,42 @@ func TestDiscoverUsesTheSavedAccountWhereThereIsNoReconcile(t *testing.T) {
 		if bad.Error == "" {
 			t.Fatalf("%s: a credential that does not open must be refused", c.method)
 		}
+	}
+}
+
+// A saved password that works is changed by the account itself or, when its rights do
+// not allow that, by the reconcile account. Env as TakeOverDatabaseE2E, plus DISC_DB_TARGET_PASS.
+func TestRotateDatabaseKnownPasswordE2E(t *testing.T) {
+	addr, target, cur := os.Getenv("DISC_DB_ADDR"), os.Getenv("DISC_DB_TARGET"), os.Getenv("DISC_DB_TARGET_PASS")
+	if addr == "" || target == "" || cur == "" {
+		t.Skip("DISC_DB_TARGET_PASS not set")
+	}
+	host, port, _ := net.SplitHostPort(addr)
+	engine := os.Getenv("DISC_DB_ENGINE")
+	k, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	pub := vaultPublicKeyB64(k)
+	aad := vaultTargetAAD(host, port, target)
+	db := &tunnel.RotateDB{Database: os.Getenv("DISC_DB_NAME"), TLS: os.Getenv("DISC_DB_TLS")}
+	admin := os.Getenv("DISC_DB_ADMIN")
+	base := tunnel.RotateRequest{Method: engine, Host: host, Port: port, Username: target, DB: db,
+		Current:   sealForTest(t, k.PublicKey(), cur, aad),
+		Reconcile: &tunnel.RotateReconcile{Host: host, Port: port, Username: admin, Sealed: sealForTest(t, k.PublicKey(), os.Getenv("DISC_DB_PASS"), vaultReconcileAAD(host, port, admin))}}
+	allow := &TargetMatcher{open: true}
+	prep := base
+	prep.Op, prep.To = "prepare", []string{pub}
+	p := rotate(t.Context(), k, allow, prep)
+	apply := base
+	apply.Op, apply.Pending = "apply", p.Seals[pub]
+	r := rotate(t.Context(), k, allow, apply)
+	if r.Outcome != "rotated" || r.OutOfSync {
+		t.Fatalf("rotation: %+v", r)
+	}
+	next, _ := openSealed(k, p.Seals[pub], aad)
+	at := &dbAccountTarget{engine: engine, host: host, port: port, username: target, db: *db}
+	if res := at.check(t.Context(), next); res.kind != authOK {
+		t.Fatalf("the new password does not sign in: %+v", res)
+	}
+	if res := at.check(t.Context(), cur); res.kind != authBad {
+		t.Fatalf("the old password must be refused: %+v", res)
 	}
 }

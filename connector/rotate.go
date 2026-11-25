@@ -336,7 +336,7 @@ func newAccountTarget(k *ecdh.PrivateKey, allow *TargetMatcher, req tunnel.Rotat
 		}
 		t := &linuxTarget{addr: addr, username: req.Username, pinned: req.SSHHostKey, reconcile: rec}
 		return t, func() string { return t.seen }, nil
-	case "postgres", "mysql", "mssql":
+	case "postgres", "mysql", "mssql", "redis", "mongodb":
 		addr := net.JoinHostPort(req.Host, req.Port)
 		if !egressAllowed(allow, addr) {
 			denied()

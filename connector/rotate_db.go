@@ -70,6 +70,10 @@ func (t *dbAccountTarget) req(user string) tunnel.DbDialRequest {
 	if t.engine == "mysql" {
 		database = ""
 	}
+	// A MongoDB administrator signs in where it was made, not in the account's database.
+	if t.engine == "mongodb" && user != t.username {
+		database = "admin"
+	}
 	return tunnel.DbDialRequest{Engine: t.engine, Host: t.host, Port: t.port, Username: user, Database: database, TLS: t.db.TLS, CACertPEM: t.db.CACertPEM}
 }
 
@@ -88,6 +92,8 @@ func (t *dbAccountTarget) classify(err error) authResult {
 	var pe *pgError
 	var me *myError
 	var te *tunnel.TDSServerError
+	var re *redisError
+	var mo *mongoError
 	switch {
 	case errors.As(err, &pe) && pe.Code == "28P01":
 		return authResult{kind: authBad, detail: pe.Message}
@@ -95,6 +101,10 @@ func (t *dbAccountTarget) classify(err error) authResult {
 		return authResult{kind: authBad, detail: me.Message}
 	case errors.As(err, &me) && (me.Number == 1862 || me.Number == 1820):
 		return authResult{kind: authExpired, detail: "the account's password has expired"}
+	case errors.As(err, &re) && strings.Contains(re.msg, "WRONGPASS"):
+		return authResult{kind: authBad, detail: re.msg}
+	case errors.As(err, &mo) && mo.code == "18":
+		return authResult{kind: authBad, detail: mo.msg}
 	case errors.As(err, &te) && te.Number == 18456:
 		return authResult{kind: authBad, detail: te.Msg}
 	case errors.As(err, &te) && (te.Number == 18487 || te.Number == 18488):
@@ -109,6 +119,9 @@ func (t *dbAccountTarget) selfChange(ctx context.Context, cur, next string) erro
 		return err
 	}
 	defer c.Close()
+	if err, ok := t.setNoSQL(c, t.username, next); ok {
+		return err
+	}
 	if t.engine == "postgres" {
 		v, err := newVerifier(next)
 		if err != nil {
@@ -143,6 +156,9 @@ func (t *dbAccountTarget) reset(ctx context.Context, next string) error {
 		return fmt.Errorf("the reconcile account can't sign in: %v", err)
 	}
 	defer c.Close()
+	if err, ok := t.setNoSQL(c, t.username, next); ok {
+		return err
+	}
 	if t.engine == "postgres" {
 		v, err := newVerifier(next)
 		if err != nil {
@@ -176,6 +192,18 @@ func newVerifier(password string) (string, error) {
 	return scramVerifier(password, salt)
 }
 
+// setNoSQL changes a Redis or MongoDB account's password on a signed-in
+// session; ok is false for the engines that run SQL.
+func (t *dbAccountTarget) setNoSQL(c dbSession, user, next string) (err error, ok bool) {
+	switch s := c.(type) {
+	case *redisSession:
+		return s.setPassword(user, next), true
+	case *mongoSession:
+		return s.setPassword(t.db.Database, user, next), true
+	}
+	return nil, false
+}
+
 // dbSession is a signed-in connection that runs a statement or two.
 type dbSession interface {
 	exec(sql string) error
@@ -195,6 +223,20 @@ func (t *dbAccountTarget) signIn(user, pw string) (dbSession, error) {
 			return nil, err
 		}
 		return s, nil
+	}
+	if t.engine == "redis" {
+		conn, br, _, err := redisSignIn(t.req(user), pw)
+		if err != nil {
+			return nil, err
+		}
+		return &redisSession{conn: conn, br: br}, nil
+	}
+	if t.engine == "mongodb" {
+		conn, br, _, err := mongoSignIn(t.req(user), pw)
+		if err != nil {
+			return nil, err
+		}
+		return &mongoSession{m: &mongoConn{conn: conn, r: br}}, nil
 	}
 	if t.engine == "mssql" {
 		conn, br, _, err := mssqlSignIn(t.req(user), pw)
