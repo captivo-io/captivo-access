@@ -64,7 +64,7 @@ export function Agents({ tokens, sites, origin, limits }: { tokens: TokenRow[]; 
           <div><h2 id="ag-h">Tokens</h2><p className="cell-sub">{live.length} live. A token is shown once, when it is made.</p></div>
           <button type="button" className="btn primary" disabled={sites.length === 0} onClick={() => { setOpen(true); setErr(null); }}>New agent token</button>
         </div>
-        {sites.length === 0 && <p className="rf-msg warn">Agents connect to SSH resources and TCP tunnels for now, and there are none yet.</p>}
+        {sites.length === 0 && <p className="rf-msg warn">Agents connect to SSH resources, TCP tunnels, databases and Kubernetes clusters, and there are none yet.</p>}
         {tokens.length === 0 ? <p className="cell-sub">No agent tokens yet.</p> : (
           <div role="list">
             {tokens.map((t) => {
@@ -93,8 +93,10 @@ curl -H "Authorization: Bearer $TOKEN" ${api}/me
 curl -X POST -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \\
   -d '{"siteId":"<id>","minutes":30,"reason":"Roll back release 4.2 (INC-1042)"}' ${api}/access
 
-# once it is approved (status "active"): an SSH command, good for two minutes
+# once it is approved (status "active"): how to connect, by kind
+# (an SSH command, a database client command and ticket, or a kubeconfig)
 curl -X POST -H "Authorization: Bearer $TOKEN" ${api}/connect/<id>`}</pre><CopyButton value={`curl -H "Authorization: Bearer $TOKEN" ${api}/me`} /></div>
+        <p className="cell-sub">An MCP client (an AI agent&apos;s host) can use the same operations at <span className="mono">{origin || "https://YOUR-WORKSPACE-HOST"}/api/agent/mcp</span> with the same bearer token.</p>
         <p className="cell-sub">A recorded SSH resource signs the agent in as its saved account: the agent holds no password or key, and the whole session is recorded. <span className="mono">GET {api}/access/&lt;id&gt;</span> says where a request stands.</p>
       </section>
 

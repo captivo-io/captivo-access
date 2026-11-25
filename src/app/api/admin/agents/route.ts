@@ -38,7 +38,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   const sites = await db.site.findMany({ where: { id: { in: input.siteIds } }, select: { id: true, name: true, accessMode: true, vaultCredential: { select: { protocol: true } } } });
   if (sites.length !== input.siteIds.length) return NextResponse.json({ error: "site_not_found" }, { status: 400 });
   const bad = sites.find((s) => !agentCanUse(s));
-  if (bad) return NextResponse.json({ error: "site_not_supported", detail: `${bad.name} is not an SSH resource or a TCP tunnel: agents can connect to those for now.` }, { status: 400 });
+  if (bad) return NextResponse.json({ error: "site_not_supported", detail: `${bad.name} is a remote desktop or a web app: agents connect to SSH resources, TCP tunnels, databases and Kubernetes clusters.` }, { status: 400 });
   try {
     await assertWithinLimit("maxUsers", await db.user.count());
   } catch (e) {

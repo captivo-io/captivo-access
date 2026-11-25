@@ -46,11 +46,13 @@ describe("agent tokens", () => {
     expect(agentMinutes(2.5, 60)).toBeNull();
   });
 
-  it("connects to SSH resources and tunnels, nothing else for now", () => {
+  it("connects to SSH, tunnels, databases and clusters, not to desktops or web apps", () => {
     expect(agentCanUse({ accessMode: "TUNNEL" })).toBe(true);
     expect(agentCanUse({ accessMode: "GATEWAY", vaultCredential: { protocol: "SSH" } })).toBe(true);
     expect(agentCanUse({ accessMode: "GATEWAY", vaultCredential: { protocol: "RDP" } })).toBe(false);
-    expect(agentCanUse({ accessMode: "DATABASE", vaultCredential: { protocol: "POSTGRES" } })).toBe(false);
+    expect(agentCanUse({ accessMode: "DATABASE", vaultCredential: { protocol: "POSTGRES" } })).toBe(true);
+    expect(agentCanUse({ accessMode: "KUBERNETES" })).toBe(true);
+    expect(agentCanUse({ accessMode: "ISOLATED" })).toBe(false);
     expect(agentCanUse({ accessMode: "TRANSPARENT" })).toBe(false);
   });
 });

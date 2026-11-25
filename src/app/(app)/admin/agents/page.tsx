@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/current-user";
 import { db } from "@/lib/db";
 import { workspaceView } from "@/lib/mobile/views";
 import { withRequestTenant } from "@/lib/tenant/request";
-import { agentCanUse } from "@/lib/agent/sites";
+import { AGENT_KIND_LABEL, agentKind } from "@/lib/agent/sites";
 import { AGENT_DEFAULT_DAYS, AGENT_DEFAULT_MINUTES, AGENT_MAX_DAYS, AGENT_MAX_MINUTES } from "@/lib/agent/tokens";
 import { Agents, type TokenRow, type SiteChoice } from "./agents";
 
@@ -16,7 +16,7 @@ async function AgentsPageImpl() {
     db.site.findMany({ select: { id: true, name: true, accessMode: true, recordSessions: true, vaultCredential: { select: { protocol: true } } }, orderBy: { name: "asc" } }),
     workspaceView().catch(() => ({ slug: null as string | null, origin: "" })),
   ]);
-  const choices: SiteChoice[] = sites.filter(agentCanUse).map((s) => ({ id: s.id, name: s.name, kind: s.accessMode === "TUNNEL" ? "TCP tunnel" : "SSH" }));
+  const choices: SiteChoice[] = sites.flatMap((s) => { const k = agentKind(s); return k ? [{ id: s.id, name: s.name, kind: AGENT_KIND_LABEL[k] }] : []; });
   const names = new Map(sites.map((s) => [s.id, s.name]));
   const rows: TokenRow[] = tokens.map((t) => ({
     id: t.id, name: t.name, prefix: t.prefix, sites: t.siteIds.map((id) => names.get(id) ?? "(deleted)"), maxMinutes: t.maxMinutes, autoApprove: t.autoApprove,

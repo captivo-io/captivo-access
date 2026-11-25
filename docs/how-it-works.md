@@ -446,7 +446,7 @@ A machine can ask for access the way a person does, and get it for a few minutes
   with no way to sign in to the console) and a token. What the agent is given is an
   ordinary access grant for that user, so approval, tickets, schedules, access
   reviews, recording and the audit log all apply as they do for a person. The token
-  only says which resources it may ask for (SSH resources and TCP tunnels for now), the
+  only says which resources it may ask for (SSH resources, TCP tunnels, databases and Kubernetes clusters), the
   longest access one request may ask for (5 minutes to 24 hours), how long the token
   lives (up to 90 days), and whether it approves its own requests.
 - **The token is shown once**, when it is made; only its hash is kept. Revoking it
@@ -465,16 +465,32 @@ A machine can ask for access the way a person does, and get it for a few minutes
   - `GET /api/agent/v1/access/<id>`: `pending`, `active`, `denied`, `revoked`,
     `expired`, and the reason when there is one.
 - **Connecting.** `POST /api/agent/v1/connect/<siteId>` once the access is active
-  gives an SSH command through the jump host, good for two minutes
-  (`ssh -J <ticket>@host:2222 ... user@server`). On a recorded resource Captivo
-  signs in as the saved account, so the agent holds no password or key and the
-  whole session is recorded; combine it with SSH certificates or sudo only while a
-  session is open for no standing credential at all. On an unrecorded resource the
-  agent would have to bring the account's own password, so use recorded ones. A
-  TCP tunnel returns the port forward instead of a command.
-- **What it does not do (yet).** Agents reach SSH resources and tunnels; databases,
-  Kubernetes and remote desktops are for people. There is no per-token rate limit.
-  A request is for the resource as a whole, not for part of it.
+  answers by kind of resource:
+  - **SSH and TCP tunnels**: a command through the jump host, good for two minutes
+    (`ssh -J <ticket>@host:2222 ... user@server`). On a recorded resource Captivo signs
+    in as the saved account, so the agent holds no password or key and the whole
+    session is recorded. On an unrecorded one the agent would have to bring the
+    account's own password, so use recorded ones. A tunnel returns the port forward
+    instead of a command.
+  - **Databases**: the proxy's address and a ticket to sign in with as the user name,
+    the client's command (`psql`, `mysql`, `sqlcmd`, `redis-cli`, `mongosh`) and,
+    for Redis and MongoDB, a connection URL. Every query is logged as for a person.
+    The ticket lasts as long as the access, at most eight hours. It hangs off an
+    internal session nobody can sign in with.
+  - **Kubernetes**: a kubeconfig whose token is a ticket, with the cluster's rules
+    (namespaces, read-only, port-forward) and exec recording as for a person.
+  Combine them with SSH certificates, a user per database connection and sudo only
+  while a session is open, and the agent never holds a standing credential.
+- **Rate.** A token may make 120 calls a minute, and 12 access requests or
+  connections a minute; past that the answer is 429 with `Retry-After`.
+- **MCP.** The same operations are an MCP server at `/api/agent/mcp` (Streamable HTTP,
+  stateless, POST only), with the agent token as the bearer. Tools: `list_resources`,
+  `request_access`, `access_status`, `connect`. Point an MCP client (an AI agent's host)
+  at `https://<workspace host>/api/agent/mcp` with the header
+  `Authorization: Bearer <token>`. Each tool runs the REST handler, so checks, rate and
+  audit are the same; a failure comes back as a tool error the model can read.
+- **What it does not do.** Remote desktops and web apps are for people. A request is
+  for the resource as a whole, not for part of it.
 - **Safe defaults.** A new token waits for a person. Turning on self-approval is a
   decision about that one token: it can be given only the resources and minutes
   you set, and only while it is live.
