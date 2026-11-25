@@ -69,6 +69,7 @@ type liveSession struct {
 	views        map[int]liveView
 	nextView     int
 	closer       func()    // closes the underlying tunnel; set by guactunnel after Register
+	endAsked     bool      // Terminate came before the closer was set: it runs the moment it is
 	term         *termLive // recorded native SSH: its terminals, for viewers (sshlive.go)
 	notify       func(text string, watch bool) string
 	rdpWatch     string       // recorded native RDP: the live picture's id on its connector (rdpview.go)
@@ -420,7 +421,13 @@ func (h *SessionHub) SetCloser(id string, fn func()) {
 	if ls := h.Get(id); ls != nil {
 		ls.mu.Lock()
 		ls.closer = fn
+		asked := ls.endAsked
 		ls.mu.Unlock()
+		// A session is listed from Register, a moment before its closer is set; an
+		// end asked for in that moment must not be lost.
+		if asked {
+			fn()
+		}
 	}
 }
 
@@ -432,6 +439,9 @@ func (h *SessionHub) Terminate(id string) bool {
 	}
 	ls.mu.Lock()
 	fn := ls.closer
+	if fn == nil {
+		ls.endAsked = true
+	}
 	ls.mu.Unlock()
 	if fn != nil {
 		fn()
