@@ -19,6 +19,7 @@ import { platformLabel } from "@/lib/connector/platform-label";
 import { DB_ENGINES, dbEngineLabel, dbEngineOf, dbMinConnector, parseDbParams, SESSION_USER_ENGINES, SESSION_USER_MIN_CONNECTOR, type DbEngine } from "@/lib/database/params";
 import { KUBE_CA_COMMAND, KUBE_TOKEN_COMMAND, KUBERNETES_MIN_CONNECTOR, kubeSetupYaml, parseKubeParams, validGroup, validNamespace, type KubeIdentity } from "@/lib/kubernetes/params";
 import { sessionUserSetup } from "@/lib/database/session-user";
+import { ELEVATE_BLOCK_TEXT } from "@/lib/vault/elevation";
 import { SSH_CA_BLOCK_TEXT } from "@/lib/vault/ssh-ca";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 import type { KeystrokeMode } from "@/lib/settings/platform";
@@ -128,6 +129,7 @@ function errorMessage(code: string | undefined, edit: boolean): string {
     case "invalid_session_role": return "The session role must be a plain role name (letters, digits, _ . $ -), and is for PostgreSQL and MySQL only.";
     case "invalid_ca_cert": return "Paste the CA certificate in PEM form (-----BEGIN CERTIFICATE-----).";
     case "vault_connector_key_required": return "The secret is sealed to its connector, and this connector has no vault key yet. Update the connector.";
+    case "elevate_ssh_only": case "elevate_needs_native": case "elevate_needs_recording": case "elevate_needs_account": case "elevate_root": return ELEVATE_BLOCK_TEXT[code];
     case "ssh_ca_ssh_only": case "ssh_ca_needs_native": case "ssh_ca_needs_recording": return SSH_CA_BLOCK_TEXT[code];
     case "tunnel_target_required": return "Enter the service's address as host:port.";
     case "invalid_api_server": return "Enter the API server as host:port, as kubectl cluster-info shows it.";

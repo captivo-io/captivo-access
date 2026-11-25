@@ -14,6 +14,8 @@ type routeCandidate struct {
 	ID           string `json:"id"`
 	Standby      bool   `json:"standby,omitempty"`
 	SealedSecret string `json:"sealedSecret,omitempty"`
+	// The administrator account's seal for this connector (recorded SSH with administrator rights during sessions).
+	ElevateSealed string `json:"elevateSealed,omitempty"`
 }
 
 // candidatesOr returns the manager's candidates, or the single connector an

@@ -28,6 +28,7 @@ const ERRORS: Record<string, string> = {
   ssh_off: "Connecting with your own SSH app isn't set up on this service.",
   rotated: "This resource's password changes automatically, so it opens only in the browser now. Ask an admin to turn recording back on for it.",
   ssh_ca_needs_recording: "This resource signs you in with a certificate, which needs session recording. Ask an admin to turn recording back on for it.",
+  elevate_reenter: "This resource gives administrator rights during sessions, and its administrator account must be entered again by an admin.",
   moderator_needs_recording: "This resource needs a moderator, who can only watch a recorded session. Use Open in the browser.",
 };
 

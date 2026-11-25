@@ -508,6 +508,10 @@ model VaultCredential {
   // RDP: whose account it is, "local" (the server's own, over SMB) or
   // "domain" (Active Directory); null = read from the user name.
   rotationAccount    String?
+  // Recorded native SSH on Linux: while a session is open the account has
+  // sudo (an entry the connector adds and removes); the reconcile account above
+  // is the administrator that does it (src/lib/vault/elevation.ts).
+  elevate            Boolean  @default(false)
 
   @@index([tenantId])
   @@index([rotateDueAt])

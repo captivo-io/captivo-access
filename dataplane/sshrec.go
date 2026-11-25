@@ -47,7 +47,7 @@ type sshRecDeps struct {
 
 // openConnectorSSH asks the connector to sign in and returns the SSH
 // connection it then serves on the stream.
-func openConnectorSSH(s *Session, target sshTarget, sealed string) (*ssh.Client, tunnel.SshDialResponse, error) {
+func openConnectorSSH(s *Session, target sshTarget, sealed, elevateSealed string) (*ssh.Client, tunnel.SshDialResponse, error) {
 	if s == nil || s.mux == nil {
 		return nil, tunnel.SshDialResponse{}, errors.New("the connector is offline")
 	}
@@ -61,6 +61,9 @@ func openConnectorSSH(s *Session, target sshTarget, sealed string) (*ssh.Client,
 	}
 	if sealed == "" {
 		req.Secret = target.Secret
+	}
+	if target.Elevate != nil && elevateSealed != "" {
+		req.Elevate = &tunnel.RotateReconcile{Host: target.Host, Port: target.Port, Username: target.Elevate.Username, Sealed: elevateSealed, SecretKey: target.Elevate.Kind == "KEY"}
 	}
 	b, _ := json.Marshal(req)
 	_ = st.SetDeadline(time.Now().Add(sshRecHandshakeLimit))
@@ -107,13 +110,18 @@ func (j *sshJumpConn) recorded(nc ssh.NewChannel, target sshTarget) {
 		_ = nc.Reject(ssh.ConnectionFailed, "this resource's connector must be updated to "+sshRecMinConnector+" for recorded SSH")
 		return
 	}
-	sealed := ""
+	sealed, elevateSealed := "", ""
 	for _, c := range target.Candidates {
 		if c.ID == target.ConnectorID {
-			sealed = c.SealedSecret
+			sealed, elevateSealed = c.SealedSecret, c.ElevateSealed
 		}
 	}
-	client, resp, err := openConnectorSSH(s, target, sealed)
+	if target.Elevate != nil && elevateSealed == "" {
+		j.auditDeny("native_ssh_elevation_unavailable")
+		_ = nc.Reject(ssh.ConnectionFailed, "this resource gives administrator rights during sessions, and its connector has no copy of the administrator account; an admin must enter it again")
+		return
+	}
+	client, resp, err := openConnectorSSH(s, target, sealed, elevateSealed)
 	if resp.HostKey != "" && target.PinnedHostKey == "" && !resp.HostKeyChanged && j.d.noteHostKey != nil {
 		go j.d.noteHostKey(tk.SiteID, resp.HostKey)
 	}
@@ -144,6 +152,9 @@ func (j *sshJumpConn) recorded(nc ssh.NewChannel, target sshTarget) {
 		NoClientAuth:  true,
 		BannerCallback: func(ssh.ConnMetadata) string {
 			b := fmt.Sprintf("Captivo Access: this session is recorded. You are signed in to %s as %s.\r\n", target.SiteName, target.Username)
+			if resp.Elevated {
+				b += "You have administrator rights (sudo) for this session only.\r\n"
+			}
 			if target.Moderation.ID != "" {
 				b += "A moderator watches this session. Your typing is paused until they are watching.\r\n"
 			}

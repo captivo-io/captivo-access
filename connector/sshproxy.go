@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -66,6 +67,16 @@ func handleSsh(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		writeSshResp(st, tunnel.SshDialResponse{Error: err.Error()})
 		return
 	}
+	elevated := false
+	if req.Elevate != nil {
+		release, err := elevateAccount(context.Background(), allow, req)
+		if err != nil {
+			writeSshResp(st, tunnel.SshDialResponse{Error: err.Error()})
+			return
+		}
+		defer release()
+		elevated = true
+	}
 	client, seen, err := sshSignIn(addr, req.Username, auth, req.PinnedHostKey)
 	if err != nil {
 		resp := tunnel.SshDialResponse{Error: sshSignInError(err), HostKey: seen}
@@ -78,7 +89,7 @@ func handleSsh(st io.ReadWriteCloser, allow *TargetMatcher, reqBytes []byte) {
 		return
 	}
 	defer client.Close()
-	if !writeSshResp(st, tunnel.SshDialResponse{HostKey: seen}) {
+	if !writeSshResp(st, tunnel.SshDialResponse{HostKey: seen, Elevated: elevated}) {
 		return
 	}
 	cfg := &ssh.ServerConfig{ServerVersion: "SSH-2.0-CaptivoConnector", NoClientAuth: true}
