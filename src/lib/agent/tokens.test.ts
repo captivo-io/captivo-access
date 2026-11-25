@@ -26,14 +26,17 @@ describe("agent tokens", () => {
 
   it("reads a request to make a token, holding it to sane limits", () => {
     const ok = parseAgentTokenInput({ name: " Release  pipeline ", siteIds: ["a", "a", "b"], maxMinutes: 30, days: 14, autoApprove: true });
-    expect(ok).toEqual({ name: "Release pipeline", siteIds: ["a", "b"], maxMinutes: 30, autoApprove: true, days: 14 });
+    expect(ok).toEqual({ name: "Release pipeline", siteIds: ["a", "b"], maxMinutes: 30, autoApprove: true, days: 14, ratePerMinute: 120 });
     expect(parseAgentTokenInput({ name: "x", siteIds: ["a"] })).toEqual({ error: "invalid_name" });
     expect(parseAgentTokenInput({ name: "ok", siteIds: [] })).toEqual({ error: "sites_required" });
     expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"], maxMinutes: 2 })).toEqual({ error: "invalid_minutes" });
     expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"], maxMinutes: 5000 })).toEqual({ error: "invalid_minutes" });
     expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"], days: 365 })).toEqual({ error: "invalid_days" });
     expect(parseAgentTokenInput({ name: "ok", siteIds: Array.from({ length: 51 }, (_, i) => `s${i}`) })).toEqual({ error: "too_many_sites" });
-    expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"] })).toMatchObject({ autoApprove: false, maxMinutes: 60, days: 30 });
+    expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"] })).toMatchObject({ autoApprove: false, maxMinutes: 60, days: 30, ratePerMinute: 120 });
+    expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"], ratePerMinute: 30 })).toMatchObject({ ratePerMinute: 30 });
+    expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"], ratePerMinute: 5 })).toEqual({ error: "invalid_rate" });
+    expect(parseAgentTokenInput({ name: "ok", siteIds: ["a"], ratePerMinute: 601 })).toEqual({ error: "invalid_rate" });
   });
 
   it("holds a request to the token's longest access", () => {

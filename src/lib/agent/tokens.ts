@@ -12,6 +12,9 @@ export const AGENT_MAX_MINUTES = 24 * 60;
 export const AGENT_DEFAULT_MINUTES = 60;
 export const AGENT_MAX_SITES = 50;
 export const AGENT_MIN_REASON = 10;
+export const AGENT_DEFAULT_RATE = 120;
+export const AGENT_MIN_RATE = 10;
+export const AGENT_MAX_RATE = 600;
 
 export function newAgentToken(): { token: string; hash: string; prefix: string } {
   const token = AGENT_TOKEN_PREFIX + generateToken();
@@ -31,7 +34,7 @@ export function agentIdentityEmail(id: string): string {
   return `agent-${id}@agents.invalid`;
 }
 
-export type AgentTokenInput = { name: string; siteIds: string[]; maxMinutes: number; autoApprove: boolean; days: number };
+export type AgentTokenInput = { name: string; siteIds: string[]; maxMinutes: number; autoApprove: boolean; days: number; ratePerMinute: number };
 
 /** Reads an admin's request to make a token. */
 export function parseAgentTokenInput(b: Record<string, unknown>): AgentTokenInput | { error: string } {
@@ -44,7 +47,9 @@ export function parseAgentTokenInput(b: Record<string, unknown>): AgentTokenInpu
   if (!Number.isInteger(maxMinutes) || maxMinutes < AGENT_MIN_MINUTES || maxMinutes > AGENT_MAX_MINUTES) return { error: "invalid_minutes" };
   const days = b.days === undefined ? AGENT_DEFAULT_DAYS : Number(b.days);
   if (!Number.isInteger(days) || days < 1 || days > AGENT_MAX_DAYS) return { error: "invalid_days" };
-  return { name, siteIds: ids, maxMinutes, autoApprove: b.autoApprove === true, days };
+  const ratePerMinute = b.ratePerMinute === undefined ? AGENT_DEFAULT_RATE : Number(b.ratePerMinute);
+  if (!Number.isInteger(ratePerMinute) || ratePerMinute < AGENT_MIN_RATE || ratePerMinute > AGENT_MAX_RATE) return { error: "invalid_rate" };
+  return { name, siteIds: ids, maxMinutes, autoApprove: b.autoApprove === true, days, ratePerMinute };
 }
 
 /** The minutes an agent asks for, held to what its token allows; null when it is not a number in range. */
@@ -52,4 +57,9 @@ export function agentMinutes(v: unknown, maxMinutes: number): number | null {
   const n = v === undefined ? AGENT_DEFAULT_MINUTES : Number(v);
   if (!Number.isInteger(n) || n < AGENT_MIN_MINUTES) return null;
   return Math.min(n, maxMinutes);
+}
+
+/** What a token may do per minute: all calls, and a tenth of that (at least 1) for the ones that make something. */
+export function agentRates(ratePerMinute: number): { perMinute: number; perMinuteAction: number } {
+  return { perMinute: ratePerMinute, perMinuteAction: Math.max(1, Math.floor(ratePerMinute / 10)) };
 }

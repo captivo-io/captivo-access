@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jfjallid/go-smb/dcerpc"
+	"github.com/jfjallid/go-smb/dcerpc/mslsad"
+	"github.com/jfjallid/go-smb/dcerpc/smbtransport"
+	"github.com/jfjallid/go-smb/smb"
 	"strings"
 	"time"
 
@@ -22,10 +26,18 @@ const (
 	statusNoneMapped = 0xc0000073
 )
 
-type windowsElev struct{ t *windowsTarget }
+// windowsElev gives a local account, or a domain account (lookup is its full
+// name, DOMAIN\name or name@domain), rights over the server. A domain
+// account's SID is asked of the server's own security authority (lsarpc),
+// which asks its domain controller: the connector needs no directory access.
+type windowsElev struct {
+	t      *windowsTarget
+	lookup string
+}
 
 // samrSession is a signed-in samr connection with the two domains open.
 type samrSession struct {
+	c      *smb.Connection
 	r      *mssamr.RPCCon
 	local  *mssamr.SamrHandle // the server's own accounts
 	closer []func()
@@ -45,7 +57,7 @@ func (t *windowsTarget) openSamr(ctx context.Context) (*samrSession, *mssamr.Sam
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not sign in to the server over SMB: %v", err)
 	}
-	s := &samrSession{closer: []func(){c.Close}}
+	s := &samrSession{c: c, closer: []func(){c.Close}}
 	r, err := samrOver(c)
 	if err != nil {
 		s.close()
@@ -129,6 +141,38 @@ func (s *samrSession) accountSID(name string) (*msdtyp.SID, error) {
 	return s.r.SamrRidToSid(s.local, ids[0].RID)
 }
 
+// lookupSID asks the server's security authority for a name's SID.
+func (s *samrSession) lookupSID(name string) (*msdtyp.SID, error) {
+	f, err := s.c.OpenFile("IPC$", mslsad.MSRPCLsaRpcPipe)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the security authority (lsarpc): %v", err)
+	}
+	tr, err := smbtransport.NewSMBTransport(f)
+	if err != nil {
+		return nil, err
+	}
+	b, err := dcerpc.Bind(tr, mslsad.MSRPCUuidLsaRpc, mslsad.MSRPCLsaRpcMajorVersion, mslsad.MSRPCLsaRpcMinorVersion, dcerpc.MSRPCUuidNdr)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the security authority (lsarpc): %v", err)
+	}
+	res, err := mslsad.NewRPCCon(b).LsarLookupNames3(mslsad.LsapLookupWksta, []string{name})
+	if err != nil || len(res.TranslatedSids) != 1 {
+		return nil, fmt.Errorf("the server does not know the account %q (it asks its domain controller)", name)
+	}
+	if res.TranslatedSids[0].Use != mslsad.SidTypeUser {
+		return nil, fmt.Errorf("%q is not a user account", name)
+	}
+	return msdtyp.ConvertStrToSID(res.TranslatedSids[0].Sid)
+}
+
+// accountSIDFor is the SID of the account this elevation is for.
+func (w *windowsElev) sid(s *samrSession) (*msdtyp.SID, error) {
+	if w.lookup != "" {
+		return s.lookupSID(w.lookup)
+	}
+	return s.accountSID(w.t.username)
+}
+
 func hasSID(members []msdtyp.SID, sid *msdtyp.SID) bool {
 	for i := range members {
 		if members[i].ToString() == sid.ToString() {
@@ -144,7 +188,7 @@ func (w *windowsElev) grant(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	defer s.close()
-	sid, err := s.accountSID(w.t.username)
+	sid, err := w.sid(s)
 	if err != nil {
 		return false, err
 	}
@@ -171,7 +215,7 @@ func (w *windowsElev) revoke(ctx context.Context) error {
 		return err
 	}
 	defer s.close()
-	sid, err := s.accountSID(w.t.username)
+	sid, err := w.sid(s)
 	if err != nil {
 		return err
 	}

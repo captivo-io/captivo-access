@@ -2,26 +2,28 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ADOPT_MAX, adoptProblem, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
+import { ADOPT_MAX, adoptProblem, DISCOVER_DB_MIN_CONNECTOR, DISCOVER_MIN_CONNECTOR, DISCOVER_WINDOWS_MIN_CONNECTOR, type DiscoveredRow } from "@/lib/vault/discovery";
 
 // Account discovery for one SSH resource (lib/vault/discovery.ts): which
 // accounts the server has, and a way to take some over as resources whose
 // password only Captivo knows.
 
-type Scan = { accounts: DiscoveredRow[]; administrator: string; platform: "linux" | "windows" };
+type Scan = { accounts: DiscoveredRow[]; administrator: string; platform: "linux" | "windows" | "postgres" | "mysql" };
 type Done = { created: { id: string; name: string; username: string }[]; refused: { name: string; reason: string }[]; nativeLeftOff: boolean };
 
-function flags(a: DiscoveredRow, windows: boolean): string[] {
+function flags(a: DiscoveredRow, windows: boolean, database: boolean): string[] {
   const f: string[] = [];
   if (a.admin) f.push("administrator");
   if (a.noPass) f.push("no password");
   else if (a.locked) f.push(windows ? "disabled" : "password locked");
   else if (a.passAgeDays >= 0) f.push(a.passAgeDays === 0 ? "password changed today" : `password ${a.passAgeDays} days old`);
-  if (!a.login) f.push("no shell");
+  if (!a.login && !database) f.push("no shell");
   return f;
 }
 
-export function DiscoveryPanel({ siteId, host, windows }: { siteId: string; host: string; windows: boolean }) {
+export function DiscoveryPanel({ siteId, host, kind }: { siteId: string; host: string; kind: "linux" | "windows" | "postgres" | "mysql" }) {
+  const windows = kind === "windows";
+  const database = kind === "postgres" || kind === "mysql";
   const router = useRouter();
   const [scan, setScan] = useState<Scan | null>(null);
   const [pick, setPick] = useState<Set<string>>(new Set());
@@ -66,7 +68,7 @@ export function DiscoveryPanel({ siteId, host, windows }: { siteId: string; host
       <div className="rot-head">
         <div>
           <h2 id="disc-h">Accounts on this server</h2>
-          <p className="cell-sub">Lists the accounts of <b className="mono">{host}</b> through the administrator account: who can sign in, who is an administrator, whose password is locked, empty or old. Nothing is changed by looking. Needs a connector on {windows ? DISCOVER_WINDOWS_MIN_CONNECTOR : DISCOVER_MIN_CONNECTOR} or later{windows ? " and the server's local accounts (SMB, port 445)" : ""}.</p>
+          <p className="cell-sub">Lists the {database ? "users" : "accounts"} of <b className="mono">{host}</b> through the administrator account: who can sign in, who is an administrator, whose password is locked, empty or old. Nothing is changed by looking. Needs a connector on {database ? DISCOVER_DB_MIN_CONNECTOR : windows ? DISCOVER_WINDOWS_MIN_CONNECTOR : DISCOVER_MIN_CONNECTOR} or later{windows ? " and the server's local accounts (SMB, port 445)" : ""}{kind === "postgres" ? ". PostgreSQL 16 lets an account with CREATEROLE change only the roles it has ADMIN OPTION on, so a take-over needs a superuser as the administrator or that grant" : ""}.</p>
         </div>
         <button type="button" className="btn" disabled={!!busy} onClick={() => void doScan()}>{busy === "scan" ? "Looking…" : scan ? "Scan again" : "Scan this server"}</button>
       </div>
@@ -87,7 +89,7 @@ export function DiscoveryPanel({ siteId, host, windows }: { siteId: string; host
                 <label key={a.name} className="rf-row" style={{ cursor: why ? "default" : "pointer" }}>
                   <span className="rf-row-t">
                     <b className="mono">{a.name}</b>
-                    <span className="cell-sub">{windows ? `RID ${a.uid}` : `uid ${a.uid} · ${a.shell || "no shell"}`}{flags(a, windows).length ? ` · ${flags(a, windows).join(" · ")}` : ""}{why ? ` — ${why}` : ""}</span>
+                    <span className="cell-sub">{database ? (a.login ? "can sign in" : "cannot sign in") : windows ? `RID ${a.uid}` : `uid ${a.uid} · ${a.shell || "no shell"}`}{flags(a, windows, database).length ? ` · ${flags(a, windows, database).join(" · ")}` : ""}{why ? ` — ${why}` : ""}</span>
                   </span>
                   <div className="rf-row-c"><input type="checkbox" aria-label={`Take over ${a.name}`} disabled={!!why || !!busy} checked={pick.has(a.name)} onChange={() => toggle(a.name)} /></div>
                 </label>

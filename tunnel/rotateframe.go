@@ -89,6 +89,9 @@ type DiscoveredAccount struct {
 	NoPass bool   `json:"noPass,omitempty"` // an empty password
 	// Days since the password was last changed; -1 when unknown.
 	PassAgeDays int `json:"passAgeDays"`
+	// Why this account cannot be taken over, when the server says so (a MySQL
+	// user that exists for several hosts, for one).
+	Blocked string `json:"blocked,omitempty"`
 }
 
 // RotateDB is how the connector signs in to a database resource's server for a

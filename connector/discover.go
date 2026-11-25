@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ecdh"
+	"fmt"
 	"github.com/jfjallid/go-smb/dcerpc/mssamr"
 	"net"
 	"regexp"
@@ -29,8 +30,8 @@ func discoverAccounts(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatc
 	if k == nil {
 		return tunnel.RotateResponse{Error: "no vault key"}
 	}
-	if req.Method != "linux" && req.Method != "windows" {
-		return tunnel.RotateResponse{Error: "accounts can be listed on a Linux or a Windows server"}
+	if req.Method != "linux" && req.Method != "windows" && req.Method != "postgres" && req.Method != "mysql" {
+		return tunnel.RotateResponse{Error: "accounts can be listed on a Linux or a Windows server, or in PostgreSQL or MySQL"}
 	}
 	if req.Reconcile == nil {
 		return tunnel.RotateResponse{Error: "listing accounts needs the administrator account"}
@@ -42,6 +43,22 @@ func discoverAccounts(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatc
 	secret, err := openSealed(k, r.Sealed, vaultReconcileAAD(r.Host, r.Port, r.Username))
 	if err != nil {
 		return tunnel.RotateResponse{Error: "the administrator account does not open here"}
+	}
+	if req.Method == "postgres" || req.Method == "mysql" {
+		if r.SecretKey {
+			return tunnel.RotateResponse{Error: "a database administrator account signs in with a password"}
+		}
+		addr := net.JoinHostPort(req.Host, req.Port)
+		if !egressAllowed(allow, addr) {
+			denied()
+			logDenied("discover", addr)
+			return tunnel.RotateResponse{Error: "target not allowed"}
+		}
+		t := &dbAccountTarget{engine: req.Method, host: req.Host, port: req.Port, username: req.Username}
+		if req.DB != nil {
+			t.db = *req.DB
+		}
+		return discoverDatabase(t, r.Username, secret)
 	}
 	if req.Method == "windows" {
 		if r.SecretKey {
@@ -232,3 +249,82 @@ func discoverWindows(ctx context.Context, wt *windowsTarget) tunnel.RotateRespon
 
 // A Windows account name Captivo can use as a resource's user name.
 var windowsNameRe = regexp.MustCompile(`^[A-Za-z0-9._$-]{1,20}$`)
+
+// discoverDatabase lists the accounts of a PostgreSQL or MySQL server as its
+// administrator account: who can sign in, who is an administrator, which are
+// locked, and how old a MySQL password is. Only those facts leave; never a
+// hash. A MySQL user that exists for several hosts is listed once and cannot
+// be taken over (a reset cannot tell which one is meant).
+func discoverDatabase(t *dbAccountTarget, adminUser, adminPW string) tunnel.RotateResponse {
+	s, err := t.signIn(adminUser, adminPW)
+	if err != nil {
+		return tunnel.RotateResponse{Error: "the administrator account can't sign in: " + err.Error()}
+	}
+	defer s.Close()
+	var rows []string
+	if t.engine == "postgres" {
+		rows, err = s.column(`SELECT rolname || '|' || rolcanlogin::text || '|' || rolsuper::text FROM pg_roles WHERE rolname NOT LIKE 'pg\_%' ORDER BY rolname`)
+	} else {
+		// MySQL 8 knows when a password changed and whether the account is locked; MariaDB and older servers lack those columns.
+		rows, err = s.column(`SELECT CONCAT_WS('|', User, Host, account_locked, IFNULL(DATEDIFF(NOW(), password_last_changed), -1), Super_priv) FROM mysql.user WHERE User <> '' ORDER BY User`)
+		if err != nil {
+			rows, err = s.column(`SELECT CONCAT_WS('|', User, Host, 'N', -1, Super_priv) FROM mysql.user WHERE User <> '' ORDER BY User`)
+		}
+	}
+	if err != nil {
+		return tunnel.RotateResponse{Error: "the administrator account can't read the server's accounts: " + err.Error()}
+	}
+	return tunnel.RotateResponse{Outcome: "ok", Accounts: parseDatabaseAccounts(t.engine, rows)}
+}
+
+func parseDatabaseAccounts(engine string, rows []string) []tunnel.DiscoveredAccount {
+	var out []tunnel.DiscoveredAccount
+	hosts := map[string]int{}
+	var parsed [][]string
+	for _, r := range rows {
+		f := strings.Split(r, "|")
+		if engine == "postgres" && len(f) == 3 || engine == "mysql" && len(f) == 5 {
+			parsed = append(parsed, f)
+			if engine == "mysql" {
+				hosts[f[0]]++
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, f := range parsed {
+		a := tunnel.DiscoveredAccount{Name: f[0], PassAgeDays: -1}
+		if !dbAccountNameRe.MatchString(a.Name) || seen[a.Name] {
+			continue
+		}
+		seen[a.Name] = true
+		if engine == "postgres" {
+			a.Login = f[1] == "true"
+			a.Admin = f[2] == "true"
+			a.Locked = !a.Login
+		} else {
+			a.Locked = f[2] == "Y"
+			a.Login = !a.Locked
+			a.Admin = f[4] == "Y"
+			if n, err := strconv.Atoi(f[3]); err == nil {
+				a.PassAgeDays = n
+			}
+			if hosts[a.Name] > 1 {
+				a.Blocked = fmt.Sprintf("This user exists for %d hosts; Captivo cannot tell which one to take over.", hosts[a.Name])
+			}
+		}
+		out = append(out, a)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Login != out[j].Login {
+			return out[i].Login
+		}
+		return out[i].Name < out[j].Name
+	})
+	if len(out) > discoverMax {
+		out = out[:discoverMax]
+	}
+	return out
+}
+
+// A database account name that is safe to show and to use as a resource's user name.
+var dbAccountNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.@$-]{0,62}$`)

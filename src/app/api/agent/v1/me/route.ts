@@ -26,7 +26,7 @@ export const GET = withTenantRoute(withAgent(async (_req, agent) => {
     return { id: s.id, name: s.name, kind: agentKind(s), access: live ? { id: live.g.id, state: live.state, startsAt: live.g.startsAt?.toISOString() ?? null, endsAt: live.g.endsAt?.toISOString() ?? null } : null };
   });
   return NextResponse.json({
-    agent: { name: agent.token.name, expiresAt: agent.token.expiresAt.toISOString(), maxMinutes: agent.token.maxMinutes, autoApprove: agent.token.autoApprove },
+    agent: { name: agent.token.name, expiresAt: agent.token.expiresAt.toISOString(), maxMinutes: agent.token.maxMinutes, autoApprove: agent.token.autoApprove, ratePerMinute: agent.token.ratePerMinute },
     resources,
   });
 }));

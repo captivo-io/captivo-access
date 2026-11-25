@@ -1273,6 +1273,7 @@ model ApiToken {
   prefix      String // its first characters, to tell tokens apart
   siteIds     String[] // the resources it may ask for
   maxMinutes  Int       @default(60) // the longest access one request may ask for
+  ratePerMinute Int     @default(120) // calls a minute; a tenth of it for the calls that make something
   autoApprove Boolean   @default(false) // a request is approved without a person (only within the limits above)
   expiresAt   DateTime
   lastUsedAt  DateTime?

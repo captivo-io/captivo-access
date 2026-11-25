@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ELEVATE_MIN_CONNECTOR, ELEVATE_SESSIONS_MIN_CONNECTOR, elevationPlan, elevationPlatform, elevationProblem } from "@/lib/vault/elevation";
 
 const linux = { protocol: "SSH", nativeSsh: true, nativeRdp: false, recorded: true, account: "root", username: "deploy" };
-const win = { protocol: "RDP", nativeSsh: false, nativeRdp: true, recorded: true, account: "Administrator", username: "alice", windowsLocal: true };
+const win = { protocol: "RDP", nativeSsh: false, nativeRdp: true, recorded: true, account: "Administrator", username: "alice" };
 
 describe("administrator rights during sessions: what a resource needs", () => {
   it("is for a Linux account or a local Windows account, with an administrator account", () => {
@@ -27,7 +27,10 @@ describe("administrator rights during sessions: what a resource needs", () => {
     for (const u of ["root", "Deploy", "a.b", "a b", "a;b", "", "x".repeat(40)]) expect(elevationProblem({ ...linux, username: u })).toBe("elevate_root");
     for (const u of ["deploy", "_svc", "web-1"]) expect(elevationProblem({ ...linux, username: u })).toBeNull();
     for (const u of ["Administrator", ".\\administrator", "HOST\\Administrator"]) expect(elevationProblem({ ...win, username: u })).toBe("elevate_root");
-    expect(elevationProblem({ ...win, windowsLocal: false })).toBe("elevate_windows_local");
+    // A domain account is allowed, except the domain's Administrator.
+    expect(elevationProblem({ ...win, username: "CORP\\bob" })).toBeNull();
+    expect(elevationProblem({ ...win, username: "bob@corp.test" })).toBeNull();
+    expect(elevationProblem({ ...win, username: "administrator@corp.test" })).toBe("elevate_root");
   });
 });
 

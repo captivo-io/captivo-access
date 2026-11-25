@@ -22,7 +22,7 @@ export const ELEVATE_BLOCK_TEXT: Record<ElevateBlock, string> = {
   elevate_needs_recording: "A user's own SSH or Remote Desktop app is not recorded here, and Captivo cannot give rights to a session it does not carry: turn on session recording for this resource (or require it in the Policy), or turn the native client off.",
   elevate_needs_account: "Add the administrator account first: root or an account that can use sudo on Linux, the built-in Administrator on Windows.",
   elevate_root: "The resource's account must be an ordinary user: on Linux lower case letters, digits, _ and -, and not root; on Windows not the built-in Administrator.",
-  elevate_windows_local: "Only a local account of the Windows server can be given administrator rights this way, not a domain account.",
+  elevate_windows_local: "This account cannot be given administrator rights on the Windows server.",
 };
 
 export function elevationPlatform(protocol: string | null | undefined): ElevatePlatform | null {
@@ -35,7 +35,7 @@ const LINUX_ACCOUNT = /^[a-z_][a-z0-9_-]{0,31}$/;
 /** What stops the rights being given to this resource, or null. */
 export function elevationProblem(o: {
   protocol: string | null | undefined; nativeSsh: boolean; nativeRdp?: boolean; recorded: boolean;
-  account: string | null | undefined; username: string; windowsLocal?: boolean;
+  account: string | null | undefined; username: string;
 }): ElevateBlock | null {
   const platform = elevationPlatform(o.protocol);
   if (!platform) return "elevate_ssh_only";
@@ -43,8 +43,8 @@ export function elevationProblem(o: {
   if (platform === "linux" && o.nativeSsh && !o.recorded) return "elevate_needs_recording";
   if (platform === "windows" && o.nativeRdp && !o.recorded) return "elevate_needs_recording";
   if (platform === "windows") {
-    if (o.windowsLocal === false) return "elevate_windows_local";
-    const name = o.username.trim().replace(/^.*\\/, "").toLowerCase();
+    // A domain account is allowed: the server asks its domain controller who it is.
+    const name = o.username.trim().replace(/^.*\\/, "").replace(/@.*$/, "").toLowerCase();
     if (!name || name === "administrator") return "elevate_root";
   } else if (!LINUX_ACCOUNT.test(o.username) || o.username === "root") return "elevate_root";
   if (!o.account) return "elevate_needs_account";
@@ -78,4 +78,19 @@ export function elevationPlan<M extends Member>(
   const carriers = capable.filter((m) => !!m.vaultPublicKey && !!seals[m.vaultPublicKey]);
   if (carriers.length === 0) return { on: true, ok: false, error: "elevate_reenter" };
   return { on: true, ok: true, carriers, elevate: { platform, username: cred.reconcileUsername, kind: cred.reconcileKind === "KEY" ? "KEY" : "PASSWORD" }, sealOf: (m) => seals[m.vaultPublicKey!] };
+}
+
+/**
+ * The account's full name as the server should look it up. A remote-desktop
+ * resource may keep the domain apart (a "domain" setting) from the user name;
+ * the server asks its domain controller for DOMAIN\name. A bare name, or one
+ * already written with its domain, is left as it is.
+ */
+export function elevationAccountName(protocol: string, username: string, guacParams: unknown): string | undefined {
+  if (elevationPlatform(protocol) !== "windows") return undefined;
+  const u = username.trim();
+  if (u.includes("\\") || u.includes("@")) return u;
+  const g = guacParams && typeof guacParams === "object" ? (guacParams as Record<string, unknown>) : {};
+  const d = typeof g.domain === "string" ? g.domain.trim() : "";
+  return d ? `${d}\\${u}` : u;
 }

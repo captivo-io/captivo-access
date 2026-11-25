@@ -10,7 +10,6 @@ import { isSealedValue } from "@/lib/vault/seal";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { elevationPlatform, elevationProblem } from "@/lib/vault/elevation";
-import { windowsAccountOf } from "@/lib/vault/rotation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +35,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   if (!can(u.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { id } = await params;
   const s = await rotationStatus(id);
-  const site = await db.site.findUnique({ where: { id }, select: { name: true, nativeSsh: true, nativeRdp: true, recordSessions: true, vaultCredential: { select: { guacParams: true, rotationAccount: true } } } });
+  const site = await db.site.findUnique({ where: { id }, select: { name: true, nativeSsh: true, nativeRdp: true, recordSessions: true } });
   if (!s || !site) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
@@ -63,7 +62,7 @@ export const PUT = withTenantRoute(async (req: NextRequest, { params }: { params
   }
   const elevate = b.elevate === undefined ? s.elevate : b.elevate === true;
   if (elevate) {
-    const bad = elevationProblem({ protocol: s.protocol, nativeSsh: site.nativeSsh, nativeRdp: site.nativeRdp, recorded: await effectiveSiteRecording(site.recordSessions), account: accountName, username: s.target.username, windowsLocal: windowsAccountOf({ username: s.target.username, guacParams: site.vaultCredential?.guacParams, rotationAccount: site.vaultCredential?.rotationAccount }).account === "local" });
+    const bad = elevationProblem({ protocol: s.protocol, nativeSsh: site.nativeSsh, nativeRdp: site.nativeRdp, recorded: await effectiveSiteRecording(site.recordSessions), account: accountName, username: s.target.username });
     if (bad) return NextResponse.json({ error: bad }, { status: 400 });
   }
   await db.vaultCredential.update({ where: { siteId: id }, data: { elevate, ...account } });

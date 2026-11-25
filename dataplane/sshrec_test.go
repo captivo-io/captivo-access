@@ -427,6 +427,10 @@ func TestElevateTargetBuildsTheConnectorsRequest(t *testing.T) {
 	if win.Platform != "windows" || win.Host != "10.0.0.9" || win.Port != "3389" || win.Account != "alice" || win.Admin.Username != "Administrator" || win.Admin.Sealed != "cv1:seal" || win.Admin.Host != "10.0.0.9" || win.Admin.SecretKey {
 		t.Fatalf("%+v", win)
 	}
+	named := (&elevateTarget{Platform: "windows", Username: "Administrator", Account: `CORP\bob`}).request("10.0.0.9", "3389", "bob", "cv1:s", "")
+	if named.Account != `CORP\bob` {
+		t.Fatalf("the full name the manager gives wins: %+v", named)
+	}
 	// An older manager names no platform: it meant Linux, and a key.
 	lin := (&elevateTarget{Username: "root", Kind: "KEY"}).request("10.0.0.5", "22", "deploy", "cv1:s", "SHA256:pin")
 	if lin.Platform != "linux" || !lin.Admin.SecretKey || lin.SSHHostKey != "SHA256:pin" {
