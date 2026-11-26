@@ -9,10 +9,11 @@ import { CommandPalette } from "./command-palette";
 import { NotificationBell } from "./notification-bell";
 import { LivePill } from "./live-pill";
 import { NavIcon } from "./nav-icons";
+import { ACCESS_DOCS_URL } from "@/lib/docs-url";
 
 /**
  * The sticky header: menu button (drawer below 1000px), breadcrumb, search,
- * the live pill, notifications and the theme toggle.
+ * the live pill, notifications, the help link and the theme toggle.
  */
 // The drawer is open while <html data-nav-open="1">: the header's button and the
 // sidebar (which closes it on navigation) both write it, so it is read from there.
@@ -71,6 +72,17 @@ export function AppHeader({ model, records, role, workspace }: {
         {model.showNotifications && (
           <NotificationBell badge={model.notificationsBadge} open={bell} onToggle={() => setBell((v) => !v)} />
         )}
+        {/* Every signed-in user gets the documentation, whatever the role or the model's flags. */}
+        <a
+          className="icon-btn"
+          href={ACCESS_DOCS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Documentation (opens in a new tab)"
+          title="Documentation"
+        >
+          <NavIcon name="help" />
+        </a>
         <ThemeSwitcher />
       </div>
     </header>
