@@ -182,6 +182,58 @@ func TestRotatePrepareAndRevealKeepTheTarget(t *testing.T) {
 	}
 }
 
+func TestRetargetMovesASealToANewTargetWithoutShowingIt(t *testing.T) {
+	k := newVaultTestKey(t)
+	other := newVaultTestKey(t)
+	oldAAD := vaultTargetAAD("10.0.0.5", "22", "alice")
+	cur, err := sealToKey(vaultPublicKeyB64(k), "old-pass", oldAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := tunnel.RotateRequest{
+		Op: "retarget", Host: "10.0.0.5", Port: "22", Username: "alice", Current: cur,
+		NewHost: "10.0.0.9", NewPort: "2222", NewUsername: "bob",
+		To: []string{vaultPublicKeyB64(k), vaultPublicKeyB64(other)},
+	}
+	r := rotate(context.Background(), k, nil, req)
+	if r.Error != "" {
+		t.Fatalf("retarget: %+v", r)
+	}
+	newAAD := vaultTargetAAD("10.0.0.9", "2222", "bob")
+	for name, key := range map[string]*ecdh.PrivateKey{"own": k, "other": other} {
+		got, err := openSealed(key, r.Seals[vaultPublicKeyB64(key)], newAAD)
+		if err != nil || got != "old-pass" {
+			t.Fatalf("%s key: %q %v", name, got, err)
+		}
+		if _, err := openSealed(key, r.Seals[vaultPublicKeyB64(key)], oldAAD); err == nil {
+			t.Fatalf("%s key: the new seal still opens for the old target", name)
+		}
+	}
+	if len(r.Detail) > 0 || r.Outcome != "" {
+		t.Fatalf("a retarget answers with seals only: %+v", r)
+	}
+
+	// Pointed at a target the current seal was not entered for, nothing opens.
+	wrong := req
+	wrong.Host = "10.0.0.6"
+	if r := rotate(context.Background(), k, nil, wrong); r.Error == "" {
+		t.Fatal("retarget from a target the password was not entered for succeeded")
+	}
+	// A new target is required, and so is at least one recipient.
+	for name, mut := range map[string]func(*tunnel.RotateRequest){
+		"no host":      func(q *tunnel.RotateRequest) { q.NewHost = "" },
+		"no port":      func(q *tunnel.RotateRequest) { q.NewPort = "" },
+		"no user":      func(q *tunnel.RotateRequest) { q.NewUsername = " " },
+		"no recipient": func(q *tunnel.RotateRequest) { q.To = nil },
+	} {
+		q := req
+		mut(&q)
+		if r := rotate(context.Background(), k, nil, q); r.Error == "" {
+			t.Fatalf("%s: retarget succeeded", name)
+		}
+	}
+}
+
 func TestReconcileSealIsBoundAndNotAGatewaySecret(t *testing.T) {
 	k := newVaultTestKey(t)
 	pub := vaultPublicKeyB64(k)

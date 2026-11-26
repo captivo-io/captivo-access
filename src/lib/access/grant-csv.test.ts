@@ -8,7 +8,7 @@ const row: GrantRowJSON = {
   startsAt: null, endsAt: "2026-12-01T00:00:00.000Z", createdAt: "2026-11-01T00:00:00.000Z", endedAt: null,
   days: "Mon–Fri", hours: "09:00–18:00", zone: "Europe/Istanbul", nextStart: null,
   note: "=cmd, ticket", denyReason: null, permanent: false, soon: false,
-  ticketRef: "CHG0030001", ticket: null, ticketVerified: true, revokeReason: null,
+  ticketRef: "CHG0030001", ticket: null, ticketVerified: true, revokeReason: null, passwordCheckout: true, checkoutMinutes: null,
 };
 
 describe("grantsToCsv", () => {

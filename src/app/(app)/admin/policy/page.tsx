@@ -78,6 +78,8 @@ async function PolicyPageImpl() {
     maxGrantDays: num(s.maxGrantDays),
     inviteTtlHours: num(s.inviteTtlHours),
     requireRequestJustification: s.requireRequestJustification ?? true,
+    revealRequiresReason: s.revealRequiresReason ?? true,
+    checkoutRequiresReason: s.checkoutRequiresReason ?? true,
     defaultConnectorLogLevel: s.defaultConnectorLogLevel ?? "info",
     vendorIpAllowlist: s.vendorIpAllowlist ?? "",
     isolatedEgressDefault: s.isolatedEgressDefault ?? "internet",

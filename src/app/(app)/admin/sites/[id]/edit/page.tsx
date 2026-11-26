@@ -7,6 +7,7 @@ import { recentEgressEvents } from "@/lib/isolation/egress-events";
 import { resourceContext } from "../../context";
 import { EditResource } from "./edit-resource";
 import { RotationPanel } from "./rotation-panel";
+import { resolvedRevealRequiresReason } from "@/lib/settings/platform";
 import { ElevationPanel } from "./elevation-panel";
 import { DiscoveryPanel } from "./discovery-panel";
 import type { DiscoverPlatform } from "@/lib/vault/discovery";
@@ -87,7 +88,7 @@ async function EditSitePageImpl({ params }: { params: Promise<{ id: string }> })
           logoBg: site.logoBg,
         }}
       />
-      {rotation && vault?.sealed && <RotationPanel siteId={site.id} siteName={site.name} initial={rotation} />}
+      {rotation && vault?.sealed && <RotationPanel siteId={site.id} siteName={site.name} initial={rotation} reasonRequired={await resolvedRevealRequiresReason()} />}
       {rotation && vault?.sealed && (vault.protocol === "SSH" || vault.protocol === "RDP") && <ElevationPanel siteId={site.id} initial={rotation} />}
       {rotation && vault?.sealed && (vault.protocol === "SSH" || vault.protocol === "POSTGRES" || vault.protocol === "MYSQL" || vault.protocol === "MSSQL" || vault.protocol === "REDIS" || vault.protocol === "MONGODB" || (vault.protocol === "RDP" && rotation.windowsAccount?.account !== "domain")) && (rotation.reconcile || vault.protocol === "REDIS" || vault.protocol === "MONGODB") && <DiscoveryPanel siteId={site.id} host={rotation.target.host} kind={vault.protocol === "RDP" ? "windows" : vault.protocol === "SSH" ? "linux" : (vault.protocol.toLowerCase() as DiscoverPlatform)} />}
     </main>

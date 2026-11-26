@@ -15,7 +15,7 @@ const grant = (over: Partial<GrantRowJSON>): GrantRowJSON => ({
   id: "g", userId: "admin", siteId: "rdp", kind: "permanent", state: "active", reason: "allow",
   startsAt: null, endsAt: null, createdAt: "2026-08-02T09:00:00.000Z", endedAt: null,
   days: null, hours: null, zone: null, nextStart: null, note: null, denyReason: null, permanent: true, soon: false,
-  ticketRef: null, ticket: null, ticketVerified: false, revokeReason: null, ...over,
+  ticketRef: null, ticket: null, ticketVerified: false, revokeReason: null, passwordCheckout: true, checkoutMinutes: null, ...over,
 });
 const rows: GrantRowJSON[] = [
   ...Array.from({ length: 5 }, (_, i) => grant({ id: `p${i}` })),

@@ -112,6 +112,8 @@ describe.skipIf(!OWNER_URL)("recordingMode is enforced at by-host and round-trip
       sessionInvitesEnabled: null,
       guestRequireSecondFactor: null,
       moderatorRoles: null,
+      revealRequiresReason: null,
+      checkoutRequiresReason: null,
       recordingMode,
     };
   }

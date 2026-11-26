@@ -109,6 +109,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     sessionInvitesEnabled: typeof body.sessionInvitesEnabled === "boolean" ? body.sessionInvitesEnabled : (await getPlatformSettings()).sessionInvitesEnabled,
     guestRequireSecondFactor: typeof body.guestRequireSecondFactor === "boolean" ? body.guestRequireSecondFactor : (await getPlatformSettings()).guestRequireSecondFactor,
     moderatorRoles: (await getPlatformSettings()).moderatorRoles,
+    revealRequiresReason: typeof body.revealRequiresReason === "boolean" ? body.revealRequiresReason : (await getPlatformSettings()).revealRequiresReason,
+    checkoutRequiresReason: typeof body.checkoutRequiresReason === "boolean" ? body.checkoutRequiresReason : (await getPlatformSettings()).checkoutRequiresReason,
   });
   await saveGuacParamDefaults(parseGuacParams(body.guacParamDefaults));
   await recordAdminAction({

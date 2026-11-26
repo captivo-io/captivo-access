@@ -67,6 +67,9 @@
 .rf-probe-r.ok{background:rgba(var(--ok-rgb),.1);color:var(--ok);}
 .rf-probe-r.bad{background:rgba(var(--bad-rgb),.1);color:var(--bad);}
 .rf-hint{margin:0;font-size:12.5px;line-height:1.5;color:var(--muted);}
+.rf-keep{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:rgba(var(--ink-rgb),.02);}
+.rf-keep-check{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:500;cursor:pointer;}
+.rf-keep-check input{width:16px;height:16px;flex:none;accent-color:var(--p);}
 .rf-hint code{font-family:var(--mono);font-size:11.5px;padding:1px 6px;border-radius:5px;background:rgba(var(--ink-rgb),.07);color:var(--fg);}
 .rf-check-card{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;border:1px solid var(--line-strong);cursor:pointer;}
 .rf-check-card input{width:17px;height:17px;margin:2px 0 0;accent-color:var(--warn);flex:none;}

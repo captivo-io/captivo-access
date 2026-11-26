@@ -90,7 +90,7 @@ async function AccessPageImpl() {
       tunnelHref: g.site.accessMode === "TUNNEL" && tunnelBlock({ accessMode: g.site.accessMode, recordingRequired: required, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/ssh/${g.site.id}` : null,
       kubeHref: kubeBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site) }) === null ? `/api/portal/kube/${g.site.id}` : null,
       dbHref: databaseBlock({ accessMode: g.site.accessMode, connectorVersion: newestVersion(g.site), engine: dbEngineOf(g.site.vaultCredential?.protocol) }) === null ? `/api/portal/db/${g.site.id}` : null,
-      checkoutHref: status === "active" && checkoutBlock(g.site, g.site.vaultCredential) === null ? `/api/portal/checkout/${g.site.id}` : null,
+      checkoutHref: status === "active" && !g.checkoutDenied && checkoutBlock(g.site, g.site.vaultCredential) === null ? `/api/portal/checkout/${g.site.id}` : null,
       recorded,
       moderated,
       time: remaining(startISO, endISO, g.schedule ?? null, now),

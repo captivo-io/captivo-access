@@ -103,6 +103,7 @@ async function provisionUser(user: DirectoryUser, decision: ReconcileDecision): 
           status: "ACTIVE",
           requiresApproval: false,
           directoryManaged: true,
+          checkoutDenied: true,
           note: "Provisioned from AD group",
         },
       }),

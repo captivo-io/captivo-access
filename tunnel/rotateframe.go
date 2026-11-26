@@ -13,6 +13,9 @@ package tunnel
 //	         prepared password) instead of Current, then check it signs in
 //	verify   check Current still signs in
 //	reveal   seal Current to the one key in To (an admin's browser)
+//	retarget re-seal Current, opened for Host/Port/Username, for the target named in
+//	         NewHost/NewPort/NewUsername, to every key in To (the holders of the
+//	         resource): the password moves with the resource and is never shown
 //	discover list the accounts on a Linux server, through the reconcile
 //	         account (Current is not used)
 type RotateRequest struct {
@@ -24,6 +27,10 @@ type RotateRequest struct {
 	Username string   `json:"username"`
 	Current  string   `json:"current"`
 	Pending  string   `json:"pending,omitempty"`
+	// retarget: the address and account the saved password moves to.
+	NewHost     string `json:"newHost,omitempty"`
+	NewPort     string `json:"newPort,omitempty"`
+	NewUsername string `json:"newUsername,omitempty"`
 	To       []string `json:"to,omitempty"`
 	// Linux: the target's SSH host key as first seen ("SHA256:..."); empty
 	// trusts and reports the key on this first contact.

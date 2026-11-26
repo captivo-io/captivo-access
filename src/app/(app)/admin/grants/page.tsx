@@ -26,7 +26,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
   const canConfigure = can(user.role, "configure");
   const now = new Date();
 
-  const [ws, users, sites, rows, pending, maxGrantDays, ticketSys, ticketModes] = await Promise.all([
+  const [ws, users, sites, rows, pending, maxGrantDays, ticketSys, ticketModes, checkoutSites] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findMany({
       select: { id: true, name: true, email: true, role: true, company: true, status: true },
@@ -38,6 +38,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
     resolvedMaxGrantDays(),
     loadTicketSystem(),
     db.site.findMany({ select: { id: true, ticketMode: true } }),
+    db.site.findMany({ where: { passwordCheckout: true }, select: { id: true } }),
   ]);
   const tickets: GrantTickets = {
     modes: Object.fromEntries(ticketModes.map((s) => [s.id, effectiveMode(s.ticketMode, ticketSys)])),
@@ -94,6 +95,7 @@ async function AdminGrantsPageImpl({ searchParams }: { searchParams: Promise<{ n
         openNew={sp.new === "1"}
         openUser={typeof sp.user === "string" ? sp.user : null}
         tickets={tickets}
+        checkoutSites={checkoutSites.map((s) => s.id)}
       />
     </main>
   );

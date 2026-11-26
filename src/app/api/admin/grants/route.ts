@@ -12,6 +12,7 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { gateTicket } from "@/lib/ticketing/system";
+import { validCheckoutMinutes } from "@/lib/vault/checkout-limits";
 import { workspaceView } from "@/lib/mobile/views";
 
 const MAX_SITES = 50;
@@ -59,6 +60,10 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if (capErr) return NextResponse.json({ error: capErr }, { status: 400 });
 
   const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
+  // May the person check the password out? Off unless the admin says so; a length is optional.
+  const passwordCheckout = body.passwordCheckout === true;
+  const checkoutMinutes = passwordCheckout && body.checkoutMinutes != null ? validCheckoutMinutes(body.checkoutMinutes) : null;
+  if (passwordCheckout && body.checkoutMinutes != null && checkoutMinutes === null) return NextResponse.json({ error: "invalid_checkout_minutes" }, { status: 400 });
 
   let schedule: Schedule | null = null;
   if (body.schedule !== undefined && body.schedule !== null) {
@@ -118,6 +123,8 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
       createdById: admin.id,
       schedule,
       ticket: gate.ticket,
+      passwordCheckout,
+      checkoutMinutes,
     });
     ids.push(id);
     await recordAdminAction({
@@ -125,7 +132,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
       action: "grant.create",
       targetType: "grant", targetId: id,
       summary: `Created access grant ${id}${gate.ticket ? ` for ticket ${gate.ticket.ticketRef}${gate.unverified ? " (not checked: the ticket system did not answer)" : ""}` : ""}`,
-      metadata: { userId, siteId, ...(gate.ticket ? { ticket: gate.ticket.ticketRef, ticketVerified: gate.ticket.ticketVerified } : {}) },
+      metadata: { userId, siteId, ...(passwordCheckout ? { passwordCheckout: true, checkoutMinutes } : {}), ...(gate.ticket ? { ticket: gate.ticket.ticketRef, ticketVerified: gate.ticket.ticketVerified } : {}) },
       clientIp: clientIp(req.headers) ?? null,
     });
   }

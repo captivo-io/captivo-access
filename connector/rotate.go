@@ -112,6 +112,9 @@ func handleRotate(st io.ReadWriter, allow *TargetMatcher, reqBytes []byte) {
 		case req.Op == "reveal":
 			// The customer's own record that a password left this host for an admin.
 			logInfo("vault: sealed the saved password of %s to an administrator's browser", who)
+		case req.Op == "retarget":
+			// The customer's own record that a saved password was pointed at another address or account.
+			logInfo("vault: moved the saved password of %s to %s", who, req.NewUsername+"@"+net.JoinHostPort(req.NewHost, req.NewPort))
 		case req.Op == "verify":
 			logInfo("vault: checked the saved password of %s: %s", who, resp.Outcome)
 		}
@@ -192,6 +195,26 @@ func rotate(ctx context.Context, k *ecdh.PrivateKey, allow *TargetMatcher, req t
 			return tunnel.RotateResponse{Error: "bad recipient key"}
 		}
 		return tunnel.RotateResponse{Seals: map[string]string{req.To[0]: s}}
+	case "retarget":
+		// The password is opened for the target it was entered for and sealed again for
+		// the new one. The plaintext never leaves this process, so moving a saved
+		// password costs the admin no retyping and the console no new way to read it.
+		if len(req.To) == 0 || len(req.To) > maxRotateTo {
+			return tunnel.RotateResponse{Error: "bad recipients"}
+		}
+		if strings.TrimSpace(req.NewHost) == "" || strings.TrimSpace(req.NewUsername) == "" || strings.TrimSpace(req.NewPort) == "" {
+			return tunnel.RotateResponse{Error: "no new target"}
+		}
+		next := vaultTargetAAD(req.NewHost, req.NewPort, req.NewUsername)
+		seals := map[string]string{}
+		for _, to := range req.To {
+			s, err := sealToKey(to, cur, next)
+			if err != nil {
+				return tunnel.RotateResponse{Error: "bad recipient key"}
+			}
+			seals[to] = s
+		}
+		return tunnel.RotateResponse{Seals: seals}
 	}
 
 	t, hostKey, err := newAccountTarget(k, allow, req)

@@ -36,6 +36,8 @@ export interface PlatformSettings {
   sessionInvitesEnabled: boolean | null;
   guestRequireSecondFactor: boolean | null;
   moderatorRoles: string | null;
+  revealRequiresReason: boolean | null;
+  checkoutRequiresReason: boolean | null;
 }
 
 const EMPTY: PlatformSettings = {
@@ -65,6 +67,8 @@ const EMPTY: PlatformSettings = {
   sessionInvitesEnabled: null,
   guestRequireSecondFactor: null,
   moderatorRoles: null,
+  revealRequiresReason: null,
+  checkoutRequiresReason: null,
 };
 
 // Keyed by tenant id: a single un-keyed slot would let one tenant's settings
@@ -110,6 +114,8 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
     sessionInvitesEnabled: c?.sessionInvitesEnabled ?? null,
     guestRequireSecondFactor: c?.guestRequireSecondFactor ?? null,
     moderatorRoles: c?.moderatorRoles ?? null,
+    revealRequiresReason: c?.revealRequiresReason ?? null,
+    checkoutRequiresReason: c?.checkoutRequiresReason ?? null,
   };
   cache.set(tid, { s, at: Date.now() });
   return s;
@@ -305,6 +311,18 @@ export async function resolvedModeratorRoles(): Promise<"admins" | "admins_opera
 export async function resolvedSessionInvitesEnabled(): Promise<boolean> {
   const s = await getPlatformSettings();
   return s.sessionInvitesEnabled !== false;
+}
+
+// Default ON: revealing a saved password (or moving it to another address) needs a written reason.
+export async function resolvedRevealRequiresReason(): Promise<boolean> {
+  const s = await getPlatformSettings();
+  return s.revealRequiresReason !== false;
+}
+
+// Default ON: checking out a password needs a reason from the person who takes it.
+export async function resolvedCheckoutRequiresReason(): Promise<boolean> {
+  const s = await getPlatformSettings();
+  return s.checkoutRequiresReason !== false;
 }
 
 // Default OFF: an invited guest needs a second factor only when asked for.

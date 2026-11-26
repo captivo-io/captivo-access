@@ -13,6 +13,9 @@ export async function createGrant(input: {
   createdById: string;
   schedule: Schedule | null;
   ticket?: GrantTicket | null;
+  /** May this person check the resource's password out? Off unless asked for. */
+  passwordCheckout?: boolean;
+  checkoutMinutes?: number | null;
 }): Promise<{ id: string }> {
   const g = await db.accessGrant.create({
     data: {
@@ -26,6 +29,8 @@ export async function createGrant(input: {
       createdById: input.createdById,
       ...(input.schedule ? { schedule: input.schedule as object } : {}),
       ...grantTicketData(input.ticket ?? null),
+      checkoutDenied: input.passwordCheckout !== true,
+      checkoutMinutes: input.passwordCheckout === true ? input.checkoutMinutes ?? null : null,
     },
   });
   return { id: g.id };
@@ -71,6 +76,7 @@ export async function listUserGrants(userId: string) {
       approvedAt: true,
       schedule: true,
       denyReason: true,
+      checkoutDenied: true,
       // The tile fields (icon, colour, logo, and the address the automatic icon reads)
       // stay on the server: callers map out only what they show.
       site: { select: { id: true, name: true, hostname: true, recordSessions: true, nativeRdp: true, nativeSsh: true, requireModerator: true, passwordCheckout: true, logoType: true, accessMode: true, upstreamUrl: true, iconName: true, iconColor: true, logoBg: true, ...siteRoutingSelect, vaultCredential: { select: { targetHost: true, targetPort: true, protocol: true, secretKind: true, secretSource: true, sealedTo: true } } } },
@@ -114,6 +120,8 @@ export async function createAccessRequest(input: {
         note: input.note,
         requiresApproval: true,
         status: "ACTIVE",
+        // A request never carries the password; an admin may allow it on the grant afterwards.
+        checkoutDenied: true,
         approvedAt: input.approvedByTicket ? new Date() : null,
         createdById: input.userId,
         ...(input.schedule ? { schedule: input.schedule as object } : {}),

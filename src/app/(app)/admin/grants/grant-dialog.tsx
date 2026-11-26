@@ -9,6 +9,7 @@ import { ROLE_LABELS } from "@/lib/auth/roles";
 import { ResourceIcon } from "@/components/resource-icon";
 import { grantCovers, type CoverWindow } from "@/lib/access/grant-cover";
 import type { Role } from "@/generated/prisma/enums";
+import { CheckoutField } from "./checkout-field";
 
 /** What each resource asks for in tickets ("off" when it isn't listed), and the ticket system. */
 export type GrantTickets = { modes: Record<string, "off" | "required" | "itsm">; system: string; kind: string; checked: boolean };
@@ -56,6 +57,7 @@ function errorMessage(code: string | undefined): string {
     case "grant_exceeds_max": return "This grant is longer than the maximum duration the policy allows.";
     case "forbidden": return "You can't grant access.";
     case "already_covered": return "An existing grant already covers this whole window for one of these resources.";
+    case "invalid_checkout_minutes": return "Pick one of the check-out lengths.";
     case "ticket_window_over": return "The ticket's change window ends before this access would start.";
     default: return "Couldn't grant access. Try again.";
   }
@@ -66,7 +68,7 @@ function errorMessage(code: string | undefined): string {
  * resources, a window and optional recurring hours. One grant per resource.
  */
 export function GrantDialogBody({
-  users, sites, existing, maxGrantDays, initialUserId, initialSiteIds, onDone, onClose, tickets,
+  users, sites, existing, maxGrantDays, initialUserId, initialSiteIds, onDone, onClose, tickets, checkoutSites = [],
 }: {
   users: GrantUser[];
   sites: SiteTile[];
@@ -78,6 +80,8 @@ export function GrantDialogBody({
   onDone: (n: number, userId: string) => void;
   onClose: () => void;
   tickets?: GrantTickets;
+  /** Resources that have password check-out on. */
+  checkoutSites?: string[];
 }) {
   const tz = useTimezone();
   const zone = tz ?? browserZone();
@@ -97,6 +101,8 @@ export function GrantDialogBody({
   const [end, setEnd] = useState("18:00");
   const [note, setNote] = useState("");
   const [ticket, setTicket] = useState("");
+  const [pwd, setPwd] = useState(false);
+  const [pwdMinutes, setPwdMinutes] = useState("");
   // The ticket system didn't answer: the admin may grant anyway, marked "not checked".
   const [unverifiable, setUnverifiable] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -127,6 +133,7 @@ export function GrantDialogBody({
   const coveredPicks = siteIds.filter((id) => coveredBy(id));
   const ticketSites = siteIds.filter((id) => (tickets?.modes[id] ?? "off") !== "off");
   const needsTicket = ticketSites.length > 0;
+  const pwdSites = siteIds.filter((id) => checkoutSites.includes(id));
   const ready = !!user && siteIds.length > 0 && coveredPicks.length === 0 && (!needsTicket || ticket.trim() !== "");
   const summary = coveredPicks.length
     ? `${coveredPicks.map((id) => sites.find((x) => x.id === id)?.name).join(", ")}: already covered by an existing grant. Untick it, or change the window.`
@@ -162,6 +169,7 @@ export function GrantDialogBody({
           schedule,
           ticket: ticket.trim() || undefined,
           ticketOverride: override || undefined,
+          ...(pwd && pwdSites.length ? { passwordCheckout: true, checkoutMinutes: pwdMinutes ? Number(pwdMinutes) : undefined } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -329,6 +337,10 @@ export function GrantDialogBody({
             {" "}<button type="button" className="btn sm" disabled={busy} onClick={() => void submit(true)}>Grant without checking</button>
           </span>
         </div>
+      )}
+
+      {pwdSites.length > 0 && (
+        <CheckoutField on={pwd} minutes={pwdMinutes} onOn={setPwd} onMinutes={setPwdMinutes} names={pwdSites.map((id) => sites.find((x) => x.id === id)?.name ?? id)} />
       )}
 
       <label className="rq-sec">
