@@ -32,6 +32,12 @@ const LABELS: Record<string, string> = {
   "resource.password_rotate_failed": "Password rotation failed",
   "resource.password_reveal": "Saved password revealed",
   "resource.password_retarget": "Saved password moved to a new address or account",
+  "policy_profile.create": "Policy profile created",
+  "policy_profile.update": "Policy profile updated",
+  "policy_profile.delete": "Policy profile deleted",
+  "command_list.create": "Command list created",
+  "command_list.update": "Command list updated",
+  "command_list.delete": "Command list deleted",
   "config.smtp_update": "SMTP settings updated",
   "config.sso_update": "SSO settings updated",
   "config.platform_update": "Policy updated",
@@ -96,7 +102,7 @@ export const ADMIN_CATEGORY_PREFIXES: Record<AdminCategory, string[]> = {
   access: ["grant.", "session.", "session_invite.", "review.", "credential."],
   resource: ["resource.", "site."],
   identity: ["user.", "invite.", "authsession.", "agent.", "config.sso", "config.directory"],
-  settings: ["config.smtp", "config.platform", "config.session_policy", "config.updates", "config.log_destination", "config.ticketing", "branding.", "platform.", "workspace."],
+  settings: ["policy_profile.", "command_list.", "config.smtp", "config.platform", "config.session_policy", "config.updates", "config.log_destination", "config.ticketing", "branding.", "platform.", "workspace."],
 };
 
 export function adminCategory(action: string): AdminCategory {

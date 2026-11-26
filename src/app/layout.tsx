@@ -10,6 +10,7 @@ import "./styles/rotation.css";
 import "./styles/updates.css";
 import "./styles/policy.css";
 import "./styles/resources.css";
+import "./styles/profiles.css";
 import "./styles/notifications.css";
 import "./styles/ticketing.css";
 import "./styles/connector-detail.css";

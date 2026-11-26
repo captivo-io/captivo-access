@@ -237,6 +237,15 @@ export function GatewaySession({ siteId, siteName, recorded, clipboardMode, prot
       const tunnel = new Guacamole.WebSocketTunnel(`${proto}://${window.location.host}/guac-tunnel`);
       client = new Guacamole.Client(tunnel);
       clientRef.current = client;
+      // The data plane tells the user a typed line was refused by the resource's command list (dataplane/guacgate.go).
+      const guacHandler = tunnel.oninstruction;
+      tunnel.oninstruction = (opcode: string, parameters: string[]) => {
+        if (opcode === "captivo-notice") {
+          if (!disposed) setToast(parameters[0] || "Command refused", "danger");
+          return;
+        }
+        guacHandler?.(opcode, parameters);
+      };
       // The first status wins: guacd's error instruction carries the reason, and
       // the tunnel closing right after it must not replace it with a vaguer one.
       const fail = (status?: { code?: number; message?: string }) => setError((prev) => prev ?? sessionFailure(status));

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { commandPolicyFor } from "@/lib/policy/command-policy-load";
 import { db } from "@/lib/db";
 import { currentTenantId } from "@/lib/tenant/context";
 import { resolvedVendorIpAllowlist } from "@/lib/settings/platform";
@@ -41,8 +42,10 @@ async function handler(req: NextRequest) {
   if (!row.lastUsedAt || now.getTime() - row.lastUsedAt.getTime() > 60_000) {
     await db.dbTicket.update({ where: { id: row.id }, data: { lastUsedAt: now } });
   }
+  const commands = await commandPolicyFor(row.siteId);
   return NextResponse.json({
     tenantId: currentTenantId(),
+    ...(commands ? { commands } : {}),
     siteId: row.siteId,
     userId: row.userId,
     siteName: t.siteName,

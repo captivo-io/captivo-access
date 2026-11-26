@@ -451,6 +451,7 @@ type sshRecChannel struct {
 	errOut  utf8Stream
 	lines   *lineObserver
 	admin   *lineObserver // what an admin who took control typed (takeover)
+	cmds    *cmdGate      // the resource's command list on a typed shell line (cmdgate.go); nil: none
 	gate    *sftpGate
 	moved   int64 // scp / rsync bytes
 	started chan struct{}
@@ -564,6 +565,9 @@ func (c *sshRecChannel) userRequests(creqs <-chan *ssh.Request) {
 		case "shell":
 			c.mu.Lock()
 			c.num = r.term.opened()
+			if r.target.Commands.Active() {
+				c.cmds = newCmdGate(r.target.Commands)
+			}
 			if r.keys != nil || r.ls != nil {
 				c.lines = &lineObserver{start: r.start}
 				c.admin = &lineObserver{start: r.start}
@@ -621,6 +625,13 @@ var (
 
 func (c *sshRecChannel) exec(q *ssh.Request, command string) {
 	r := c.r
+	// The resource's command list: a whole command arrives here, so this match is exact.
+	if ok, why := r.target.Commands.Check(command); !ok {
+		r.term.marker("Command refused: " + why)
+		r.j.enqueue("DENY", "native_ssh_command_denied", r.target.Host, 0)
+		c.deny(q, "Captivo Access: command refused ("+why+")")
+		return
+	}
 	mode := r.target.FileTransfer
 	transfer, upload := false, false
 	switch {
@@ -719,14 +730,43 @@ func (c *sshRecChannel) pumpUp() {
 				c.moved += int64(n)
 				c.mu.Unlock()
 			}
-			if _, werr := c.server.Write(buf[:n]); werr != nil {
-				return
+			send := buf[:n]
+			if kind == chanTerminal {
+				send = c.holdBackRefused(send)
+			}
+			if len(send) > 0 {
+				if _, werr := c.server.Write(send); werr != nil {
+					return
+				}
 			}
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+// holdBackRefused passes typed input through the resource's command list: a line the list
+// refuses is replaced, on its way to the server, by Ctrl-C, and the user is told why.
+func (c *sshRecChannel) holdBackRefused(b []byte) []byte {
+	c.mu.Lock()
+	g := c.cmds
+	var out []byte
+	var refused []string
+	if g != nil {
+		out, refused = g.filter(b)
+	}
+	c.mu.Unlock()
+	if g == nil {
+		return b
+	}
+	for _, why := range refused {
+		r := c.r
+		r.term.marker("Command refused: " + why)
+		r.j.enqueue("DENY", "native_ssh_command_denied", r.target.Host, 0)
+		c.notice("Command refused (" + why + ")")
+	}
+	return out
 }
 
 func (c *sshRecChannel) typed(b []byte) {
@@ -825,6 +865,9 @@ func (c *sshRecChannel) shown(b []byte, kind int, stderr bool) {
 		text, ok := stream.text(b)
 		if c.lines != nil {
 			c.lines.shown(b)
+		}
+		if c.cmds != nil && kind == chanTerminal {
+			c.cmds.shown(b)
 		}
 		if c.admin != nil {
 			c.admin.shown(b)

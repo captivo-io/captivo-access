@@ -162,6 +162,11 @@ func fakeShell(ch ssh.Channel, reqs <-chan *ssh.Request) {
 						return
 					}
 					c := buf[0]
+					if c == 0x03 { // Ctrl-C: the line is dropped and the prompt comes back
+						line, secret = nil, false
+						_, _ = io.WriteString(ch, "^C\r\nops@box:~$ ")
+						continue
+					}
 					if c != '\r' {
 						line = append(line, c)
 						if !secret {
@@ -435,5 +440,64 @@ func TestElevateTargetBuildsTheConnectorsRequest(t *testing.T) {
 	lin := (&elevateTarget{Username: "root", Kind: "KEY"}).request("10.0.0.5", "22", "deploy", "cv1:s", "SHA256:pin")
 	if lin.Platform != "linux" || !lin.Admin.SecretKey || lin.SSHHostKey != "SHA256:pin" {
 		t.Fatalf("%+v", lin)
+	}
+}
+
+func TestRecordedSSHEnforcesTheResourcesCommandList(t *testing.T) {
+	r := recordedJumpRig(t, sshTarget{
+		Record: true, Keystrokes: true, FileTransfer: "none", Username: "ops", Secret: "pw", SecretKind: "PASSWORD",
+		Commands: &CommandPolicy{Mode: "deny", Entries: []string{"rm", "shutdown"}, Name: "No destructive commands"},
+	})
+	c, _, err := r.innerClient(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An exec request arrives whole, so the match is exact: refused before it reaches the server.
+	s0, _ := c.NewSession()
+	if out, err := s0.Output("rm -rf /var/lib/app"); err == nil || strings.Contains(string(out), "ran:") {
+		t.Fatalf("a refused exec ran: %q %v", out, err)
+	}
+	s1, _ := c.NewSession()
+	if got, err := s1.Output("uptime"); err != nil || string(got) != "ran: uptime\n" {
+		t.Fatalf("an allowed exec: %q %v", got, err)
+	}
+
+	// A typed line: the refused one never reaches the shell, the others do.
+	s, _ := c.NewSession()
+	if err := s.RequestPty("xterm", 40, 120, ssh.TerminalModes{}); err != nil {
+		t.Fatal(err)
+	}
+	in, _ := s.StdinPipe()
+	var out bytes.Buffer
+	var outMu sync.Mutex
+	s.Stdout = writerFunc(func(p []byte) (int, error) { outMu.Lock(); defer outMu.Unlock(); return out.Write(p) })
+	if err := s.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"ls", "rm -rf /", "pwd", "exit"} {
+		_, _ = io.WriteString(in, line+"\r")
+		time.Sleep(80 * time.Millisecond)
+	}
+	_ = s.Wait()
+	outMu.Lock()
+	shown := out.String()
+	outMu.Unlock()
+	if !strings.Contains(shown, "out of ls") || !strings.Contains(shown, "out of pwd") {
+		t.Fatalf("the allowed lines did not run: %q", shown)
+	}
+	if strings.Contains(shown, "out of rm -rf /") {
+		t.Fatalf("the refused line ran: %q", shown)
+	}
+	if !strings.Contains(shown, "Command refused (rm is on the deny list)") {
+		t.Fatalf("the user was not told: %q", shown)
+	}
+	c.Close()
+	waitFor(t, func() bool { return len(r.hub.List()) == 0 })
+	reasons := strings.Join(auditReasons(r.audit), "|")
+	if strings.Count(reasons, "DENY SSH native_ssh_command_denied") < 2 {
+		t.Errorf("audit lacks the two refusals: %s", reasons)
+	}
+	if rec := r.conn.stream(t); !strings.Contains(rec, "Command refused") {
+		t.Errorf("the recording does not say a command was refused")
 	}
 }

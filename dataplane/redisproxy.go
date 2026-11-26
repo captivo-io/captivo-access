@@ -274,7 +274,11 @@ func (f *redisFlow) relayClient(r *bufio.Reader, up io.Writer) {
 			}
 			continue
 		}
-		if why := redisBlocked(c); why != "" {
+		why := redisBlocked(c)
+		if why == "" {
+			why = redisListRefusal(f.s.t.Commands, c)
+		}
+		if why != "" {
 			if c.rest(r, nil) != nil {
 				return
 			}

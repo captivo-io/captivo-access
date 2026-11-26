@@ -176,3 +176,4 @@
 .rf-hostkey-t{display:flex;flex-direction:column;gap:2px;flex:1 1 260px;min-width:0;overflow-wrap:anywhere;}
 .rf-hostkey-t b{font-weight:600;font-size:13.5px;}
 .rf-hostkey-t .mono{font-size:12px;}
+.rf-governed .rf-row-c{opacity:.55;}

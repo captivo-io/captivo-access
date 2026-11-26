@@ -25,6 +25,7 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { reshareGroupSecrets } from "@/lib/vault/reshare";
+import { applyPolicyChoices, checkPolicyChoices } from "@/lib/policy/profile-store";
 import { nativeBlocksRotation, rotationOn } from "@/lib/vault/rotation";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { sshCaProblem } from "@/lib/vault/ssh-ca";
@@ -67,7 +68,7 @@ async function afterPasswordMoved(id: string, name: string, m: MovedSecret & { r
   });
 }
 
-export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
+async function patchResource(req: NextRequest, ctx: { params: Promise<{ id: string }> }): Promise<NextResponse> {
   const admin = await getCurrentUser();
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -305,6 +306,20 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   // A kept password moved onto a group: the members without a copy get one.
   if (connectorGroupId && hadVault && !v.secret) await reshareGroupSecrets({ groupIds: [connectorGroupId] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
   return NextResponse.json({ ok: true });
+}
+
+// The resource's profile and command list are applied after the resource itself is saved, so
+// a profile's settings win over whatever the form sent for the settings it governs.
+export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
+  const body = (await req.clone().json().catch(() => ({}))) as Record<string, unknown>;
+  const unknown = await checkPolicyChoices({ policyProfileId: body.policyProfileId, commandListId: body.commandListId });
+  if (unknown) return NextResponse.json({ error: unknown }, { status: 400 });
+  const res = await patchResource(req, ctx);
+  if (!res.ok) return res;
+  const { id } = await ctx.params;
+  const bad = await applyPolicyChoices(id, { policyProfileId: body.policyProfileId, commandListId: body.commandListId });
+  if (bad) return NextResponse.json({ error: bad }, { status: 400 });
+  return res;
 }, { budgetMs: SLOW_SCOPE_BUDGET_MS });
 
 export const DELETE = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {

@@ -447,3 +447,37 @@ func TestSpdyTapReadsStreamsByType(t *testing.T) {
 		t.Fatalf("in %q out %q sizes %v statuses %v broken %v", sink.in.String(), sink.out.String(), sink.sizes, sink.statuses, tap.broken)
 	}
 }
+
+func TestKubeProxyEnforcesTheCommandListOnExec(t *testing.T) {
+	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) })
+	rec := &recChunks{}
+	reg := kubeConnector(t, api, rec, make(chan tunnel.KubeDialRequest, 8))
+	ctrl := &fakeKubeCtrl{t: kubeTarget{
+		TenantID: "t1", SiteID: "site1", UserID: "u1", SiteName: "Prod cluster", Host: "10.0.0.9", Port: 6443, Username: "captivo",
+		ImpersonateUser: "ana@northwind.test", Namespaces: []string{"web"}, Connectors: []routeCandidate{{ID: "c1", SealedSecret: "cv1:sealed"}},
+		Commands: &CommandPolicy{Mode: "deny", Entries: []string{"rm"}, Name: "No rm"},
+	}}
+	p := &kubeProxy{d: kubeProxyDeps{ctrl: ctrl, session: reg.Get, hub: NewSessionHub(), audit: NewAuditQueue(100), now: time.Now, recIndex: func(string, string, string, []byte) error { return nil }}, rl: newRateLimiter(), sessions: map[string]*kubeSession{}}
+	front := httptest.NewServer(p)
+	defer front.Close()
+	exec := func(query string) (int, string) {
+		req, _ := http.NewRequest("POST", front.URL+"/k8s/site1/api/v1/namespaces/web/pods/p/exec?"+query, nil)
+		req.Header.Set("Authorization", "Bearer good-ticket")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	if code, body := exec("command=rm&command=-rf&command=/data&stdout=1"); code != 403 || !strings.Contains(body, "command refused") {
+		t.Fatalf("a refused exec: %d %s", code, body)
+	}
+	if code, body := exec("command=sh&command=-c&command=rm%20-rf%20/data&stdout=1"); code != 403 || !strings.Contains(body, "command refused") {
+		t.Fatalf("a refused script: %d %s", code, body)
+	}
+	if code, body := exec("command=ls&stdout=1"); code == 403 && strings.Contains(body, "command refused") {
+		t.Fatalf("an allowed exec was refused: %d %s", code, body)
+	}
+}
