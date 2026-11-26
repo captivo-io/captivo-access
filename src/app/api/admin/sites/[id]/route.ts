@@ -5,6 +5,9 @@ import { db } from "@/lib/db";
 import { recordingEnabled } from "@/lib/recording/enabled";
 import { nativeGatewayEnabled } from "@/lib/gateway/native";
 import { isolationEnabled } from "@/lib/isolation/enabled";
+import { resolvedRevealRequiresReason } from "@/lib/settings/platform";
+import { moveKeptSecret, type MovedSecret } from "@/lib/vault/retarget";
+import { AFTER_REVEAL_ROTATES_MS } from "@/lib/vault/rotation";
 import { keptSecretStillOpens, rotationColumnsForNewSecret, sealLegacyCredentials, storedSecretColumns, storedSecretFor, VaultInputError } from "@/lib/vault/store";
 import { resolveConnectorChoice } from "@/lib/connector/groups";
 import { connectorsThatCannotServe, NO_ENGINES_TEXT } from "@/lib/connector/platform";
@@ -26,6 +29,43 @@ import { nativeBlocksRotation, rotationOn } from "@/lib/vault/rotation";
 import { effectiveSiteRecording } from "@/lib/recording/effective";
 import { sshCaProblem } from "@/lib/vault/ssh-ca";
 import { elevationProblem } from "@/lib/vault/elevation";
+
+
+type Admin = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
+
+/**
+ * The saved password cannot follow a new address, user name or connector on its own:
+ * it is sealed to the target it was entered for. The admin either types it again, or
+ * asks to keep it (`keepPassword`) and the connector re-seals it for the new target.
+ * Keeping it is held to the same rule as revealing it: a written reason unless the
+ * Policy page turned that off, and a line in the audit log either way.
+ */
+async function keepSavedPassword(
+  id: string,
+  holder: { connectorId: string; connectorGroupId?: string | null },
+  target: { host: string; port: number; username: string },
+  body: Record<string, unknown>,
+): Promise<(MovedSecret & { reason: string }) | NextResponse> {
+  if (body.keepPassword !== true) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
+  const reason = typeof body.moveReason === "string" ? body.moveReason.trim() : "";
+  if (reason.length < 10 && (await resolvedRevealRequiresReason())) return NextResponse.json({ error: "reason_required" }, { status: 400 });
+  const m = await moveKeptSecret(id, holder, target);
+  if ("error" in m) return NextResponse.json({ error: m.error, ...(m.detail ? { detail: m.detail } : {}) }, { status: m.status });
+  return { ...m, reason };
+}
+
+/** After a kept password is saved at its new target: the audit line, and a rotation soon after when one is configured. */
+async function afterPasswordMoved(id: string, name: string, m: MovedSecret & { reason: string }, admin: Admin, ip: string | null) {
+  const rotatesAt = new Date(Date.now() + AFTER_REVEAL_ROTATES_MS);
+  const rotating = await db.vaultCredential.updateMany({ where: { siteId: id, OR: [{ rotateAfterSession: true }, { rotateEveryDays: { not: null } }] }, data: { rotateDueAt: rotatesAt } });
+  await recordAdminAction({
+    actor: { id: admin.id, email: admin.email },
+    action: "resource.password_retarget", targetType: "resource", targetId: id,
+    summary: `Moved the saved password of ${m.from.username}@${m.from.host}:${m.from.port} to ${m.to.username}@${m.to.host}:${m.to.port} on "${name}"${m.reason ? `: ${m.reason}` : " (no reason given)"}`.slice(0, 500),
+    metadata: { connectorId: m.connectorId, reason: m.reason.slice(0, 500), from: m.from, to: m.to, rotatesAt: rotating.count ? rotatesAt.toISOString() : null },
+    clientIp: ip,
+  });
+}
 
 export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const admin = await getCurrentUser();
@@ -121,8 +161,13 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     const hadKube = prev?.protocol === "KUBERNETES";
     if (!hadKube && !v.secret) return NextResponse.json({ error: "kube_token_required" }, { status: 400 });
     const target = { host: v.targetHost, port: v.targetPort, username: v.username };
-    if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
-    let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = {};
+    let moved: Awaited<ReturnType<typeof keepSavedPassword>> | null = null;
+    if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) {
+      const m = await keepSavedPassword(id, holder, target, body);
+      if (m instanceof NextResponse) return m;
+      moved = m;
+    }
+    let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = moved?.columns ?? {};
     if (v.secret) {
       try {
         secretUpdate = storedSecretColumns(await storedSecretFor(holder, v.secret, target));
@@ -147,6 +192,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       summary: `Updated resource "${v.name}"`,
       clientIp: clientIp(req.headers) ?? null,
     });
+    if (moved) await afterPasswordMoved(id, v.name, moved, admin, clientIp(req.headers) ?? null);
     if (connectorGroupId && hadKube && !v.secret) await reshareGroupSecrets({ groupIds: [connectorGroupId] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
     return NextResponse.json({ ok: true });
   }
@@ -158,8 +204,13 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
     const hadDb = (DB_ENGINES as readonly string[]).includes(prev?.protocol ?? "");
     if (!hadDb && !v.secret) return NextResponse.json({ error: "remote_desktop_fields_required" }, { status: 400 });
     const target = { host: v.targetHost, port: v.targetPort, username: v.username };
-    if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
-    let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = {};
+    let moved: Awaited<ReturnType<typeof keepSavedPassword>> | null = null;
+    if (!v.secret && !(await keptSecretStillOpens(id, holder, target))) {
+      const m = await keepSavedPassword(id, holder, target, body);
+      if (m instanceof NextResponse) return m;
+      moved = m;
+    }
+    let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = moved?.columns ?? {};
     let rotationUpdate: ReturnType<typeof rotationColumnsForNewSecret> | Record<string, never> = {};
     if (v.secret) {
       try {
@@ -171,6 +222,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       if (!secretUpdate.sealedTo) return NextResponse.json({ error: "vault_connector_key_required" }, { status: 409 });
       rotationUpdate = rotationColumnsForNewSecret(prev, target);
     }
+    if (moved) rotationUpdate = rotationColumnsForNewSecret(prev, target);
     await db.$transaction(async (tx) => {
       await tx.site.update({ where: { id }, data: { connectorId: v.connectorId, connectorGroupId, name: v.name, hostname: null, upstreamUrl: null, description: v.description, recordSessions: v.recordSessions, keystrokeLogging: false, nativeRdp: false, nativeSsh: false, requireModerator: false, passwordCheckout: v.passwordCheckout, checkoutMaxMinutes: v.checkoutMaxMinutes, accessMode: "DATABASE", ...logoData } });
       const fields = { protocol: v.engine, targetHost: v.targetHost, targetPort: v.targetPort, username: v.username, dbParams: v.dbParams as Prisma.InputJsonValue, guacParams: Prisma.DbNull };
@@ -186,6 +238,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
       summary: `Updated resource "${v.name}"`,
       clientIp: clientIp(req.headers) ?? null,
     });
+    if (moved) await afterPasswordMoved(id, v.name, moved, admin, clientIp(req.headers) ?? null);
     if (connectorGroupId && hadDb && !v.secret) await reshareGroupSecrets({ groupIds: [connectorGroupId] }, { id: admin.id, email: admin.email }).catch((e) => console.error("vault: copying secrets to the group failed", e));
     return NextResponse.json({ ok: true });
   }
@@ -214,11 +267,15 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   const target = { host: v.targetHost, port: v.targetPort, username: v.username };
   // A secret sealed to the connector opens only for the target and connector
   // it was entered for: changing either needs it again (see keptSecretStillOpens).
+  let moved: Awaited<ReturnType<typeof keepSavedPassword>> | null = null;
   if (!v.secret && hadVault && !(await keptSecretStillOpens(id, holder, target))) {
-    return NextResponse.json({ error: "vault_secret_required" }, { status: 400 });
+    const m = await keepSavedPassword(id, holder, target, body);
+    if (m instanceof NextResponse) return m;
+    moved = m;
   }
-  let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = {}; // set whenever there was no credential (checked above)
+  let secretUpdate: ReturnType<typeof storedSecretColumns> | Record<string, never> = moved?.columns ?? {}; // set whenever there was no credential (checked above)
   let rotationUpdate: ReturnType<typeof rotationColumnsForNewSecret> | Record<string, never> = {};
+  if (moved) rotationUpdate = rotationColumnsForNewSecret(await db.vaultCredential.findUnique({ where: { siteId: id }, select: { targetHost: true, targetPort: true } }), target);
   if (v.secret) {
     try {
       secretUpdate = storedSecretColumns(await storedSecretFor(holder, v.secret, target));
@@ -238,6 +295,7 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: { params: Pro
   });
   // A kept legacy secret is sealed for the (possibly new) target right away.
   await sealLegacyCredentials({ siteId: id });
+  if (moved) await afterPasswordMoved(id, v.name, moved, admin, clientIp(req.headers) ?? null);
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "resource.update", targetType: "resource", targetId: id,

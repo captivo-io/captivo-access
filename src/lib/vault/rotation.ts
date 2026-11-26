@@ -40,6 +40,9 @@ export const WINDOWS_ROTATION_MIN_CONNECTOR = "2.63.0";
 /** After the last session ends, before the password changes (a quick reconnect keeps it). */
 export const AFTER_SESSION_DELAY_MS = 60_000;
 
+/** After a password is shown, or moved to another address, it rotates again this much later (time to use it). */
+export const AFTER_REVEAL_ROTATES_MS = 2 * 60 * 60_000;
+
 const DAY_MS = 86_400_000;
 
 /** Retry waits after consecutive failures: 5 min, 15 min, 1 h, then every 6 h. */

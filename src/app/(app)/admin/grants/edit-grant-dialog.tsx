@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTimezone } from "@/app/(app)/_shell/timezone-context";
 import { TimezoneHint } from "@/app/(app)/_shell/effective-timezone";
 import { formatDatetimeLocal, parseDatetimeLocal } from "@/lib/time/datetime-local";
+import { CheckoutField } from "./checkout-field";
 
 // ISO → value for <input type="datetime-local"> in the display timezone (or the
 // browser's when none is configured) — the same zone the grant list shows.
@@ -22,27 +23,31 @@ function saveError(code: string | undefined): string {
     case "note_too_long": return "The note is too long (max 500 characters).";
     case "invalid_note": return "The note must be text.";
     case "not_active": return "This grant is no longer active and can't be edited.";
+    case "invalid_checkout_minutes": return "Pick one of the check-out lengths.";
     case "nothing_to_update": return "Nothing to save.";
     case "forbidden": return "Admin privileges are required.";
     default: return "Couldn't save, please try again.";
   }
 }
 
-/** The end date and note of a grant: what an edit can change. */
-export function EditGrantBody({ id, endsAt, note, onDone, onClose }: {
-  id: string; endsAt: string | null; note: string | null; onDone: () => void; onClose: () => void;
+/** The end date, note and password access of a grant: what an edit can change. `checkout` is null for a resource without check-out. */
+export function EditGrantBody({ id, endsAt, note, checkout, onDone, onClose }: {
+  id: string; endsAt: string | null; note: string | null; checkout?: { on: boolean; minutes: number | null; name: string } | null; onDone: () => void; onClose: () => void;
 }) {
   const tz = useTimezone();
   // Mounted only on the client (inside the open dialog), so the browser-zone
   // fallback never runs during SSR.
   const [endsAtLocal, setEndsAtLocal] = useState(() => toLocalInput(endsAt, tz));
   const [noteValue, setNoteValue] = useState(note ?? "");
+  const [pwd, setPwd] = useState(checkout?.on ?? false);
+  const [pwdMinutes, setPwdMinutes] = useState(checkout?.minutes != null ? String(checkout.minutes) : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
     setError(null);
-    const payload: { endsAt?: string; note: string } = { note: noteValue };
+    const payload: { endsAt?: string; note: string; passwordCheckout?: boolean; checkoutMinutes?: number | null } = { note: noteValue };
+    if (checkout) { payload.passwordCheckout = pwd; payload.checkoutMinutes = pwd && pwdMinutes ? Number(pwdMinutes) : null; }
     if (endsAtLocal) {
       const d = parseDatetimeLocal(endsAtLocal, tz);
       if (!d) { setError("Enter a valid end date."); return; }
@@ -75,6 +80,7 @@ export function EditGrantBody({ id, endsAt, note, onDone, onClose }: {
         <span className="rq-label"><span>Note</span></span>
         <input className="input" type="text" value={noteValue} maxLength={500} onChange={(e) => setNoteValue(e.target.value)} />
       </label>
+      {checkout && <CheckoutField on={pwd} minutes={pwdMinutes} onOn={setPwd} onMinutes={setPwdMinutes} names={[checkout.name]} />}
       <p className="rq-hint">To change the resource or the recurring hours, revoke this grant and give a new one.</p>
       {error && <p className="notice error" role="alert">{error}</p>}
       <div className="rq-foot">

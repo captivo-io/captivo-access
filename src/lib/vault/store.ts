@@ -36,7 +36,7 @@ function keysOf(connector: KeyedConnector | null | undefined, group: { members: 
 
 const keyedSelect = { select: { status: true, vaultPublicKey: true } } as const;
 
-async function holderKeys(h: VaultHolder): Promise<{ keys: string[]; complete: boolean }> {
+export async function holderKeys(h: VaultHolder): Promise<{ keys: string[]; complete: boolean }> {
   if (h.connectorGroupId) {
     const g = await db.connectorGroup.findUnique({ where: { id: h.connectorGroupId }, select: { members: { orderBy: { createdAt: "asc" }, select: { connector: keyedSelect } } } });
     return keysOf(null, g);

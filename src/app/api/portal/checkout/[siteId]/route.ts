@@ -5,8 +5,8 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { evaluateAccess } from "@/lib/access/evaluate";
-import { grantEnd } from "@/lib/database/target";
-import { activeCheckout, checkoutBlock, CHECKOUT_BLOCK_TEXT, endCheckout, startCheckout } from "@/lib/vault/checkout";
+import { activeCheckout, checkoutBlock, checkoutGrant, checkoutMinutesFor, CHECKOUT_BLOCK_TEXT, CHECKOUT_NOT_GRANTED_TEXT, endCheckout, startCheckout } from "@/lib/vault/checkout";
+import { resolvedCheckoutRequiresReason } from "@/lib/settings/platform";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 
 export const runtime = "nodejs";
@@ -22,14 +22,17 @@ export const GET = withTenantRoute(async (_req: NextRequest, ctx: { params: Prom
   if (!(await evaluateAccess(user.id, siteId, now)).allow) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const site = await db.site.findUnique({ where: { id: siteId }, select: { accessMode: true, passwordCheckout: true, checkoutMaxMinutes: true, requireModerator: true, vaultCredential: { select: { secretKind: true, secretSource: true, sealedTo: true } } } });
   if (!site) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  const block = checkoutBlock(site, site.vaultCredential);
+  const cg = await checkoutGrant(user.id, siteId, now);
+  const resourceBlock = checkoutBlock(site, site.vaultCredential);
+  // A grant made without the password gets the same answer as a resource that has it off.
+  const block = resourceBlock ?? (cg ? null : "not_granted" as const);
   const active = await activeCheckout(siteId, now);
   const st = block ? null : await rotationStatus(siteId);
-  const end = await grantEnd(user.id, siteId, now);
   return NextResponse.json({
-    block, blockText: block ? CHECKOUT_BLOCK_TEXT[block] : null,
-    maxMinutes: site.checkoutMaxMinutes,
-    grantEnds: end?.toISOString() ?? null,
+    block, blockText: block === "not_granted" ? CHECKOUT_NOT_GRANTED_TEXT : block ? CHECKOUT_BLOCK_TEXT[block] : null,
+    maxMinutes: checkoutMinutesFor(site.checkoutMaxMinutes, cg?.minutes ?? null),
+    reasonRequired: await resolvedCheckoutRequiresReason(),
+    grantEnds: cg?.end?.toISOString() ?? null,
     willRotate: !!st && !st.unsupported && st.method !== null,
     waiting: st?.waiting ?? null,
     active: active ? { mine: active.userId === user.id, who: active.userId === user.id ? "you" : active.userName, until: active.endsAt.toISOString(), id: active.id } : null,
@@ -52,9 +55,11 @@ export const POST = withTenantRoute(async (req: NextRequest, ctx: { params: Prom
     return NextResponse.json({ ok: true });
   }
 
+  const cg = await checkoutGrant(user.id, siteId, now);
+  if (!cg) return NextResponse.json({ error: "checkout_not_granted", detail: CHECKOUT_NOT_GRANTED_TEXT }, { status: 403 });
   const r = await startCheckout({
     userId: user.id, userEmail: user.email, siteId, reason: typeof b.reason === "string" ? b.reason : "", publicKey: typeof b.publicKey === "string" ? b.publicKey : "",
-    grantEnd: await grantEnd(user.id, siteId, now), ip: clientIp(req.headers) ?? null, now,
+    grantEnd: cg.end, grantMinutes: cg.minutes, ip: clientIp(req.headers) ?? null, now,
   });
   if (!r.ok) return NextResponse.json({ error: r.error, detail: r.detail, by: r.by, until: r.until?.toISOString() }, { status: r.status });
   return NextResponse.json({ id: r.id, sealed: r.sealed, target: r.target, endsAt: r.endsAt.toISOString(), willRotate: r.willRotate });

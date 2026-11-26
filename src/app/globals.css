@@ -958,6 +958,15 @@ button.ss-ended-back { border: 0; font: inherit; font-weight: 600; cursor: point
    =================================================================== */
 .shell{display:flex;min-height:100vh;background:var(--bg);}
 .shell-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+/* The sidebar stays dark in both themes, as Captivo Portal's does. The dark palette is
+   re-declared on the element itself, so every child (links, badges, the product and
+   account popovers, the theme switch) resolves its tokens against it and not against
+   the page's light ones. These values are the ones html[data-theme="dark"] sets above. */
+.sb{--side:#0b0f1c;--card:#0f1424;--field:#0b1020;--ink:#eef0f6;--ink-rgb:238,240,246;--fg:#eef0f6;--muted:#9aa3b8;
+  --p:#5AA2FF;--p-rgb:90,162,255;--a:#A58BFF;--a-rgb:165,139,255;--ok:#12d488;--ok-rgb:18,212,136;--warn:#f5b04a;--warn-rgb:245,176,74;
+  --bad:#ff6b70;--bad-rgb:255,107,112;--bg:#080b14;--bg-rgb:8,11,20;
+  --line:rgba(238,240,246,.09);--line-soft:rgba(238,240,246,.06);--line-strong:rgba(238,240,246,.15);--surface-hover:rgba(238,240,246,.035);
+  color-scheme:dark;color:var(--fg);}
 .sb{position:sticky;top:0;width:256px;height:100vh;flex:none;display:flex;flex-direction:column;background:var(--side);border-right:1px solid var(--line);z-index:60;}
 .sb-scrim{display:none;}
 .sb-top{position:relative;padding:14px 14px 10px;}

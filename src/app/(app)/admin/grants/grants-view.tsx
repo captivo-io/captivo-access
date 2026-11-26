@@ -26,7 +26,7 @@ type Dialog = { userId?: string; siteIds?: string[] } | null;
 type Toast = { msg: string; ok: boolean } | null;
 
 export function GrantsView({
-  head, pending, rows, users, sites, canApprove, canConfigure, maxGrantDays, serverNow, initialFilter, openNew, openUser = null, tickets,
+  head, pending, rows, users, sites, canApprove, canConfigure, maxGrantDays, serverNow, initialFilter, openNew, openUser = null, tickets, checkoutSites = [],
 }: {
   /** The page title block, and the pending-requests card shown under the header. */
   head: React.ReactNode;
@@ -44,6 +44,8 @@ export function GrantsView({
   openUser?: string | null;
   /** What each resource asks for in tickets, and the workspace's ticket system. */
   tickets?: GrantTickets;
+  /** Resources that have password check-out on (the grant dialogs offer "may see the password" for them). */
+  checkoutSites?: string[];
 }) {
   const router = useRouter();
   const zone = useZone();
@@ -290,7 +292,7 @@ export function GrantsView({
 
       <Modal open={dialog !== null} onClose={() => setDialog(null)} title="New grant" subtitle="The user can reach these resources within this window. Every grant is logged." size="md">
         {dialog && (
-          <GrantDialogBody users={users} sites={sites} existing={existing} maxGrantDays={maxGrantDays} tickets={tickets}
+          <GrantDialogBody users={users} sites={sites} existing={existing} maxGrantDays={maxGrantDays} tickets={tickets} checkoutSites={checkoutSites}
             initialUserId={dialog.userId} initialSiteIds={dialog.siteIds}
             onClose={() => setDialog(null)}
             onDone={(n, userId) => {
@@ -302,7 +304,7 @@ export function GrantsView({
         )}
       </Modal>
       <Modal open={edit !== null} onClose={() => setEdit(null)} title="Edit grant" subtitle={edit ? `${userMap.get(edit.userId)?.name ?? ""} · ${siteMap.get(edit.siteId)?.name ?? ""}` : undefined} size="sm">
-        {edit && <EditGrantBody id={edit.id} endsAt={edit.endsAt} note={edit.note} onClose={() => setEdit(null)} onDone={() => { setEdit(null); done("Grant updated"); }} />}
+        {edit && <EditGrantBody id={edit.id} endsAt={edit.endsAt} note={edit.note} checkout={checkoutSites.includes(edit.siteId) ? { on: edit.passwordCheckout, minutes: edit.checkoutMinutes, name: siteMap.get(edit.siteId)?.name ?? "This resource" } : null} onClose={() => setEdit(null)} onDone={() => { setEdit(null); done("Grant updated"); }} />}
       </Modal>
 
       <Modal open={check} onClose={() => setCheck(false)} title="Check access" size="sm">

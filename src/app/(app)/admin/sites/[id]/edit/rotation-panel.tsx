@@ -31,7 +31,7 @@ function errorText(r: { error?: string; detail?: string } | null): string {
   return r.detail ?? ERRORS[r.error ?? ""] ?? "Something went wrong. Try again.";
 }
 
-export function RotationPanel({ siteId, siteName, initial }: { siteId: string; siteName: string; initial: RotationStatus }) {
+export function RotationPanel({ siteId, siteName, initial, reasonRequired = true }: { siteId: string; siteName: string; initial: RotationStatus; /** Policy: a written reason is needed to reveal the password. */ reasonRequired?: boolean }) {
   const router = useRouter();
   const [s, setS] = useState(initial);
   const [afterSession, setAfterSession] = useState(initial.afterSession);
@@ -310,13 +310,13 @@ export function RotationPanel({ siteId, siteName, initial }: { siteId: string; s
             </div>
           ) : (
             <div className="rot-modal">
-              <p className="cell-sub">The connector seals it to a key this page just made, so only this browser can open it. The reason is written to the audit log{s.on ? ", and the password rotates again two hours later" : ""}.</p>
-              <label className="rq-sec"><span className="rq-label"><span>Reason</span></span>
+              <p className="cell-sub">The connector seals it to a key this page just made, so only this browser can open it. {reasonRequired ? "The reason is written to the audit log" : "This look is written to the audit log"}{s.on ? ", and the password rotates again two hours later" : ""}.</p>
+              <label className="rq-sec"><span className="rq-label"><span>Reason{!reasonRequired && <span className="t-muted"> (optional)</span>}</span></span>
                 <textarea className="textarea" rows={2} value={reveal.reason} onChange={(e) => setReveal({ ...reveal, reason: e.target.value })} placeholder="e.g. Console access during the network outage, ticket #4821" /></label>
               {msg?.tone === "bad" && <p className="rf-msg bad">{msg.text}</p>}
               <div className="rot-actions">
                 <button type="button" className="btn" onClick={() => setReveal({ open: false, reason: "" })}>Cancel</button>
-                <button type="button" className="btn primary" disabled={reveal.reason.trim().length < 10 || !!busy} onClick={() => void doReveal()}>{busy === "reveal" ? "Opening…" : "Reveal"}</button>
+                <button type="button" className="btn primary" disabled={(reasonRequired && reveal.reason.trim().length < 10) || !!busy} onClick={() => void doReveal()}>{busy === "reveal" ? "Opening…" : "Reveal"}</button>
               </div>
             </div>
           )}

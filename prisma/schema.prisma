@@ -553,6 +553,14 @@ model AccessGrant {
 
   directoryManaged Boolean @default(false)
 
+  // Password check-out for this person on this resource (src/lib/vault/checkout.ts).
+  // Stored as a DENIAL so that grants made before the field existed keep what they
+  // had (check-out followed the resource's switch alone); a new grant starts denied
+  // and the admin ticks "may see the password". `checkoutMinutes` is how long one
+  // check-out lasts for this grant (null: the resource's own limit).
+  checkoutDenied  Boolean @default(false)
+  checkoutMinutes Int?
+
   // Who took it away, when and why ("review:<id>" for an access review).
   revokedAt    DateTime?
   revokedById  String?
@@ -830,6 +838,8 @@ model PlatformSettings {
   sessionInvitesEnabled       Boolean? // admins may invite someone from outside into a live session; null = default on
   guestRequireSecondFactor    Boolean? // invited guests must sign in with a second factor; null = default off
   moderatorRoles              String? // who may moderate a session: "admins" | "admins_operators"; null = admins_operators
+  revealRequiresReason        Boolean? // revealing a saved password, or moving it to a new address, needs a written reason; null = default on
+  checkoutRequiresReason      Boolean? // a person checking out a password must say why; null = default on
   /// When an admin hid the Console setup card ("Hide setup" / "Go to console"); null = not hidden.
   onboardingDismissedAt       DateTime?
   updatedAt                   DateTime  @updatedAt

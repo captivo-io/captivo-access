@@ -8,6 +8,8 @@ type State = {
   block: string | null;
   blockText: string | null;
   maxMinutes: number;
+  /** Policy: the person must say why. */
+  reasonRequired?: boolean;
   grantEnds: string | null;
   willRotate: boolean;
   waiting: string | null;
@@ -116,13 +118,13 @@ function CheckoutModal({ href, siteName, onClose }: { href: string; siteName: st
           </>
         ) : (
           <>
-            <label className="rq-sec"><span className="rq-label"><span>Why do you need it?</span></span>
+            <label className="rq-sec"><span className="rq-label"><span>Why do you need it?{st.reasonRequired === false && <span className="t-muted"> (optional)</span>}</span></span>
               <textarea className="textarea" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Console access during the outage, ticket #4821" /></label>
-            <p className="cell-sub">Up to {st.maxMinutes >= 60 ? `${st.maxMinutes / 60} hour${st.maxMinutes === 60 ? "" : "s"}` : `${st.maxMinutes} minutes`}{st.grantEnds ? " or until your access ends" : ""}. Only one person can have it at a time. {st.willRotate ? "When your time is up, or you give it back, the password is changed." : "This resource's password is not changed automatically afterwards; your administrators are told."} Your reason and the time go into the audit log.</p>
+            <p className="cell-sub">Up to {st.maxMinutes >= 60 ? `${st.maxMinutes / 60} hour${st.maxMinutes === 60 ? "" : "s"}` : `${st.maxMinutes} minutes`}{st.grantEnds ? " or until your access ends" : ""}. Only one person can have it at a time. {st.willRotate ? "When your time is up, or you give it back, the password is changed." : "This resource's password is not changed automatically afterwards; your administrators are told."} {st.reasonRequired === false ? "The time goes" : "Your reason and the time go"} into the audit log.</p>
             {st.waiting && <p className="ssh-err" role="alert">{st.waiting}</p>}
             <div className="row-actions">
               <button type="button" className="btn" onClick={onClose}>Cancel</button>
-              <button type="button" className="btn primary" disabled={busy || reason.trim().length < 10 || !!st.waiting} onClick={() => void take()}>{busy ? "Checking out…" : "Check out"}</button>
+              <button type="button" className="btn primary" disabled={busy || (st.reasonRequired !== false && reason.trim().length < 10) || !!st.waiting} onClick={() => void take()}>{busy ? "Checking out…" : "Check out"}</button>
             </div>
           </>
         )}

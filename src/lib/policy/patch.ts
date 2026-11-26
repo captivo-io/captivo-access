@@ -50,6 +50,8 @@ const PLATFORM_RULES: Record<keyof PlatformSettings, Rule> = {
   sessionInvitesEnabled: { kind: "bool" },
   guestRequireSecondFactor: { kind: "bool" },
   moderatorRoles: { kind: "enum", values: ["admins", "admins_operators"] },
+  revealRequiresReason: { kind: "bool" },
+  checkoutRequiresReason: { kind: "bool" },
 };
 
 const SESSION_RULES: Record<SessionKey, Rule> = {

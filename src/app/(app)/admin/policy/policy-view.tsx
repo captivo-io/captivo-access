@@ -19,6 +19,8 @@ export interface PolicyValues {
   maxGrantDays: string;
   inviteTtlHours: string;
   requireRequestJustification: boolean;
+  revealRequiresReason: boolean;
+  checkoutRequiresReason: boolean;
   defaultConnectorLogLevel: string;
   vendorIpAllowlist: string;
   isolatedEgressDefault: string;
@@ -48,7 +50,7 @@ type SectionId = "session" | "access" | "connectors" | "network" | "recording" |
 const SECTION_OF: Record<FlatKey | "guac" | "anchorTsaAuth", SectionId> = {
   idleTimeoutMinutes: "session", maxSessionHours: "session", maxConcurrentPerUser: "session", requireSecondFactor: "session",
   sessionInvitesEnabled: "session", guestRequireSecondFactor: "session", moderatorRoles: "session",
-  maxGrantDays: "access", inviteTtlHours: "access", requireRequestJustification: "access",
+  maxGrantDays: "access", inviteTtlHours: "access", requireRequestJustification: "access", revealRequiresReason: "access", checkoutRequiresReason: "access",
   defaultConnectorLogLevel: "connectors", guac: "connectors",
   vendorIpAllowlist: "network", isolatedEgressDefault: "network",
   recordingMode: "recording", recordingConsentRequired: "recording", watermarkDefault: "recording", clipboardDefault: "recording",
@@ -255,6 +257,12 @@ export function PolicyView({ workspace, initial, fromEnv, hasTsaAuth, canRequire
         </Row>
         <Row {...rowProps("requireRequestJustification")} label="Require a reason on access requests" desc="Vendors must say why they need access when they request it.">
           <Switch on={v.requireRequestJustification} onChange={(x) => set("requireRequestJustification", x)} label="Require a reason on access requests" />
+        </Row>
+        <Row {...rowProps("revealRequiresReason")} label="Require a reason to reveal a password" desc="An admin who reveals a saved password, or moves it to another address or user name without typing it again, must write why. Every case is in the audit log either way.">
+          <Switch on={v.revealRequiresReason} onChange={(x) => set("revealRequiresReason", x)} label="Require a reason to reveal a password" />
+        </Row>
+        <Row {...rowProps("checkoutRequiresReason")} label="Require a reason for password check-out" desc="A person who checks a password out must say why. Turn it off when the grant itself is the justification.">
+          <Switch on={v.checkoutRequiresReason} onChange={(x) => set("checkoutRequiresReason", x)} label="Require a reason for password check-out" />
         </Row>
       </Section>
 

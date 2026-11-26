@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
-import { evaluateAccess } from "@/lib/access/evaluate";
+import { evaluateAccess, classifyGrant } from "@/lib/access/evaluate";
+import { resolvedCheckoutRequiresReason } from "@/lib/settings/platform";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { callConnector, canRotate } from "@/lib/vault/rotation";
 import { kickRotation } from "@/lib/vault/rotation-pass";
@@ -40,6 +41,33 @@ export function checkoutBlock(
   return null;
 }
 
+/** A grant, as far as check-out is concerned. */
+export type CheckoutGrantRow = { status: "ACTIVE" | "REVOKED" | "DENIED"; startsAt: Date | null; endsAt: Date | null; requiresApproval: boolean; approvedAt: Date | null; schedule: unknown; checkoutDenied: boolean; checkoutMinutes: number | null };
+
+/**
+ * The grant that lets this person check the password out: one that lets them in now and
+ * was not made without the password. With several, the one that lasts longest decides the
+ * end and the length (an open-ended grant beats any dated one). Null when none qualifies.
+ */
+export function pickCheckoutGrant(grants: CheckoutGrantRow[], now: Date): { end: Date | null; minutes: number | null } | null {
+  let best: { end: Date | null; minutes: number | null } | null = null;
+  for (const g of grants) {
+    if (g.checkoutDenied || classifyGrant(g, now) !== "allow") continue;
+    const better = !best || (best.end !== null && (g.endsAt === null || g.endsAt > best.end));
+    if (better) best = { end: g.endsAt, minutes: g.checkoutMinutes };
+  }
+  return best;
+}
+
+export async function checkoutGrant(userId: string, siteId: string, now: Date) {
+  return pickCheckoutGrant(await db.accessGrant.findMany({ where: { userId, siteId } }), now);
+}
+
+/** The length of one check-out: the grant's own length, never above the resource's limit. */
+export function checkoutMinutesFor(siteMax: number, grantMinutes: number | null): number {
+  return grantMinutes != null ? Math.min(siteMax, grantMinutes) : siteMax;
+}
+
 /** When a check-out started now ends: the resource's limit, or the grant's end, whichever is first. */
 export function checkoutEnd(now: Date, maxMinutes: number, grantEnd: Date | null): Date {
   const byLimit = new Date(now.getTime() + maxMinutes * 60_000);
@@ -57,6 +85,8 @@ export async function activeCheckout(siteId: string, now = new Date()): Promise<
   return r ? { id: r.id, userId: r.userId, userName: r.user.name || r.user.email, reason: r.reason, startedAt: r.startedAt, endsAt: r.endsAt } : null;
 }
 
+export const CHECKOUT_NOT_GRANTED_TEXT = "Your access to this resource does not include the password. Ask an admin to allow it on your grant.";
+
 export type StartResult =
   | { ok: true; id: string; sealed: string; target: { host: string; port: number; username: string }; endsAt: Date; willRotate: boolean }
   | { ok: false; status: number; error: string; detail?: string; by?: string; until?: Date };
@@ -66,9 +96,10 @@ export type StartResult =
  * in the resource's tenant scope. The connector's answer is the only place the
  * password is opened; this side stores who, why and until when.
  */
-export async function startCheckout(o: { userId: string; userEmail: string; siteId: string; reason: string; publicKey: string; grantEnd: Date | null; ip: string | null; now?: Date }): Promise<StartResult> {
+export async function startCheckout(o: { userId: string; userEmail: string; siteId: string; reason: string; publicKey: string; grantEnd: Date | null; /** The grant's own length in minutes; null: the resource's limit. */ grantMinutes?: number | null; ip: string | null; now?: Date }): Promise<StartResult> {
   const now = o.now ?? new Date();
-  if (o.reason.trim().length < 10) return { ok: false, status: 400, error: "reason_required" };
+  // A reason is required unless the Policy page turned that off; the check-out is in the audit log either way.
+  if (o.reason.trim().length < 10 && (await resolvedCheckoutRequiresReason())) return { ok: false, status: 400, error: "reason_required" };
   if (!isVaultPublicKey(o.publicKey)) return { ok: false, status: 400, error: "invalid_key" };
   const decision = await evaluateAccess(o.userId, o.siteId, now);
   if (!decision.allow) return { ok: false, status: 403, error: "forbidden" };
@@ -91,7 +122,7 @@ export async function startCheckout(o: { userId: string; userEmail: string; site
   if (running && running.endsAt > now) return { ok: false, status: 409, error: "checked_out", by: running.user.name || running.user.email, until: running.endsAt };
   if (running) await db.credentialCheckout.updateMany({ where: { id: running.id, endedBy: null }, data: { endedBy: "expired", returnedAt: now } });
 
-  const endsAt = checkoutEnd(now, site.checkoutMaxMinutes, o.grantEnd);
+  const endsAt = checkoutEnd(now, checkoutMinutesFor(site.checkoutMaxMinutes, o.grantMinutes ?? null), o.grantEnd);
   if (endsAt <= now) return { ok: false, status: 409, error: "grant_ended" };
   const row = await db.credentialCheckout.create({ data: { siteId: o.siteId, userId: o.userId, reason: o.reason.trim().slice(0, 500), endsAt, clientIp: o.ip } });
 
@@ -117,7 +148,7 @@ export async function startCheckout(o: { userId: string; userEmail: string; site
   const willRotate = !!st.method && !st.unsupported;
   await recordAdminAction({
     actor: { id: o.userId, email: o.userEmail }, action: "credential.checkout", targetType: "resource", targetId: o.siteId,
-    summary: `Checked out the password of ${st.target.username}@${st.target.host} on "${site.name}" until ${endsAt.toISOString()}: ${o.reason.trim()}`.slice(0, 500),
+    summary: `Checked out the password of ${st.target.username}@${st.target.host} on "${site.name}" until ${endsAt.toISOString()}${o.reason.trim() ? `: ${o.reason.trim()}` : " (no reason given)"}`.slice(0, 500),
     metadata: { checkoutId: row.id, connectorId: pick.id, endsAt: endsAt.toISOString(), willRotate },
     clientIp: o.ip,
   });

@@ -49,6 +49,8 @@ function settingsWith(recordingMode: string | null) {
     sessionInvitesEnabled: null,
     guestRequireSecondFactor: null,
     moderatorRoles: null,
+    revealRequiresReason: null,
+    checkoutRequiresReason: null,
     recordingMode,
   };
 }

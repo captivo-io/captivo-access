@@ -50,6 +50,8 @@ export interface ResourceContext {
   customDomainIp: string | null;
   /** How many people may moderate (Policy roles); nobody moderates their own session. */
   moderators?: number;
+  /** Policy: revealing a saved password, or keeping it across a new address, needs a written reason (on unless turned off). */
+  revealRequiresReason?: boolean;
 }
 
 export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; sshCaPublicKey?: string | null; version: string | null; platform?: string | null }[] };
@@ -107,8 +109,10 @@ const CLIP: [string, string][] = [["allow", "Copy & paste"], ["no_copy", "Paste 
 const FT: [string, string][] = [["allow", "Upload & download"], ["no_download", "Upload only"], ["no_upload", "Download only"], ["none", "Block"]];
 const EGRESS: Record<string, string> = { internet: "The resource and the internet", strict: "Only the resource and listed hosts", open: "Unrestricted" };
 
-function errorMessage(code: string | undefined, edit: boolean): string {
+function errorMessage(code: string | undefined, edit: boolean, detail?: string): string {
   switch (code) {
+    case "reason_required": return "Write why (at least 10 characters). The Policy page can turn this off.";
+    case "retarget_unavailable": case "retarget_failed": return detail ?? "The connector could not keep the saved password for the new address. Enter it again.";
     case "invalid_hostname": return "Enter a valid public address.";
     case "hostname_taken": return "That public address is already in use.";
     case "invalid_upstream_url": case "connector_name_upstream_required": case "isolated_url_required": return "Enter the internal address as http(s)://host:port.";
@@ -238,6 +242,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [insecure, setInsecure] = useState(site?.insecureSkipVerify ?? false);
   const [username, setUsername] = useState(vault?.username ?? "");
   const [secret, setSecret] = useState("");
+  // Keep the saved password when the address, user name or connector changes: the connector seals it again for the new target.
+  const [keepPassword, setKeepPassword] = useState(true);
+  const [moveReason, setMoveReason] = useState("");
   // Where the credential lives: typed here (kept sealed by Captivo) or in the customer's own vault.
   const [source, setSource] = useState<CredentialSourceKind>((vault?.secretSource as CredentialSourceKind | null | undefined) ?? "local");
   const [refSealText, setRefSealText] = useState<string | null>(null);
@@ -353,7 +360,13 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
     (vault.targetHost !== hostPort.host || vault.targetPort !== hostPort.port || vault.username !== username.trim() || !sealedOpensHere);
   // Group members that can't open the saved password (it was sealed before they joined).
   const unsealedMembers = group && vault?.sealed && !effSecret && vault.sealedKeys ? group.members.filter((m) => !m.vaultPublicKey || !vault.sealedKeys!.includes(m.vaultPublicKey)) : [];
-  const needSecret = cred && (!vault || !vault.hasSecret || !!vault.stale || sealedTargetChanged || (isDb && !(DB_ENGINES as readonly string[]).includes(vault.protocol)) || (isKube && vault.protocol !== "KUBERNETES") || (!isKube && vault.protocol === "KUBERNETES"));
+  // Reasons the password is asked for again other than a new target: nothing saved, an unsealable old copy, or a different kind of credential.
+  const needsOtherThanTarget = !vault || !vault.hasSecret || !!vault.stale || (isDb && !(DB_ENGINES as readonly string[]).includes(vault.protocol)) || (isKube && vault.protocol !== "KUBERNETES") || (!isKube && vault.protocol === "KUBERNETES");
+  // A saved password can follow a new address, user name or connector without being typed again: the connector
+  // opens it for the old target and seals it for the new one (connector 2.79.0). Offered when that is the only reason.
+  const keepable = !!cred && !needsOtherThanTarget && sealedTargetChanged && source === "local" && !vault?.secretSource && !secret;
+  const keeping = keepable && keepPassword;
+  const needSecret = cred && (needsOtherThanTarget || (sealedTargetChanged && !keeping));
 
   function pickKind(k: Kind) {
     if (k === kind) return;
@@ -416,6 +429,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   if (cred && !username.trim()) missing.push(isKube ? "service account" : "username");
   if (cred && source !== "local" && refProblemText && (needSecret || refSealText !== null || !vault?.secretSource)) missing.push("vault details");
   else if (cred && needSecret && !effSecret) missing.push(source !== "local" ? "vault reference" : isKube ? "token" : "password");
+  if (keeping && ctx.revealRequiresReason !== false && moveReason.trim().length < 10) missing.push("a reason for keeping the saved password");
   if (isDb && !dbNameOk) missing.push("database name");
   if (isKube && !kubeCaOk) missing.push("a PEM CA certificate");
   if (isKube && kubeIdentity === "impersonate" && !kubeGroupsOk) missing.push("valid groups");
@@ -511,12 +525,13 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         } : {}),
         ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "", sessionRole: SESSION_USER_ENGINES.includes(engine) ? sessionRole.trim() : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
+        ...(keeping ? { keepPassword: true, moveReason: moveReason.trim() } : {}),
       };
       const res = await fetch(site ? `/api/admin/sites/${site.id}` : "/api/admin/sites", {
         method: site ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
       });
       const r = await res.json().catch(() => ({}));
-      if (!res.ok || (site ? !r?.ok : !r?.id)) { setError(errorMessage(r?.error, edit)); return; }
+      if (!res.ok || (site ? !r?.ok : !r?.id)) { setError(errorMessage(r?.error, edit, typeof r?.detail === "string" ? r.detail : undefined)); return; }
       // A new resource starts with what the probe saw, instead of "not tested".
       if (!site && r.id && probe.state !== "idle") await fetch(`/api/admin/sites/${r.id}/test`, { method: "POST" }).catch(() => undefined);
       onSaved(edit ? "Resource saved" : "Resource added");
@@ -718,6 +733,19 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
               {source === "local" && <label className="rq-sec"><span className="rq-label"><span>{isKube ? "Token" : "Password"}</span></span>
                 <input className="input mono" type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="new-password"
                   placeholder={needSecret ? (vault ? "enter it again" : "") : "saved · leave blank to keep"} /></label>}
+              {keepable && (
+                <div className="rf-keep rf-wide">
+                  <label className="rf-keep-check">
+                    <input type="checkbox" checked={keepPassword} onChange={(e) => setKeepPassword(e.target.checked)} />
+                    <span>Keep the saved password for the new address, user name or connector</span>
+                  </label>
+                  <p className="rf-hint">The connector opens it for the old address and seals it again for the new one. Nobody types it and it is not shown. It is in the audit log with both addresses{ctx.revealRequiresReason !== false ? " and your reason" : ""}.</p>
+                  {keepPassword && ctx.revealRequiresReason !== false && (
+                    <label className="rq-sec"><span className="rq-label"><span>Reason</span></span>
+                      <input className="input" value={moveReason} onChange={(e) => setMoveReason(e.target.value)} autoComplete="off" placeholder="Why is it moving? (at least 10 characters)" /></label>
+                  )}
+                </div>
+              )}
               {isKube ? (
                 <p className="rf-hint rf-wide">Users never see the token; the connector signs every request in with it. It is {vaultKey ? (group ? "sealed to each connector in the group" : "sealed to the connector") : "stored encrypted"}.{needSecret && vault ? " The saved token was encrypted for the previous address, account or connector, so paste it again." : ""}</p>
               ) : (

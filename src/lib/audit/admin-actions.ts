@@ -31,6 +31,7 @@ const LABELS: Record<string, string> = {
   "resource.password_rotate": "Password rotated",
   "resource.password_rotate_failed": "Password rotation failed",
   "resource.password_reveal": "Saved password revealed",
+  "resource.password_retarget": "Saved password moved to a new address or account",
   "config.smtp_update": "SMTP settings updated",
   "config.sso_update": "SSO settings updated",
   "config.platform_update": "Policy updated",

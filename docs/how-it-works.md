@@ -217,7 +217,19 @@ by the connector, so that nobody, Captivo included, knows the password in use.
 - **Reveal.** An admin can see the password once, with a reason: the browser
   makes a one-off key pair, the connector seals the password to it, and only
   that page opens it. The reveal and its reason are in the audit log, and the
-  password rotates again two hours later.
+  password rotates again two hours later. The reason is required unless the
+  Policy page turns *Require a reason to reveal a password* off.
+- **Keeping it across a new address.** A saved password is sealed to the host,
+  port and user it was entered for, so a new address, user name or connector
+  would normally mean typing it again. With a connector on 2.79.0 or later the
+  admin ticks *Keep the saved password* instead: the connector (the `retarget`
+  op) opens it for the old target and seals it again for the new one, to the key
+  of every connector that will carry the resource. The plaintext never leaves
+  the connector. It is held to the same rule as a reveal: a reason unless the
+  Policy turns that off, an audit line with both targets
+  (`resource.password_retarget`), and a rotation two hours later where one is
+  configured. A reference to your own vault, or a certificate sign-in, is not a
+  saved password and is still entered again.
 - **When Captivo cannot be reached.** The connector that rotated a password
   keeps its own sealed copy of it (`/data/rotated.json`, next to its key); the
   resource page names that connector. On its host:
@@ -246,8 +258,14 @@ itself. For those, a resource can let a person **check out** its saved password.
   password once. The connector seals it to a key made in their browser for that
   one look, so it never passes through the console readable. One person at a
   time; a second is told who has it and until when.
-- **How long.** The resource's limit, or the end of the person's grant, whichever
-  comes first. They can give it back sooner.
+- **Who may.** A grant carries the right: *May see the password* in the New grant
+  and Edit grant dialogs, off unless ticked (`AccessGrant.checkoutDenied`, stored
+  as a denial so grants older than 2.79.0 keep what they had; requests an admin
+  approves and directory-managed grants never carry it). The reason is required
+  unless the Policy turns *Require a reason for password check-out* off.
+- **How long.** The grant's own length when it has one, never above the
+  resource's limit, or the end of the person's grant, whichever comes first.
+  They can give it back sooner.
 - **When it ends** (returned, out of time, the grant revoked or expired, or an
   admin pressing *End now* on the resource's rotation panel) the password is
   changed by rotation within minutes, so what the person holds stops working. A

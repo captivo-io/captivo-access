@@ -8,10 +8,11 @@ import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { isSealedValue, isVaultPublicKey } from "@/lib/vault/seal";
-import { callConnector, canRotate, directoryForRotation, nextScheduled, isDbMethod, rotationMethod } from "@/lib/vault/rotation";
+import { AFTER_REVEAL_ROTATES_MS, callConnector, canRotate, directoryForRotation, nextScheduled, isDbMethod, rotationMethod } from "@/lib/vault/rotation";
 import { kickRotation } from "@/lib/vault/rotation-pass";
 import { rotationStatus } from "@/lib/vault/rotation-status";
 import { sealsOf } from "@/lib/vault/store";
+import { resolvedRevealRequiresReason } from "@/lib/settings/platform";
 import { endCheckout } from "@/lib/vault/checkout";
 import { compareSemver } from "@/lib/updates/semver";
 import { providerLabel, SSH_CA_MIN_CONNECTOR, VAULT_PROVIDER_MIN_CONNECTOR, VAULT_PROVIDER_MIN_CONNECTOR_MORE } from "@/lib/vault/providers";
@@ -21,8 +22,6 @@ const minFor = (source: string | null) => source === "sshca" ? SSH_CA_MIN_CONNEC
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** After a reveal the password rotates again this much later (time to use it). */
-const REVEAL_ROTATES_AFTER_MS = 2 * 60 * 60_000;
 const LINUX_USER = /^[A-Za-z0-9._][A-Za-z0-9._-]{0,63}\$?$/;
 /** A Windows reconcile account: Administrator, .\Administrator or DOMAIN\name (NetBIOS or DNS domain). */
 const WINDOWS_USER = /^(?:(?:\.|[A-Za-z0-9][A-Za-z0-9.-]{0,63})\\)?[^\s"\\/[\]:;|=,+*?<>@]{1,20}$/;
@@ -169,7 +168,8 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
   if (b.action === "reveal") {
     if (s.vaultSource) return NextResponse.json({ error: "reveal_external", detail: s.vaultSource === "sshca" ? "There is no password: sessions sign in with certificates the connector signs." : "This credential lives in your own vault; read it there." }, { status: 400 });
     const reason = typeof b.reason === "string" ? b.reason.trim() : "";
-    if (reason.length < 10) return NextResponse.json({ error: "reason_required" }, { status: 400 });
+    // A reason is required unless the Policy page turned that off; the reveal is in the audit log either way.
+    if (reason.length < 10 && (await resolvedRevealRequiresReason())) return NextResponse.json({ error: "reason_required" }, { status: 400 });
     if (!isVaultPublicKey(b.publicKey)) return NextResponse.json({ error: "invalid_key" }, { status: 400 });
     if (s.waiting) return NextResponse.json({ error: "rotation_waiting", detail: s.waiting }, { status: 409 });
     const c = await db.vaultCredential.findUnique({
@@ -186,11 +186,11 @@ export const POST = withTenantRoute(async (req: NextRequest, { params }: { param
     });
     const sealed = ans.seals?.[b.publicKey as string];
     if (ans.error || !isSealedValue(sealed)) return NextResponse.json({ error: "reveal_failed", detail: ans.error ?? "The connector's answer was unreadable." }, { status: 502 });
-    const again = s.method ? new Date(Date.now() + REVEAL_ROTATES_AFTER_MS) : null;
+    const again = s.method ? new Date(Date.now() + AFTER_REVEAL_ROTATES_MS) : null;
     if (again && s.on) await db.vaultCredential.update({ where: { siteId: id }, data: { rotateDueAt: again } });
     await recordAdminAction({
       actor, action: "resource.password_reveal", targetType: "resource", targetId: id,
-      summary: `Revealed the saved password of ${s.target.username}@${s.target.host} on "${c.site.name}": ${reason}`.slice(0, 500),
+      summary: `Revealed the saved password of ${s.target.username}@${s.target.host} on "${c.site.name}"${reason ? `: ${reason}` : " (no reason given)"}`.slice(0, 500),
       metadata: { connectorId: pick.id, reason: reason.slice(0, 500), rotatesAt: again && s.on ? again.toISOString() : null },
       clientIp: clientIp(req.headers) ?? null,
     });
