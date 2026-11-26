@@ -2,7 +2,7 @@ import type { NavIconKey } from "@/lib/nav/model";
 
 // The design hand-off's stroke icons (24px grid, stroke 1.8), drawn in
 // currentColor. One entry per NavIconKey, plus the shell's own glyphs.
-const PATHS: Record<NavIconKey | "search" | "bell" | "menu" | "ext" | "chev" | "logout" | "user", React.ReactNode> = {
+const PATHS: Record<NavIconKey | "search" | "bell" | "help" | "menu" | "ext" | "chev" | "logout" | "user", React.ReactNode> = {
   home: (<><path d="M3 11l9-7 9 7" /><path d="M5 10v10h14V10" /></>),
   chart: (<path d="M4 20V11M10 20V5M16 20v-6M21 20H3" />),
   key: (<><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M17 6l3 3" /></>),
@@ -29,6 +29,7 @@ const PATHS: Record<NavIconKey | "search" | "bell" | "menu" | "ext" | "chev" | "
   settings: (<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
   search: (<><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></>),
   bell: (<path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 21h4" />),
+  help: (<><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" /></>),
   menu: (<path d="M4 6h16M4 12h16M4 18h16" />),
   ext: (<path d="M7 17L17 7M8 7h9v9" />),
   chev: (<path d="M8 10l4-4 4 4M8 14l4 4 4-4" />),
