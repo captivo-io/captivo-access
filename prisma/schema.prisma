@@ -41,6 +41,8 @@ model Tenant {
   passkeyResets         PasskeyReset[]
   logDestinations       LogDestination[]
   connectorGroups       ConnectorGroup[]
+  policyProfiles        PolicyProfile[]
+  commandLists          CommandList[]
   connectorGroupMembers ConnectorGroupMember[]
 
   users              User[]
@@ -347,6 +349,55 @@ model ConnectorEvent {
 
 /// A set of connectors that serve the same resources: sessions are spread over
 /// the online active members, standby members take over when none is left.
+/// A named set of session settings a resource can follow (src/lib/policy/profiles.ts). Booleans
+/// are always governed; a nullable setting left null follows the workspace Policy. Editing a
+/// profile rewrites the settings of every resource that follows it.
+model PolicyProfile {
+  id                 String       @id @default(cuid())
+  tenantId           String       @default("default")
+  tenant             Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  recordSessions     Boolean      @default(false)
+  keystrokeLogging   Boolean      @default(false)
+  clipboardMode      String? // null = the workspace Policy; else allow | no_copy | no_paste | none
+  watermark          Boolean?
+  fileTransferMode   String? // null = the workspace Policy; else allow | no_upload | no_download | none
+  egressMode         String? // null = the workspace Policy; else internet | strict | open
+  egressHosts        String[]     @default([])
+  requireModerator   Boolean      @default(false)
+  passwordCheckout   Boolean      @default(false)
+  checkoutMaxMinutes Int          @default(240)
+  commandListId      String? // the command list resources following this profile enforce; null: none
+  commandList        CommandList? @relation(fields: [commandListId], references: [id], onDelete: Restrict)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  sites              Site[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+/// A named allow or deny list of commands (src/lib/policy/command-lists.ts). An allow list lets only
+/// what it names run; a deny list lets everything run except what it names. Enforced where the
+/// command arrives whole (SSH exec, Kubernetes exec, Redis, MongoDB) and, as a guardrail, on a typed shell line.
+model CommandList {
+  id          String          @id @default(cuid())
+  tenantId    String          @default("default")
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  mode        String // "allow" | "deny"
+  entries     String[]        @default([])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  sites       Site[]
+  profiles    PolicyProfile[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
 model ConnectorGroup {
   id        String                 @id @default(cuid())
   tenantId  String                 @default("default")
@@ -402,6 +453,12 @@ model Site {
   connector          Connector        @relation(fields: [connectorId], references: [id], onDelete: Cascade)
   connectorGroupId   String? // set: sessions go through any eligible member of this group (src/lib/connector/route.ts)
   connectorGroup     ConnectorGroup?  @relation(fields: [connectorGroupId], references: [id], onDelete: Restrict)
+  /// The named policy profile this resource follows (src/lib/policy/profiles.ts): the profile's settings are written onto the resource's own columns whenever either changes, so the runtime keeps reading the columns. Null: the resource's own settings.
+  policyProfileId    String?
+  policyProfile      PolicyProfile?   @relation(fields: [policyProfileId], references: [id], onDelete: Restrict)
+  /// The command list this resource enforces (src/lib/policy/command-lists.ts); null: no list.
+  commandListId      String?
+  commandList        CommandList?     @relation(fields: [commandListId], references: [id], onDelete: Restrict)
   probeByConnector   Json? // group resources: { [connectorId]: { ok, ms, at, detail } } from the health probe, per member
   name               String
   hostname           String? // null for GATEWAY (remote-desktop) sites; required for web apps

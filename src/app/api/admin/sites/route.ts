@@ -21,8 +21,9 @@ import { sshCaProblem } from "@/lib/vault/ssh-ca";
 import { recordAdminAction } from "@/lib/audit/admin";
 import { clientIp } from "@/lib/request-ip";
 import { withTenantRoute } from "@/lib/tenant/request";
+import { applyPolicyChoices, checkPolicyChoices } from "@/lib/policy/profile-store";
 
-export const POST = withTenantRoute(async (req: NextRequest) => {
+async function postResource(req: NextRequest): Promise<NextResponse> {
   const admin = await getCurrentUser();
   if (!admin) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -166,6 +167,21 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
     clientIp: clientIp(req.headers) ?? null,
   });
   return NextResponse.json({ id });
+}
+
+// The new resource's profile and command list are applied once it exists, so a profile's
+// settings win over whatever the form sent for the settings it governs.
+export const POST = withTenantRoute(async (req: NextRequest) => {
+  const body = (await req.clone().json().catch(() => ({}))) as Record<string, unknown>;
+  const unknown = await checkPolicyChoices({ policyProfileId: body.policyProfileId, commandListId: body.commandListId });
+  if (unknown) return NextResponse.json({ error: unknown }, { status: 400 });
+  const res = await postResource(req);
+  if (res.status !== 200) return res;
+  const made = (await res.clone().json().catch(() => null)) as { id?: string } | null;
+  if (!made?.id) return res;
+  const bad = await applyPolicyChoices(made.id, { policyProfileId: body.policyProfileId, commandListId: body.commandListId });
+  if (bad) return NextResponse.json({ error: bad, id: made.id }, { status: 400 });
+  return res;
 });
 
 export const GET = withTenantRoute(async () => {

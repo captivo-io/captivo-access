@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -163,6 +164,13 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 		log.Printf("guac-tunnel site=%s: keystroke logging enabled key=%s", siteID, recKey)
 	}
 
+	// The resource's command list on a browser SSH session (guacgate.go).
+	var cmdg *guacCmdGate
+	if strings.EqualFold(conn.Protocol, "ssh") && conn.Commands.Active() {
+		cmdg = newGuacCmdGate(conn.Commands)
+		log.Printf("guac-tunnel site=%s: command list %q (%s) active", siteID, conn.Commands.Name, conn.Commands.Mode)
+	}
+
 	connID := ""
 	if len(readyArgs) > 0 {
 		connID = readyArgs[0] // guacd connection ID — the share key for viewers
@@ -224,6 +232,9 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 			}
 			if on, ok := altScreenInstruction(inst); ok {
 				keys.setAlt(on) // for the keystroke log only: not recorded, not sent on
+				if cmdg != nil {
+					cmdg.setAlt(on)
+				}
 				continue
 			}
 			if rec != nil {
@@ -263,7 +274,19 @@ func serveGuacTunnel(ctrl *ControlClient, reg *Registry, hub *SessionHub, audit 
 					ls.keyEvents(evs)
 				}
 			}
-			if _, werr := guac.Write(data); werr != nil {
+			send := data
+			if cmdg != nil {
+				var notes []string
+				send, notes = cmdg.process(data)
+				for _, n := range notes {
+					_ = c.Write(ctx, websocket.MessageText, encodeInstruction("captivo-notice", n))
+					audit.Enqueue(auditEvent("DENY", "command_denied "+n, userID, siteID, conn.Hostname, r, http.StatusForbidden, 0))
+				}
+			}
+			if len(send) == 0 {
+				continue
+			}
+			if _, werr := guac.Write(send); werr != nil {
 				errc <- werr
 				return
 			}

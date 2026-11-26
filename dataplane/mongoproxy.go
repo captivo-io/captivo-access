@@ -274,6 +274,26 @@ type mongoFlow struct {
 	calls map[int32]*mongoCall
 }
 
+// mongoAlwaysAllowed are what a driver sends to connect, authenticate and read cursors; a
+// command list does not apply to them.
+var mongoAlwaysAllowed = map[string]bool{
+	"hello": true, "ismaster": true, "ping": true, "buildinfo": true, "saslstart": true, "saslcontinue": true,
+	"endsessions": true, "getmore": true, "killcursors": true, "getlasterror": true, "whatsmyuri": true, "logout": true,
+}
+
+// mongoListRefusal says why the resource's command list refuses a MongoDB command, or "". The
+// command is the first key of the document, known before it runs; what a command does inside
+// (an aggregate that writes with $out) is not looked at.
+func mongoListRefusal(p *CommandPolicy, name string) string {
+	if !p.Active() || mongoAlwaysAllowed[strings.ToLower(name)] {
+		return ""
+	}
+	if ok, why := p.CheckArgv([]string{name}); !ok {
+		return why
+	}
+	return ""
+}
+
 // mongoBlocked says why a command is refused, or "".
 func mongoBlocked(name string) string {
 	switch strings.ToLower(name) {
@@ -374,7 +394,11 @@ func (f *mongoFlow) relayClient(r *bufio.Reader, up io.Writer) {
 		}
 		if doc != nil {
 			name, _, _, _ := tunnel.BSONFirst(doc)
-			if why := mongoBlocked(name); why != "" {
+			why := mongoBlocked(name)
+			if why == "" {
+				why = mongoListRefusal(f.s.t.Commands, name)
+			}
+			if why != "" {
 				if _, err := io.CopyN(io.Discard, r, int64(rest-len(head))); err != nil {
 					return
 				}

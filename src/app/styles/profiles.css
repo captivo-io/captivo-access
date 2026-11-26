@@ -1,0 +1,17 @@
+/* Policy profiles and command lists (admin/policy/profiles). Rows follow the Policy page's cards. */
+.pf-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;}
+.pf-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:14px 18px;border-top:1px solid var(--line);}
+.pf-row-main{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.pf-row-main b{font-weight:600;}
+.pf-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+.pf-empty{margin:0;padding:18px;color:var(--muted);}
+.pf-warn{margin:0 18px 14px;padding:12px 14px;border:1px solid rgba(var(--warn-rgb),.35);border-radius:10px;background:rgba(var(--warn-rgb),.08);font-size:13px;line-height:1.55;}
+.pf-field{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line-soft);}
+.pf-field-t{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.pf-field-c{display:flex;justify-content:flex-end;max-width:100%;}
+.pf-seg{flex-wrap:wrap;}
+@media (max-width:700px){
+  .pf-row{grid-template-columns:minmax(0,1fr);}
+  .pf-field{grid-template-columns:minmax(0,1fr);}
+  .pf-field-c{justify-content:flex-start;}
+}

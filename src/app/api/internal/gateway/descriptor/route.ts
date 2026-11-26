@@ -1,4 +1,5 @@
 import { elevationAccountName, elevationPlan } from "@/lib/vault/elevation";
+import { commandPolicyFor } from "@/lib/policy/command-policy-load";
 import { NextRequest, NextResponse } from "next/server";
 import { effectiveEgress } from "@/lib/isolation/egress";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
@@ -118,9 +119,11 @@ async function handler(req: NextRequest) {
   const resolved = resolveGuacParams(parseGuacParams(cred.guacParams), await resolvedGuacParamDefaults());
   const params = toGuacArgs(resolved, clipboardMode, cred.protocol as "RDP" | "SSH" | "VNC", cred.username);
 
+  const commands = await commandPolicyFor(siteId);
   return NextResponse.json({
     tenantId: currentTenantId(),
     protocol: cred.protocol.toLowerCase(),
+    ...(commands ? { commands } : {}),
     params,
     targetHost: cred.targetHost,
     targetPort: cred.targetPort,

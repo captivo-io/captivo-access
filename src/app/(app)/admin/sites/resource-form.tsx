@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { sealSecret } from "@/lib/vault/seal";
@@ -52,7 +52,16 @@ export interface ResourceContext {
   moderators?: number;
   /** Policy: revealing a saved password, or keeping it across a new address, needs a written reason (on unless turned off). */
   revealRequiresReason?: boolean;
+  /** The named profiles and command lists a resource can follow (admin/policy/profiles). */
+  profiles?: ProfileChoice[];
+  commandLists?: { id: string; name: string; mode: string }[];
 }
+
+/** A profile as the resource form needs it: its settings, to show while it is chosen. */
+export type ProfileChoice = {
+  id: string; name: string; recordSessions: boolean; keystrokeLogging: boolean; clipboardMode: string | null; watermark: boolean | null;
+  fileTransferMode: string | null; egressMode: string | null; egressHosts: string[]; requireModerator: boolean; passwordCheckout: boolean; checkoutMaxMinutes: number; commandListId: string | null;
+};
 
 export type ResourceGroup = { id: string; name: string; members: { id: string; name: string; online: boolean; standby: boolean; vaultPublicKey: string | null; sshCaPublicKey?: string | null; version: string | null; platform?: string | null }[] };
 
@@ -84,6 +93,9 @@ export interface ResourceInitial {
   /** TUNNEL: the service inside the network. */
   tunnelHost?: string | null;
   tunnelPort?: number | null;
+  /** The named profile this resource follows, and its command list when it follows none. */
+  policyProfileId?: string | null;
+  commandListId?: string | null;
   hasLogo: boolean;
   customDomain: boolean;
   domainVerifiedAt: string | null;
@@ -267,6 +279,27 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
   const [watermark, setWatermark] = useState<"inherit" | "on" | "off">(site?.watermark == null ? "inherit" : site.watermark ? "on" : "off");
   const [egressMode, setEgressMode] = useState(site?.egressMode ?? "inherit");
   const [egressHosts, setEgressHosts] = useState((site?.egressHosts ?? []).join("\n"));
+  // A named profile (admin/policy/profiles): while one is chosen its settings are the resource's and the form shows them locked.
+  const [profileId, setProfileId] = useState(site?.policyProfileId ?? "");
+  const [commandListId, setCommandListId] = useState(site?.commandListId ?? "");
+  const profile = (ctx.profiles ?? []).find((p) => p.id === profileId) ?? null;
+  const profileLocked = !!profile;
+  function pickProfile(id: string) {
+    setProfileId(id);
+    const p = (ctx.profiles ?? []).find((x) => x.id === id);
+    if (!p) return;
+    setRecord(p.recordSessions);
+    setKeystrokeChoice(p.keystrokeLogging);
+    setClipboard(p.clipboardMode ?? "inherit");
+    setWatermark(p.watermark == null ? "inherit" : p.watermark ? "on" : "off");
+    setFtWeb(p.fileTransferMode ?? "inherit");
+    setEgressMode(p.egressMode ?? "inherit");
+    setEgressHosts(p.egressHosts.join("\n"));
+    setModerated(p.requireModerator);
+    setCheckout(p.passwordCheckout);
+    setCheckoutMinutes(String(p.checkoutMaxMinutes));
+    setCommandListId(p.commandListId ?? "");
+  }
   // Appearance.
   const initialLook: Look = { iconName: site?.iconName ?? null, iconColor: (site?.iconColor as IconColor) ?? "blue", logoBg: site?.logoBg ?? "white", logo: "keep" };
   const [lookState, setLookState] = useState<Look>(initialLook);
@@ -526,6 +559,9 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
         ...(isDb && hostPort ? { engine, targetHost: hostPort.host, targetPort: hostPort.port, username: username.trim(), ...secretBody, database: dbName.trim(), databases: dbList, dbTls, caCertPem: dbTls === "verify-full" ? dbCa : "", sessionRole: SESSION_USER_ENGINES.includes(engine) ? sessionRole.trim() : "" } : {}),
         ...lookBody({ ...look, iconColor: colorPick ?? initialLook.iconColor }, initialLook),
         ...(keeping ? { keepPassword: true, moveReason: moveReason.trim() } : {}),
+        // The profile wins for what it governs; without one, the command list is chosen on its own.
+        policyProfileId: profileId || null,
+        ...(profileId ? {} : { commandListId: commandListId || null }),
       };
       const res = await fetch(site ? `/api/admin/sites/${site.id}` : "/api/admin/sites", {
         method: site ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -828,6 +864,28 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 
           <Sec n="03" title="Session rules" />
           <p className="rf-sub">Every setting left on “Policy” follows the Policy page.</p>
+          {(ctx.profiles?.length ?? 0) > 0 && (
+            <div className="rf-row">
+              <span className="rf-row-t"><b>Policy profile</b><span className="cell-sub">Take the settings below from a named profile (Infrastructure → Profiles &amp; lists). Change the profile and this resource changes with it.</span></span>
+              <div className="rf-row-c">
+                <select className="select" value={profileId} onChange={(e) => pickProfile(e.target.value)} aria-label="Policy profile">
+                  <option value="">None: set them here</option>
+                  {(ctx.profiles ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {profile && <p className="rf-hint">The settings marked “from profile” are {profile.name}&apos;s. To change one, edit the profile or pick another.</p>}
+          <ProfileLock.Provider value={profileLocked}>
+          {(kind === "ssh" || kind === "kubernetes" || isDb) && (ctx.commandLists?.length ?? 0) > 0 && (
+            <Row title="Command list" governed custom={!!commandListId}
+              desc={kind === "ssh" ? "Allow only, or block, the commands users run. Matched exactly for a command sent whole; on a typed shell line it is a guardrail, not a wall." : kind === "kubernetes" ? "Allow only, or block, the commands of kubectl exec. A command typed inside an interactive shell is not checked." : engine === "REDIS" || engine === "MONGODB" ? "Allow only, or block, commands by name. A script (Redis EVAL, a MongoDB aggregate that writes) can reach further than its name." : "Command lists are enforced on Redis and MongoDB, and on SSH and kubectl exec. They are not enforced on SQL engines: give the database account only the rights it needs."}>
+              <select className="select" value={commandListId} onChange={(e) => setCommandListId(e.target.value)} aria-label="Command list">
+                <option value="">None</option>
+                {(ctx.commandLists ?? []).map((l) => <option key={l.id} value={l.id}>{l.name} · {l.mode === "allow" ? "allow only" : "block"}</option>)}
+              </select>
+            </Row>
+          )}
           {isTunnel && (
             <div className="rf-row">
               <span className="rf-row-t"><b>Not recorded</b><span className="cell-sub">The tunnel carries the app&apos;s own protocol, so Captivo can&apos;t record or watch it. The audit log keeps who connected, when, for how long and how much data moved. Access is checked again every minute, and an admin can end the tunnel from Live sessions.</span></span>
@@ -836,12 +894,12 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {tunnelLocked && <p className="rf-msg bad">The Policy page requires every session to be recorded, so users can&apos;t open this tunnel until that changes.</p>}
           {tunnelOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; TCP tunnels need {TUNNEL_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {ctx.recordingEnabled && !isTunnel && (
-            <Row title={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? (engine === "REDIS" || engine === "MONGODB" ? "Every command is kept with its time and duration, on the connector, with its first argument (Redis) or collection (MongoDB). Values, filters, documents and results are never stored." : "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored.") : isKube ? "Every request is kept with its verb, resource, namespace and result, on the connector; request bodies and what secrets hold are never stored. kubectl exec and attach are recorded as terminals and can be watched live." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
+            <Row title={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} governed custom={!recordLock.locked && record} desc={recordLock.locked ? `The Policy page sets recording to ${recordLock.forcedValue ? "required" : "off"} for every resource.` : isDb ? (engine === "REDIS" || engine === "MONGODB" ? "Every command is kept with its time and duration, on the connector, with its first argument (Redis) or collection (MongoDB). Values, filters, documents and results are never stored." : "Every statement is kept with its time, duration and row count, on the connector. Results and parameter values are never stored.") : isKube ? "Every request is kept with its verb, resource, namespace and result, on the connector; request bodies and what secrets hold are never stored. kubectl exec and attach are recorded as terminals and can be watched live." : kind === "web" ? "Web sessions are recorded with an in-page recorder and can be replayed." : kind === "ssh" ? "Terminal input and output are recorded." : "The session is recorded as video."}>
               <button type="button" role="switch" aria-checked={effRecord} aria-label={isDb ? "Query log" : isKube ? "Request log and exec recording" : "Record sessions"} disabled={recordLock.locked} className={effRecord ? "toggle on" : "toggle"} onClick={() => setRecord(!record)}><span /></button>
             </Row>
           )}
           {showKeystrokes && (
-            <Row title="Keystroke log" custom={ctx.keystrokeMode !== "required" && keystrokes !== keystrokesDefault} desc={ctx.keystrokeMode === "required" ? "Required by the Policy page." : "Typed text, searchable later; password prompts stay hidden."}>
+            <Row title="Keystroke log" governed custom={ctx.keystrokeMode !== "required" && keystrokes !== keystrokesDefault} desc={ctx.keystrokeMode === "required" ? "Required by the Policy page." : "Typed text, searchable later; password prompts stay hidden."}>
               <button type="button" role="switch" aria-checked={ctx.keystrokeMode === "required" || keystrokes} aria-label="Keystroke log" disabled={ctx.keystrokeMode === "required"}
                 className={ctx.keystrokeMode === "required" || keystrokes ? "toggle on" : "toggle"} onClick={() => setKeystrokeChoice(!keystrokes)}><span /></button>
             </Row>
@@ -866,7 +924,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           {nativeSshShown && site && vault?.sshHostKey && <SshHostKeyLine siteId={site.id} fingerprint={vault.sshHostKey} />}
           {nativeSshOldConnector && <p className="rf-msg bad">The connector {connector?.name} runs {connector?.version}; native SSH needs {NATIVE_SSH_MIN_CONNECTOR} or later. Update it before users connect.</p>}
           {checkoutShown && (
-            <Row title="Password check-out" custom={checkout} desc="Someone with an active grant can take this resource's password for a while, for a reason, to use it themselves (a console, a tool that can't go through Captivo). One person at a time; the connector seals it to their browser, so it never passes through the console readable. When the time is up, they give it back or the grant ends, the password is changed. Needs the password to be kept in Captivo, and a resource that needs a moderator can't offer it.">
+            <Row title="Password check-out" governed custom={checkout} desc="Someone with an active grant can take this resource's password for a while, for a reason, to use it themselves (a console, a tool that can't go through Captivo). One person at a time; the connector seals it to their browser, so it never passes through the console readable. When the time is up, they give it back or the grant ends, the password is changed. Needs the password to be kept in Captivo, and a resource that needs a moderator can't offer it.">
               <button type="button" role="switch" aria-checked={checkout} aria-label="Password check-out" className={checkout ? "toggle on" : "toggle"} onClick={() => setCheckout(!checkout)}><span /></button>
             </Row>
           )}
@@ -878,7 +936,7 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           )}
           {checkoutShown && checkout && (moderatedOn || source !== "local" || (isDb && !!sessionRole.trim())) && <p className="rf-msg warn">{moderatedOn ? "A resource that needs a moderator can't offer password check-out." : isDb && sessionRole.trim() ? "A resource that makes a user per connection has no shared password to check out." : source === "sshca" ? "A certificate sign-in has no password to check out." : "A credential kept in your own vault can't be checked out here; read it there."} It is left off when you save.</p>}
           {moderatedShown && (
-            <Row title="Requires a moderator" custom={moderatedOn} desc="Four eyes: a session starts only when a moderator joins it from Live sessions, and the user can work only while the moderator watches. If the moderator leaves, the user's keyboard and mouse pause, and the session ends 2 minutes later unless a moderator joins. Who can moderate is set on the Policy page.">
+            <Row title="Requires a moderator" governed custom={moderatedOn} desc="Four eyes: a session starts only when a moderator joins it from Live sessions, and the user can work only while the moderator watches. If the moderator leaves, the user's keyboard and mouse pause, and the session ends 2 minutes later unless a moderator joins. Who can moderate is set on the Policy page.">
               <button type="button" role="switch" aria-checked={moderatedOn} aria-label="Requires a moderator" className={moderatedOn ? "toggle on" : "toggle"} onClick={() => setModerated(!moderated)}><span /></button>
             </Row>
           )}
@@ -901,18 +959,19 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
           )}
           {!isDb && !isTunnel && !isKube && (
             <>
-          <Row title="Clipboard" custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
+          <Row title="Clipboard" governed custom={clipboard !== "inherit"} desc={remote ? "Enforced by the session engine: copy out and paste in are turned off on the server." : "Applied by a script added to the user's browser; a deterrent, not a hard control."}>
             <Pills value={clipboard} onChange={setClipboard} options={[["inherit", `Policy (${CLIP.find(([v]) => v === ctx.clipboardDefault)?.[1] ?? ctx.clipboardDefault})`], ...CLIP]} label="Clipboard" />
           </Row>
-          <Row title="File transfer" custom={ftMode !== "inherit"} desc={kind === "web" ? "Downloads and form uploads are blocked at the proxy; every file is logged. Use the isolated browser for a hard boundary." : kind === "isolated" ? "Files moving between the user and the isolated browser; enforced on the server." : "The file channel of the session (drive or SFTP), enforced by the session engine."}>
+          <Row title="File transfer" governed custom={ftMode !== "inherit"} desc={kind === "web" ? "Downloads and form uploads are blocked at the proxy; every file is logged. Use the isolated browser for a hard boundary." : kind === "isolated" ? "Files moving between the user and the isolated browser; enforced on the server." : "The file channel of the session (drive or SFTP), enforced by the session engine."}>
             <Pills value={ftMode} onChange={(m) => (remote ? setGuac(withGuacFt(guac, m)) : setFtWeb(m))} options={[["inherit", `Policy (${FT.find(([v]) => v === ftPolicy)?.[1] ?? ftPolicy})`], ...FT]} label="File transfer" />
           </Row>
-          <Row title="Screen watermark" custom={watermark !== "inherit"} desc="The user's email and the time are drawn over the session; they show in screenshots and photos.">
+          <Row title="Screen watermark" governed custom={watermark !== "inherit"} desc="The user's email and the time are drawn over the session; they show in screenshots and photos.">
             <Pills value={watermark} onChange={(v) => setWatermark(v as "inherit" | "on" | "off")} options={[["inherit", `Policy (${ctx.watermarkDefault ? "On" : "Off"})`], ["on", "On"], ["off", "Off"]]} label="Screen watermark" />
           </Row>
             </>
           )}
 
+          </ProfileLock.Provider>
           <Sec n="04" title="Appearance" />
           <IconPicker look={look} onChange={setLook} autoName={autoName} storedLogoUrl={storedLogoUrl} name={name} proto={proto} />
           <label className="rq-sec">
@@ -926,7 +985,8 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
                 <span className="mono">05</span> Advanced <span aria-hidden="true">{advanced ? "▾" : "▸"}</span>
               </button>
               {advanced && kind === "isolated" && (
-                <div className="rf-adv">
+                <div className="rf-adv" {...(profileLocked ? { inert: true } : {})}>
+                  {profileLocked && <p className="rf-hint">The network rule and its hosts are the profile&apos;s: “from profile”.</p>}
                   <label className="rq-sec"><span className="rq-label"><span>Network access</span></span>
                     <select className="select" value={egressMode} onChange={(e) => setEgressMode(e.target.value)}>
                       <option value="inherit">Policy ({EGRESS[ctx.egressDefault] ?? ctx.egressDefault})</option>
@@ -995,11 +1055,14 @@ export function ResourceForm({ ctx, site, vault, egressEvents, onClose, onSaved 
 function Sec({ n, title }: { n: string; title: string }) {
   return <div className="rf-sec"><span className="mono rf-sec-n">{n}</span><span className="mono">{title.toUpperCase()}</span><span className="rf-sec-l" /></div>;
 }
-function Row({ title, desc, custom, children }: { title: string; desc: string; custom: boolean; children: React.ReactNode }) {
+const ProfileLock = createContext(false);
+
+function Row({ title, desc, custom, governed, children }: { title: string; desc: string; custom: boolean; /** A setting a policy profile writes: locked while one is chosen. */ governed?: boolean; children: React.ReactNode }) {
+  const locked = useContext(ProfileLock) && !!governed;
   return (
-    <div className="rf-row">
-      <span className="rf-row-t"><b>{title}{custom && <span className="pol-chip p">CUSTOM</span>}</b><span className="cell-sub">{desc}</span></span>
-      <div className="rf-row-c">{children}</div>
+    <div className={locked ? "rf-row rf-governed" : "rf-row"}>
+      <span className="rf-row-t"><b>{title}{locked ? <span className="pol-chip">FROM PROFILE</span> : custom && <span className="pol-chip p">CUSTOM</span>}</b><span className="cell-sub">{desc}</span></span>
+      <div className="rf-row-c" {...(locked ? { inert: true } : {})}>{children}</div>
     </div>
   );
 }

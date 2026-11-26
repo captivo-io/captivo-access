@@ -240,6 +240,32 @@ func redisBlocked(c *redisCmd) string {
 	return ""
 }
 
+// redisScripting runs code on the server that can call any command.
+var redisScripting = map[string]bool{"EVAL": true, "EVALSHA": true, "EVAL_RO": true, "EVALSHA_RO": true, "FCALL": true, "FCALL_RO": true, "FUNCTION": true, "SCRIPT": true}
+
+// redisAlwaysAllowed are what a client sends to connect and stay connected; a command list does not apply to them.
+var redisAlwaysAllowed = map[string]bool{"PING": true, "QUIT": true, "ECHO": true, "SELECT": true, "CLIENT": true, "COMMAND": true}
+
+// redisListRefusal says why the resource's command list refuses a Redis command, or "". The command
+// name is known before it runs, so this is exact for what is sent directly. A script is not: Lua can
+// call any command, so while a deny list is active scripting is refused outright.
+func redisListRefusal(p *CommandPolicy, c *redisCmd) string {
+	if !p.Active() || redisAlwaysAllowed[c.name()] {
+		return ""
+	}
+	if p.Mode == "deny" && redisScripting[c.name()] {
+		return c.name() + " is refused while a deny list is active: a script can run any command"
+	}
+	argv := make([]string, len(c.args))
+	for i, a := range c.args {
+		argv[i] = string(a)
+	}
+	if ok, why := p.CheckArgv(argv); !ok {
+		return why
+	}
+	return ""
+}
+
 // redisUnpaired is true for commands after which the server's replies no
 // longer match the commands one for one (a subscription pushes messages).
 func redisUnpaired(c *redisCmd) bool {

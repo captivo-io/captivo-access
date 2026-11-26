@@ -92,6 +92,7 @@ export function buildNavModel(role: Role, counts: NavCounts): NavModel {
       // Cloud the platform provisions each tenant's namespace, nothing to do.
       ...(multiTenantEnabled() ? [] : [{ label: "Custom domain", href: "/admin/domain", icon: "globe" as const }]),
       { label: "Policy", href: "/admin/policy", icon: "shield" },
+      { label: "Profiles & lists", href: "/admin/policy/profiles", icon: "list" },
     ] });
     admin.push({ label: "Identity & access", items: [
       { label: "Users & vendors", href: "/admin/users", icon: "users" },

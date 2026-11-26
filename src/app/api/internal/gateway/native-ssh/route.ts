@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { commandPolicyFor } from "@/lib/policy/command-policy-load";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 import { currentTenantId } from "@/lib/tenant/context";
 import { nativeSshTarget } from "@/lib/gateway/native-ssh-target";
@@ -36,8 +37,10 @@ async function handler(req: NextRequest) {
   // A moderated resource: the connection uses the admission a moderator gave (lib/moderation).
   const moderation = t.moderated ? await takeAdmission(siteId, userId, "ssh") : null;
   if (t.moderated && !moderation) return NextResponse.json({ error: "moderator_required" }, { status: 409 });
+  const commands = await commandPolicyFor(siteId);
   return NextResponse.json({
     tenantId: currentTenantId(),
+    ...(commands ? { commands } : {}),
     siteName: t.siteName,
     connectorId: t.connectorId,
     connectors: t.connectors,

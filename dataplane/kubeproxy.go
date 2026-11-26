@@ -62,6 +62,8 @@ type kubeTarget struct {
 	Connectors        []routeCandidate `json:"connectors"`
 	Record            bool             `json:"record"`
 	Keystrokes        bool             `json:"keystrokeLogging"`
+	// The resource's command list for exec (cmdfilter.go); nil: none.
+	Commands *CommandPolicy `json:"commands"`
 }
 
 func (t kubeTarget) rules() kubeRules {
@@ -156,6 +158,18 @@ func (p *kubeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.refused(k, path, why)
 		writeKubeStatus(w, 403, why)
 		return
+	}
+	// The resource's command list: kubectl exec names its command up front, so this match is exact.
+	// Commands typed inside an interactive shell are not checked.
+	if k.Sub == "exec" {
+		if cmd := r.URL.Query()["command"]; len(cmd) > 0 {
+			if ok, why := t.Commands.CheckExec(cmd); !ok {
+				why = "command refused (" + why + ")"
+				s.refused(k, path, why)
+				writeKubeStatus(w, 403, why)
+				return
+			}
+		}
 	}
 	// Only the connector says who acts on the cluster.
 	r.Header.Del("Authorization")

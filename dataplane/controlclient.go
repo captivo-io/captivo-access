@@ -161,6 +161,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		Moderation       moderationRef     `json:"moderation"`
 		Elevate          *elevateTarget    `json:"elevate"`
 		SSHHostKey       string            `json:"sshHostKey"`
+		Commands         *CommandPolicy    `json:"commands"`
 	}
 	if err := c.post("/api/internal/gateway/descriptor", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return GuacConn{}, "", nil, "", false, false, moderationRef{}, err
@@ -176,6 +177,7 @@ func (c *ControlClient) GatewayDescriptor(userID, siteID string) (conn GuacConn,
 		Params:       out.Params,
 		Elevate:      out.Elevate,
 		SSHHostKey:   out.SSHHostKey,
+		Commands:     out.Commands,
 	}, out.GuacdAddress, candidatesOr(out.Connectors, out.ConnectorID), out.TenantID, out.Record, out.KeystrokeLogging, out.Moderation, nil
 }
 
@@ -275,6 +277,8 @@ type sshTarget struct {
 	Tunnel bool
 	// A moderated session (moderation.go): only ever a recorded one.
 	Moderation moderationRef
+	// The resource's command list (cmdfilter.go); nil: none.
+	Commands *CommandPolicy
 }
 
 // NativeSshTarget is NativeRdpTarget for the SSH jump host (sshjump.go): the
@@ -299,6 +303,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		Elevate       *elevateTarget   `json:"elevate"`
 		Tunnel        bool             `json:"tunnel"`
 		Moderation    moderationRef    `json:"moderation"`
+		Commands      *CommandPolicy   `json:"commands"`
 	}
 	if err := c.post("/api/internal/gateway/native-ssh", map[string]string{"userId": userID, "siteId": siteID}, &out); err != nil {
 		return sshTarget{}, err
@@ -307,7 +312,7 @@ func (c *ControlClient) NativeSshTarget(userID, siteID string) (sshTarget, error
 		rdpTarget: rdpTarget{Host: out.TargetHost, Port: strconv.Itoa(out.TargetPort), ConnectorID: out.ConnectorID, TenantID: out.TenantID, SiteName: out.SiteName, Candidates: candidatesOr(out.Connectors, out.ConnectorID)},
 		Record:    out.Record, Keystrokes: out.Keystrokes, FileTransfer: out.FileTransfer,
 		Username: out.Username, SecretKind: out.SecretKind, Secret: out.Secret, PinnedHostKey: out.PinnedHostKey, KeyID: out.KeyID, Elevate: out.Elevate,
-		Tunnel: out.Tunnel, Moderation: out.Moderation,
+		Tunnel: out.Tunnel, Moderation: out.Moderation, Commands: out.Commands,
 	}, nil
 }
 
@@ -502,6 +507,8 @@ type dbTarget struct {
 	SessionRole string           `json:"sessionRole"`
 	Connectors  []routeCandidate `json:"connectors"`
 	Record      bool             `json:"record"`
+	// The resource's command list (cmdfilter.go); nil: none.
+	Commands *CommandPolicy `json:"commands"`
 }
 
 // engine is the resource's database engine; a control plane older than

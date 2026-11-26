@@ -13,7 +13,7 @@ import type { ResourceContext } from "./resource-form";
 
 /** Everything the add/edit resource dialog needs to show the Policy values and checks. */
 export async function resourceContext(): Promise<ResourceContext> {
-  const [connectors, groups, recordingMode, keystrokeMode, guacDefaults, clipboardDefault, watermarkDefault, egressDefault, fileTransferDefault, webFileTransferDefault, hostSuffix, customDomainIp, moderators, revealRequiresReason] = await Promise.all([
+  const [connectors, groups, recordingMode, keystrokeMode, guacDefaults, clipboardDefault, watermarkDefault, egressDefault, fileTransferDefault, webFileTransferDefault, hostSuffix, customDomainIp, moderators, revealRequiresReason, profiles, commandLists] = await Promise.all([
     db.connector.findMany({ where: { status: { not: "REVOKED" } }, select: { id: true, name: true, status: true, vaultPublicKey: true, sshCaPublicKey: true, version: true, platform: true }, orderBy: { name: "asc" } }),
     db.connectorGroup.findMany({
       orderBy: { name: "asc" },
@@ -22,6 +22,7 @@ export async function resourceContext(): Promise<ResourceContext> {
     resolvedRecordingMode(), resolvedKeystrokeLoggingMode(), resolvedGuacParamDefaults(), resolvedClipboardDefault(), resolvedWatermarkDefault(),
     resolvedIsolatedEgressDefault(), resolvedIsolatedFileTransferDefault(), resolvedWebAppFileTransferDefault(), siteHostSuffix(),
     expectedServerIp().catch(() => null), moderatorCount(), resolvedRevealRequiresReason(),
+    db.policyProfile.findMany({ orderBy: { name: "asc" } }), db.commandList.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, mode: true } }),
   ]);
   return {
     connectors: connectors.map((c) => ({ id: c.id, name: c.name, online: c.status === "ONLINE", vaultPublicKey: c.vaultPublicKey, sshCaPublicKey: c.sshCaPublicKey, version: c.version, platform: c.platform })),
@@ -31,5 +32,7 @@ export async function resourceContext(): Promise<ResourceContext> {
     })),
     recordingEnabled: recordingEnabled(), recordingMode, keystrokeMode, guacDefaults, clipboardDefault, watermarkDefault, egressDefault,
     fileTransferDefault, webFileTransferDefault, nativeGateway: nativeGatewayEnabled(), isolationEnabled: isolationEnabled(), hostSuffix, customDomainIp, moderators, revealRequiresReason,
+    profiles: profiles.map((p) => ({ id: p.id, name: p.name, recordSessions: p.recordSessions, keystrokeLogging: p.keystrokeLogging, clipboardMode: p.clipboardMode, watermark: p.watermark, fileTransferMode: p.fileTransferMode, egressMode: p.egressMode, egressHosts: p.egressHosts, requireModerator: p.requireModerator, passwordCheckout: p.passwordCheckout, checkoutMaxMinutes: p.checkoutMaxMinutes, commandListId: p.commandListId })),
+    commandLists,
   };
 }

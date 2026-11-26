@@ -109,6 +109,8 @@ type GuacConn struct {
 	// Administrator rights for the session, and the pinned SSH host key for a Linux server.
 	Elevate            *elevateTarget
 	SSHHostKey         string
+	// The resource's command list for a browser SSH session (guacgate.go); nil: none.
+	Commands           *CommandPolicy
 	Width, Height, Dpi int
 	Params             map[string]string // resolved guacd arg-name→value (server-layout, color-depth, enable-*, disable-copy/paste)
 }
