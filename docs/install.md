@@ -502,7 +502,11 @@ matters as little as possible:
   connector writes a request into a shared volume (`captivo_hostctl`); the most a
   request can say is "update to version X.Y.Z" or "remove the connector". Image
   names and the commands it runs are fixed in the updater image itself, and its
-  script is generated from the same code as the install command.
+  script is generated from the same code as the install command. The one other
+  thing it does is read the host's own address every ten minutes, from a short-lived
+  container on the host network that only asks the kernel which address it would use
+  to reach the network and sends nothing, so the connector page shows the address the
+  machine has now.
 - **Nothing changes until everything is downloaded.** If an image can't be pulled,
   the host is left as it was and the console says why.
 - **It goes back by itself.** The images the host ran before are kept as

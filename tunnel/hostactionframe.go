@@ -33,6 +33,7 @@ type HostActionAck struct {
 type UpdaterInfo struct {
 	Version  string `json:"version"`
 	DockerOK bool   `json:"dockerOk"` // the updater can reach the host's Docker
+	HostIP   string `json:"-"`        // from the beat; the connector reports it as LocalIP, not here
 }
 
 // HostActionStatus is the latest host action as the updater (or, while it waits
@@ -71,7 +72,11 @@ type HostRequest struct {
 type UpdaterBeat struct {
 	Version  string `json:"version"`
 	DockerOK bool   `json:"dockerOk"`
-	At       string `json:"at"`
+	// HostIP is the address the machine itself reaches the network with, read
+	// from the host's network (a connector in a container cannot see it). Empty
+	// until the updater has read it once.
+	HostIP string `json:"hostIp,omitempty"`
+	At     string `json:"at"`
 }
 
 // ConnectorMark is written each time the data-plane accepts the connector's
