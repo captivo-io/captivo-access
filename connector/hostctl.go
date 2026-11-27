@@ -79,7 +79,7 @@ func updaterInfo(now time.Time) *tunnel.UpdaterInfo {
 	if err != nil || now.Sub(at) > updaterBeatMaxAge || at.Sub(now) > updaterBeatMaxAge {
 		return nil
 	}
-	return &tunnel.UpdaterInfo{Version: beat.Version, DockerOK: beat.DockerOK}
+	return &tunnel.UpdaterInfo{Version: beat.Version, DockerOK: beat.DockerOK, HostIP: beat.HostIP}
 }
 
 // hostActionStatus is what the console shows: an update still held for idle,

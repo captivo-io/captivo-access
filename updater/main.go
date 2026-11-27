@@ -9,6 +9,11 @@
 // recipe.sh is generated from the same code as the install command the console
 // shows (src/lib/connector/repair.ts).
 //
+// Besides that, every ten minutes it reads the host's own address from a
+// throwaway container on the host network (`ip route get`, nothing is sent) and
+// puts it in its heartbeat, so the console shows the address the machine has now
+// rather than the one it had at install.
+//
 // An update:
 //  1. pulls every image of the requested version first; nothing changes if any
 //     pull fails,
@@ -28,6 +33,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,6 +76,9 @@ type updater struct {
 	docker string // the docker CLI
 	now    func() time.Time
 	self   string // this container's image, for runs that keep it
+
+	hostIP   string    // the host's own address, last read
+	hostIPAt time.Time // when it was last tried
 }
 
 func main() {
@@ -126,7 +135,36 @@ func (u *updater) setStatus(st tunnel.HostActionStatus) {
 
 func (u *updater) beat() {
 	_, err := u.run(10*time.Second, "version", "--format", "{{.Server.Version}}")
-	u.write(tunnel.UpdaterBeatFile, tunnel.UpdaterBeat{Version: Version, DockerOK: err == nil, At: u.stamp()})
+	if err == nil {
+		u.refreshHostIP()
+	}
+	u.write(tunnel.UpdaterBeatFile, tunnel.UpdaterBeat{Version: Version, DockerOK: err == nil, HostIP: u.hostIP, At: u.stamp()})
+}
+
+// hostIPEvery is how often the host's address is read again. A change is
+// picked up within this long; reading it costs one short container run.
+const hostIPEvery = 10 * time.Minute
+
+// routeSrc finds the source address in `ip route get` output.
+var routeSrc = regexp.MustCompile(`\bsrc ([0-9a-fA-F.:]+)`)
+
+// refreshHostIP asks the host's own network, from a throwaway container on it
+// (--network host), which address it would use to reach the network. Nothing
+// is sent: the kernel only looks the route up. A failure keeps the last value.
+func (u *updater) refreshHostIP() {
+	if !u.hostIPAt.IsZero() && u.now().Sub(u.hostIPAt) < hostIPEvery {
+		return
+	}
+	u.hostIPAt = u.now()
+	out, err := u.run(30*time.Second, "run", "--rm", "--network", "host", "--entrypoint", "ip", u.self, "route", "get", "192.0.2.1")
+	if err != nil {
+		return
+	}
+	if m := routeSrc.FindStringSubmatch(out); m != nil {
+		if ip := net.ParseIP(m[1]); ip != nil {
+			u.hostIP = ip.String()
+		}
+	}
 }
 
 // ---- docker ----

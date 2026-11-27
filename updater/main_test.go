@@ -25,6 +25,7 @@ inspect)
     *"{{.Image}} "*) echo "sha256:${4}" ;;
     *) exit 1 ;;
   esac ;;
+run) case "$*" in *"--network host"*) [ -f "$FAKE_DIR/noroute" ] && exit 1; echo "192.0.2.1 via 192.168.1.1 dev eth0 src 192.168.1.77 uid 0" ;; esac ;;
 pull) case "$2" in *"$FAIL_PULL"*) [ -n "$FAIL_PULL" ] && { echo "manifest unknown" >&2; exit 1; } ;; esac ;;
 image)
   case "$2" in
@@ -321,5 +322,31 @@ func TestImagePrefixMatchesTheConsole(t *testing.T) {
 	s := string(b)
 	if !strings.Contains(s, `IMAGE_REGISTRY = "ghcr.io"`) || !strings.Contains(s, `IMAGE_OWNER = "captivo-io"`) || !strings.Contains(s, "${IMAGE_REGISTRY}/${IMAGE_OWNER}/captivo-access") {
 		t.Fatalf("images.ts no longer matches %s", imagePrefix)
+	}
+}
+
+// The host's address is read from the host network, kept in the beat, read again
+// only every hostIPEvery, and a failed read keeps the last value.
+func TestBeatCarriesHostIP(t *testing.T) {
+	r := newRig(t)
+	r.u.beat()
+	var b tunnel.UpdaterBeat
+	r.u.read(tunnel.UpdaterBeatFile, &b)
+	if b.HostIP != "192.168.1.77" {
+		t.Fatalf("host ip %q", b.HostIP)
+	}
+	reads := func() int { return strings.Count(r.calls(), "--network host") }
+	r.u.beat()
+	if reads() != 1 {
+		t.Fatalf("read again inside %v: %d runs", hostIPEvery, reads())
+	}
+	r.u.now = func() time.Time { return r.now.Add(hostIPEvery + time.Second) }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(r.log), "noroute"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.u.beat()
+	r.u.read(tunnel.UpdaterBeatFile, &b)
+	if reads() != 2 || b.HostIP != "192.168.1.77" {
+		t.Fatalf("a failed read must keep the last address: runs=%d ip=%q", reads(), b.HostIP)
 	}
 }

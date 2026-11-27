@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +25,7 @@ func connClose() { atomic.AddInt64(&statActive, -1) }
 func denied()    { atomic.AddInt64(&statDenied, 1) }
 
 func snapshot() tunnel.Telemetry {
+	upd := updaterInfo(time.Now())
 	return tunnel.Telemetry{
 		Version:           Version,
 		UptimeSec:         int64(time.Since(startTime).Seconds()),
@@ -37,8 +39,8 @@ func snapshot() tunnel.Telemetry {
 		KasmLogs:          kasmLogRing.tail(80),
 		Hostname:          host.hostname,
 		OS:                host.os,
-		LocalIP:           host.localIP,
-		Updater:           updaterInfo(time.Now()),
+		LocalIP:           localIP(upd),
+		Updater:           upd,
 		HostAction:        hostActionStatus(),
 	}
 }
@@ -91,4 +93,16 @@ func (c *countingStream) Write(p []byte) (int, error) {
 	n, err := c.ReadWriteCloser.Write(p)
 	atomic.AddInt64(&statBytesIn, int64(n))
 	return n, err
+}
+
+// localIP prefers the address the updater read from the host's own network,
+// which follows a change of the machine's address. The one the install command
+// passed in is only what the machine had when it was installed.
+func localIP(upd *tunnel.UpdaterInfo) string {
+	if upd != nil {
+		if ip := net.ParseIP(upd.HostIP); ip != nil {
+			return ip.String()
+		}
+	}
+	return host.localIP
 }
