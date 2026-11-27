@@ -10,6 +10,7 @@ import { storedHostAction } from "@/lib/connector/host-action";
 import { connectorTunnelUrl, isLocalManagerUrl } from "@/lib/url";
 import { siteTile, SITE_TILE_SELECT } from "@/lib/access/grant-rows";
 import { mergeActivity } from "@/lib/connector/activity";
+import { memberProbes } from "@/lib/connector/route";
 import { withRequestTenant } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
 import { ConnectorDetail } from "./connector-detail";
@@ -33,15 +34,18 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
     select: {
       id: true, name: true, status: true, version: true, lastSeenAt: true, remoteAddr: true, createdAt: true,
       egressPolicy: true, logLevel: true, hostAction: true, platform: true, sshCaPublicKey: true,
-      sites: {
-        select: { ...SITE_TILE_SELECT, hostname: true, probeOk: true, probeLatencyMs: true, probeDetail: true, probedAt: true },
-        orderBy: { name: "asc" },
-      },
     },
   });
   if (!connector) notFound();
+  // A group resource is pinned to one stand-in member (Site.connectorId), so the
+  // connector's own list also takes the resources of every group it belongs to.
+  const sites = await db.site.findMany({
+    where: { OR: [{ connectorId: id }, { connectorGroup: { members: { some: { connectorId: id } } } }] },
+    select: { ...SITE_TILE_SELECT, hostname: true, probeOk: true, probeLatencyMs: true, probeDetail: true, probedAt: true, connectorGroupId: true, probeByConnector: true },
+    orderBy: { name: "asc" },
+  });
 
-  const siteIds = connector.sites.map((s) => s.id);
+  const siteIds = sites.map((s) => s.id);
   const [tele, events, defaultLogLevel, ws] = await Promise.all([
     connector.status === "REVOKED" ? Promise.resolve({ online: false } as const) : getConnectorTelemetry(connector.id).catch(() => ({ online: false } as const)),
     siteIds.length
@@ -76,11 +80,16 @@ async function ConnectorDetailPageImpl({ params, searchParams }: { params: Promi
           hostAction: storedHostAction(connector.hostAction), platform: connector.platform, sshCaPublicKey: connector.sshCaPublicKey,
         }}
         tele0={tele}
-        sites={connector.sites.map((s) => ({
-          tile: siteTile(s),
-          publicHost: s.accessMode === "TRANSPARENT" && s.hostname ? s.hostname : null,
-          ok: s.probeOk, latencyMs: s.probeLatencyMs, detail: s.probeDetail,
-        }))}
+        sites={sites.map((s) => {
+          // For a group resource, show this member's own probe when there is one.
+          const mine = s.connectorGroupId ? memberProbes(s.probeByConnector)[id] : undefined;
+          return {
+            tile: siteTile(s),
+            publicHost: s.accessMode === "TRANSPARENT" && s.hostname ? s.hostname : null,
+            ok: mine ? mine.ok : s.probeOk, latencyMs: mine ? mine.ms : s.probeLatencyMs, detail: mine ? mine.detail : s.probeDetail,
+            viaGroup: s.connectorGroupId !== null,
+          };
+        })}
         activity={mergeActivity(events.map((e) => ({
           id: e.id, at: e.timestamp.toISOString(), user: e.userName || e.userEmail || "—", siteId: e.siteId, siteName: e.siteName ?? "—",
           method: e.method, path: e.path, allow: e.decision === "ALLOW",
