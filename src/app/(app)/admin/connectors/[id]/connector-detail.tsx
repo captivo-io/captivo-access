@@ -21,7 +21,7 @@ import { SSH_CA_MIN_CONNECTOR } from "@/lib/vault/providers";
 import { CopyButton } from "@/app/(app)/_shell/copy-button";
 
 type Tele = { online: boolean; ageMs?: number; telemetry?: ConnectorTelemetry | null; status?: string; lastSeenAt?: string | null; version?: string | null; hostAction?: StoredHostAction | null };
-type Res = { tile: SiteTile; publicHost: string | null; ok: boolean | null; latencyMs: number | null; detail: string | null };
+type Res = { tile: SiteTile; publicHost: string | null; ok: boolean | null; latencyMs: number | null; detail: string | null; viaGroup?: boolean };
 type Conn = {
   id: string; name: string; status: string; version: string | null; outdated: boolean; mgr: string;
   lastSeenAt: string | null; remoteAddr: string | null; createdAt: string; egressPolicy: string; logLevel: string; sshCaPublicKey: string | null;
@@ -217,7 +217,7 @@ export function ConnectorDetail({ c, tele0, sites, activity, auditHref, defaultL
       {tab === "settings" && (
         <>
           <Settings s={settings} defaultLogLevel={defaultLogLevel} connectorId={c.id} onToast={setToast} caKey={c.sshCaPublicKey} />
-          {!revoked && <RemoveCard c={c} resources={sites.length} remote={remote} />}
+          {!revoked && <RemoveCard c={c} resources={sites.filter((s) => !s.viaGroup).length} remote={remote} />}
         </>
       )}
 
