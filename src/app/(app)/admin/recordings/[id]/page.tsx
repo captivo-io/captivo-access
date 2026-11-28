@@ -10,6 +10,7 @@ import { humanBytes } from "@/lib/recording/format";
 import { RecordingView } from "./recording-view";
 import { guestsOfRecording } from "@/lib/live/invites";
 import { connectorForRecording } from "@/lib/recording/connector-of";
+import { silentFor } from "@/lib/recording/unreachable";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recording" };
@@ -46,7 +47,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     }),
     // The connector that keeps its recording: the one that carried the session, or,
     // for an older recording of a deleted resource, the one found holding it.
-    connectorForRecording(rec).then((cid) => (cid ? db.connector.findUnique({ where: { id: cid }, select: { name: true } }) : null)),
+    connectorForRecording(rec).then((cid) => (cid ? db.connector.findUnique({ where: { id: cid }, select: { name: true, status: true, lastSeenAt: true } }) : null)),
     // People invited into the session from outside while it ran.
     guestsOfRecording({ siteId: rec.siteId, userId: rec.userId, startedAt: rec.startedAt, endedAt: new Date(rec.startedAt.getTime() + lengthMs) }).catch(() => []),
   ]);
@@ -74,7 +75,12 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
   });
 
   // Said before the replay, so it does not read as the session ending there.
-  const notice = !carrier ? (
+  const notice = carrier && carrier.status !== "ONLINE" ? (
+        <div className="warn" role="status">
+          This recording is kept on the connector <b>{carrier.name}</b>, which is offline (last seen {silentFor(carrier.lastSeenAt, new Date())}).
+          Nothing is lost: it plays again as soon as that connector is back online.
+        </div>
+      ) : !carrier ? (
         <div className="warn" role="status">
           This recording can&apos;t be played: the resource it came from was deleted, and none of
           this workspace&apos;s online connectors holds it. If the connector that carried the session

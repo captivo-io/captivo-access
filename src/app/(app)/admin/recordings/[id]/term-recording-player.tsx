@@ -1,4 +1,5 @@
 "use client";
+import { unreachableMessage } from "@/lib/recording/unreachable";
 import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
@@ -48,7 +49,8 @@ export function TermRecordingPlayer({ id, shell = {} }: { id: string; shell?: Pl
       try {
         const [res, xterm] = await Promise.all([fetch(`/api/admin/recordings/${id}/term`), import("@xterm/xterm")]);
         if (!res.ok) {
-          setError(res.status === 503 ? "This recording's connector is offline. The recording is intact; try again when it is back." : "Couldn't load this recording.");
+          const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+          setError(unreachableMessage(res.status, typeof body?.error === "string" ? body.error : undefined, "Couldn't load this recording"));
           return;
         }
         const r = parseAsciicast(await res.text());
