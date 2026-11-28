@@ -187,7 +187,8 @@ func (m *recMaint) cycle(ctx context.Context) {
 		return
 	}
 	for _, t := range tenants {
-		if !t.IsDir() || !safeSegment.MatchString(t.Name()) {
+		// A leading dot is not a tenant (the record of erasures lives there).
+		if !t.IsDir() || strings.HasPrefix(t.Name(), ".") || !safeSegment.MatchString(t.Name()) {
 			continue
 		}
 		recs, err := os.ReadDir(filepath.Join(m.store.root, t.Name()))

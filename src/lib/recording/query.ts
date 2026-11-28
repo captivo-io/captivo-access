@@ -72,7 +72,7 @@ export async function listRecordings(
     // have no keystroke chunks and the connector skips them cheaply.
     const candidates = await db.sessionRecording.findMany({
       where: baseWhere,
-      select: { recordingKey: true, siteId: true, connectorId: true },
+      select: { recordingKey: true, siteId: true, connectorId: true, replicas: { select: { connectorId: true, state: true } } },
     });
     if (candidates.length === 0) return { rows: [], total: 0 };
 
@@ -93,6 +93,8 @@ export async function listRecordings(
       candidates: candidates.map((c) => ({
         recordingKey: c.recordingKey,
         connectorId: c.connectorId ?? connectorBySite.get(c.siteId) ?? null,
+        // Copies on other members of the group: asked when the original cannot be (complete ones first).
+        alternates: [...(c.replicas ?? [])].sort((a, b) => Number(b.state === "COMPLETE") - Number(a.state === "COMPLETE")).map((r) => r.connectorId),
       })),
     });
     // A connector that hit its decrypt budget is the same "narrow your filters"
