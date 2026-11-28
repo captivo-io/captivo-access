@@ -183,6 +183,16 @@ another member, and the recording page says which one.
   data plane on the way, in memory, as they do whenever a recording is made or
   played; nothing is stored there. Back up each member's `recording.key` as
   before: a copy is readable only with the key of the member that holds it.
+- **Erasing.** An erasure of a recording is asked of every connector that holds
+  it, the original and each copy, and the recording stays marked pending until
+  the last one has confirmed. While a member is offline its copy is still there,
+  and the recording page says which connectors it is waiting for. From 2.86.0 a
+  connector also remembers what it erased (for 90 days), so a copy that was
+  still being made cannot bring an erased recording back.
+- **Searching commands** asks the original of each recording and, when that
+  connector is down, a copy of it, so a recording is not left out of a search
+  because its first holder is offline. A search that could not reach any holder
+  of some recording still says its answer is incomplete.
 - **Members need 2.84.0 or later.** An older member is left out of the copies
   and the group card says so.
 - **Playing.** The original is always asked first. A copy answers only when the

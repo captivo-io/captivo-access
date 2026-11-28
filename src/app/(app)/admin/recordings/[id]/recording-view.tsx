@@ -38,6 +38,8 @@ export interface RecordingInfo {
   guests?: { name: string; email: string; joinedAt: string; canControl: boolean; invitedBy: string | null }[];
   encrypted: boolean;
   purgePending: boolean;
+  /** Connectors that have not yet confirmed erasing their copy of it. */
+  purgeWaiting?: Array<{ name: string; online: boolean }>;
 }
 
 type Clock = { position: number; total: number; playing: boolean; ready: boolean; speed: number };
@@ -172,7 +174,12 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
         </div>
       </div>
       {notice}
-      {rec.purgePending ? <p className="notice warn" role="status">Erasure was requested. The recording is removed when its connector confirms; until then it can still be played.</p> : null}
+      {rec.purgePending ? (
+        <p className="notice warn" role="status">
+          Erasure was requested. The recording is removed when {rec.purgeWaiting && rec.purgeWaiting.length > 1 ? "every connector holding it has confirmed" : "its connector confirms"}
+          {rec.purgeWaiting && rec.purgeWaiting.length > 0 ? ` (waiting for ${rec.purgeWaiting.map((w) => `${w.name}${w.online ? "" : ", offline"}`).join("; ")})` : ""}; until then it can still be played.
+        </p>
+      ) : null}
 
       <div className="rv-grid">
         <div className="rv-stage">

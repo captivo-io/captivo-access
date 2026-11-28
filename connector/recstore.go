@@ -115,6 +115,11 @@ func (s *recStore) Append(tenantID, recordingKey, format string, seq int, plain 
 	if err != nil {
 		return 0, err
 	}
+	// An erased recording stays erased: a writer that was still going (a session
+	// ending, a copy in progress on another connector) must not bring it back.
+	if s.erased(tenantID, recordingKey) {
+		return 0, errErased
+	}
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return 0, err
 	}
@@ -465,7 +470,11 @@ func (s *recStore) Delete(tenantID, recordingKey string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return os.RemoveAll(d)
+	if err := os.RemoveAll(d); err != nil {
+		return err
+	}
+	s.tombstone(tenantID, recordingKey)
+	return nil
 }
 
 // Purge removes every recording for a tenant whose directory was last modified
@@ -478,6 +487,7 @@ func (s *recStore) Purge(tenantID string, olderThan time.Time) (int, error) {
 	base := filepath.Join(s.root, tenantID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.sweepTombstones(tenantID, time.Now())
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -509,4 +519,45 @@ func (s *recStore) setModTimeForTest(tenantID, recordingKey string, t time.Time)
 		return err
 	}
 	return os.Chtimes(d, t, t)
+}
+
+// errErased is what writing to an erased recording answers.
+var errErased = errors.New("recording erased")
+
+// tombstoneKeep is how long the record of an erasure is kept. A late writer is
+// seconds to minutes behind, not months.
+const tombstoneKeep = 90 * 24 * time.Hour
+
+func (s *recStore) tombstonePath(tenantID, recordingKey string) string {
+	return filepath.Join(s.root, ".erased", tenantID, recordingKey)
+}
+
+// tombstone records that a recording was erased on purpose (an administrator's
+// request), as an empty file outside the recording's own directory.
+func (s *recStore) tombstone(tenantID, recordingKey string) {
+	p := s.tombstonePath(tenantID, recordingKey)
+	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
+		return
+	}
+	_ = os.WriteFile(p, nil, 0o600)
+}
+
+// erased reports whether the recording was erased on purpose.
+func (s *recStore) erased(tenantID, recordingKey string) bool {
+	_, err := os.Stat(s.tombstonePath(tenantID, recordingKey))
+	return err == nil
+}
+
+// sweepTombstones forgets erasures older than tombstoneKeep.
+func (s *recStore) sweepTombstones(tenantID string, now time.Time) {
+	dir := filepath.Join(s.root, ".erased", tenantID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > tombstoneKeep {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }

@@ -58,8 +58,11 @@ export const DELETE = withTenantRoute(async (req: Request, { params }: { params:
   // pending-key list + retention window; an offline connector is retried by the
   // site-health reconcile and on its next connect. The row clears when the
   // connector confirms (see /api/internal/recording/erasure-ack).
+  // With copies on other members of its group, every holder is asked, the copies too.
   const holder = await connectorForRecording(rec);
-  if (holder) await pushConnectorPolicy(holder).catch(() => null);
+  const copies = await db.recordingReplica.findMany({ where: { recordingId: id }, select: { connectorId: true } });
+  const holders = [...new Set([...(holder ? [holder] : []), ...copies.map((c) => c.connectorId)])];
+  await Promise.all(holders.map((h) => pushConnectorPolicy(h).catch(() => null)));
 
   // Audit the deletion in the tamper-evident chain. Best-effort: the delete is
   // the primary action, so an audit failure is logged but does not fail the call.

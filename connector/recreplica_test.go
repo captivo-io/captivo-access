@@ -303,3 +303,56 @@ func bytes32(b byte) []byte {
 	}
 	return out
 }
+
+func TestAnErasedRecordingCannotBeBroughtBackByALateWriter(t *testing.T) {
+	store := newRecStore(t.TempDir(), testKey())
+	if _, err := store.Append("t1", "r1", "guac", 0, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete("t1", "r1"); err != nil {
+		t.Fatal(err)
+	}
+	// A copy in progress, a session still ending: their appends are refused.
+	if _, err := store.Append("t1", "r1", "guac", 1, []byte("late")); err == nil {
+		t.Fatal("an erased recording was written to")
+	}
+	req, _ := json.Marshal(tunnel.RecWriteRequest{Kind: "recwrite", TenantID: "t1", RecordingKey: "r1", Seq: 1, Format: "guac", Data: []byte("late"), Hold: true})
+	c := newRWC()
+	handleRecWrite(c, store, req)
+	b, _ := tunnel.ReadFrame(c.out)
+	var resp tunnel.RecWriteResponse
+	_ = json.Unmarshal(b, &resp)
+	if resp.Error == "" {
+		t.Fatal("the handler accepted a write to an erased recording")
+	}
+	if got := store.Formats("t1", "r1"); len(got) != 0 {
+		t.Fatalf("the recording came back: %v", got)
+	}
+	// Other recordings are unaffected, and the record of the erasure is no recording.
+	if _, err := store.Append("t1", "r2", "guac", 0, []byte("y")); err != nil {
+		t.Fatal(err)
+	}
+	m := newRecMaint(store, nil)
+	m.cycle(context.Background()) // must not treat the erasure record as a tenant
+}
+
+func TestErasureRecordsAreForgottenAfterAWhile(t *testing.T) {
+	store := newRecStore(t.TempDir(), testKey())
+	if err := store.Delete("t1", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.erased("t1", "gone") {
+		t.Fatal("no erasure record")
+	}
+	p := store.tombstonePath("t1", "gone")
+	old := time.Now().Add(-tombstoneKeep - time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Purge("t1", time.Now().Add(-24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if store.erased("t1", "gone") {
+		t.Fatal("an old erasure record was kept")
+	}
+}

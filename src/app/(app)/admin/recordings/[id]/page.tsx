@@ -12,6 +12,7 @@ import { guestsOfRecording } from "@/lib/live/invites";
 import { connectorForRecording } from "@/lib/recording/connector-of";
 import { silentFor } from "@/lib/recording/unreachable";
 import { holderNotice } from "@/lib/recording/holder-notice";
+import { holdersOwing } from "@/lib/recording/erasure";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recording" };
@@ -58,6 +59,11 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
       select: { state: true, connector: { select: { name: true, status: true, lastSeenAt: true } } },
     }),
   ]);
+  // Erasure asked for: the connectors that have not yet confirmed their copy gone.
+  const owingIds = rec.purgePendingAt ? await holdersOwing(rec.id) : [];
+  const owing = owingIds.length
+    ? (await db.connector.findMany({ where: { id: { in: owingIds } }, select: { name: true, status: true } })).map((c) => ({ name: c.name, online: c.status === "ONLINE" }))
+    : [];
   const copies = copyRows.map((c) => ({ name: c.connector.name, online: c.connector.status === "ONLINE", lastSeenAt: c.connector.lastSeenAt, complete: c.state === "COMPLETE" }));
   const where = holderNotice(
     { format: rec.format, videoReady: rec.videoReady, protocol: rec.protocol },
@@ -82,6 +88,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     guests,
     encrypted: rec.encrypted,
     purgePending: rec.purgePendingAt !== null,
+    purgeWaiting: owing,
   };
   const files = transfers.map((e) => {
     const b = transferBadge(e.method);

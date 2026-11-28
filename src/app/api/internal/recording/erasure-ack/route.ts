@@ -19,11 +19,12 @@ async function tenantFromReq(req: NextRequest): Promise<string | null> {
 // erasure is marked done only after the connector confirms it.
 async function handler(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const connectorId = typeof body.connectorId === "string" ? body.connectorId : undefined;
   const purgedKeys = Array.isArray(body.purgedKeys) ? body.purgedKeys.filter((k): k is string => typeof k === "string") : [];
   const retentionRemoved = typeof body.retentionRemoved === "number" ? body.retentionRemoved : 0;
 
   let confirmed = 0;
-  if (purgedKeys.length > 0) confirmed = await confirmErasures(purgedKeys);
+  if (purgedKeys.length > 0) confirmed = await confirmErasures(purgedKeys, connectorId);
 
   let trimmed = 0;
   if (retentionRemoved > 0) {
