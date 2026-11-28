@@ -40,6 +40,9 @@ func handleRecWrite(st io.ReadWriteCloser, store *recStore, reqBytes []byte) {
 	if req.Protocol != "" {
 		store.NoteProtocol(req.TenantID, req.RecordingKey, req.Format, req.Protocol)
 	}
+	if req.Hold {
+		_ = store.Hold(req.TenantID, req.RecordingKey)
+	}
 	writeRecFrame(st, tunnel.RecWriteResponse{Written: n})
 }
 

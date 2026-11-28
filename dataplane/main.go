@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -58,6 +59,8 @@ func main() {
 	audit := NewAuditQueue(envInt("AUDIT_QUEUE_CAP", 10000))
 	// Live remote-desktop / isolated sessions: is access still granted? (recheck.go)
 	go runPolicyRecheck(ctrl, hub, audit)
+	// Recordings copied between the members of a connector group that asked for it.
+	go newReplicator(ctrl, registryPeers{reg: reg}).run(context.Background())
 	go RunAuditFlush(audit, func(evs []AuditEvent) error {
 		err := ctrl.SendAudit(evs)
 		if err != nil {

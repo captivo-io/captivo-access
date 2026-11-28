@@ -218,6 +218,11 @@ func (m *recMaint) process(ctx context.Context, tenantID, key string) {
 	if !ok || (!complete && m.now().Sub(newest) < m.settle) {
 		return
 	}
+	// A copy still being made for a connector group is not worked on: a repack
+	// between two appends would renumber the chunks under them.
+	if m.store.Held(tenantID, key, m.now()) {
+		return
+	}
 	st := loadMaintState(recDir)
 	before := st
 	m.mu.Lock()

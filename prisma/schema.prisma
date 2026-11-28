@@ -44,6 +44,7 @@ model Tenant {
   policyProfiles        PolicyProfile[]
   commandLists          CommandList[]
   connectorGroupMembers ConnectorGroupMember[]
+  recordingReplicas     RecordingReplica[]
 
   users              User[]
   passkeys           Passkey[]
@@ -310,6 +311,7 @@ model Connector {
   days             ConnectorDay[]
   events           ConnectorEvent[]
   groupMemberships ConnectorGroupMember[]
+  recordingReplicas RecordingReplica[]
 
   @@unique([tenantId, tokenHash])
   @@index([tenantId])
@@ -406,6 +408,11 @@ model ConnectorGroup {
   createdAt DateTime               @default(now())
   members   ConnectorGroupMember[]
   sites     Site[]
+  // Recordings of sessions that start after this moment are also copied to the
+  // group's other members (dataplane/recreplicate.go), so one member going down
+  // does not take its recordings out of reach. Null: off. Enabling it does not
+  // copy what was recorded before.
+  replicateSince DateTime?
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -966,11 +973,50 @@ model SessionRecording {
   // The ticket of the grant the session ran under, when it had one (searchable).
   ticketRef      String?
   chunks         RecordingChunk[]
+  // Copies of this recording on other members of the connector group that
+  // carried the session (RecordingReplica); the recording itself is on connectorId.
+  replicas       RecordingReplica[]
+  // The carrying connector confirmed an erasure of its own copy. With copies on
+  // other members, the row goes only when every holder has confirmed.
+  originPurgedAt DateTime?
 
   @@unique([tenantId, recordingKey])
   @@index([siteId])
   @@index([userId])
   @@index([startedAt])
+  @@index([tenantId])
+}
+
+enum RecordingReplicaState {
+  PENDING   // chosen, nothing copied yet
+  COPYING   // some of it is there; the session may still be running
+  COMPLETE  // everything the recording holds is there and the connector has finished with it
+}
+
+// A copy of a recording on a connector other than the one that carried the
+// session (connector groups, dataplane/recreplicate.go). The bytes live on that
+// connector, sealed with its own key; this row only says where, and how far.
+model RecordingReplica {
+  id          String                  @id @default(cuid())
+  tenantId    String                  @default("default")
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recordingId String
+  recording   SessionRecording        @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  connectorId String
+  connector   Connector               @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  state       RecordingReplicaState   @default(PENDING)
+  // Plaintext bytes of the copied streams, as the holder reports them.
+  bytes       Int                     @default(0)
+  // Why the last pass could not go on, when it could not (a short code).
+  lastError   String?
+  completedAt DateTime?
+  // This holder confirmed erasing its copy (the recording row goes when all have).
+  purgedAt    DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@unique([recordingId, connectorId])
+  @@index([connectorId, state])
   @@index([tenantId])
 }
 

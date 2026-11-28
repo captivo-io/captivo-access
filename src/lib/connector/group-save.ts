@@ -9,16 +9,20 @@ export class GroupSaveError extends Error {}
  * resources on a member in service. Members must be this tenant's connectors
  * and not revoked.
  */
-export async function saveConnectorGroup(id: string | null, name: string, members: GroupMemberInput[]): Promise<string> {
+export async function saveConnectorGroup(id: string | null, name: string, members: GroupMemberInput[], replicate?: boolean): Promise<string> {
   const ids = members.map((m) => m.connectorId);
   const found = await db.connector.findMany({ where: { id: { in: ids }, status: { not: "REVOKED" } }, select: { id: true } });
   if (found.length !== ids.length) throw new GroupSaveError("connector_not_found");
   const groupId = await db.$transaction(async (tx) => {
     const clash = await tx.connectorGroup.findFirst({ where: { name, ...(id ? { id: { not: id } } : {}) }, select: { id: true } });
     if (clash) throw new GroupSaveError("name_taken");
+    // Turning replication on starts now: what was recorded before is not copied.
+    // Leaving it on keeps the moment it was turned on.
+    const before = id ? await tx.connectorGroup.findUnique({ where: { id }, select: { replicateSince: true } }) : null;
+    const replicateSince = replicate === undefined ? undefined : replicate ? (before?.replicateSince ?? new Date()) : null;
     const g = id
-      ? await tx.connectorGroup.update({ where: { id }, data: { name }, select: { id: true } })
-      : await tx.connectorGroup.create({ data: { name }, select: { id: true } });
+      ? await tx.connectorGroup.update({ where: { id }, data: { name, ...(replicateSince !== undefined ? { replicateSince } : {}) }, select: { id: true } })
+      : await tx.connectorGroup.create({ data: { name, ...(replicateSince ? { replicateSince } : {}) }, select: { id: true } });
     await tx.connectorGroupMember.deleteMany({ where: { groupId: g.id, connectorId: { notIn: ids } } });
     for (const m of members) {
       await tx.connectorGroupMember.upsert({

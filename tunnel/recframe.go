@@ -21,6 +21,11 @@ type RecWriteRequest struct {
 	Format   string `json:"format"`   // "guac" | "rrweb" | "video" | "keys"
 	Protocol string `json:"protocol"` // "ssh" | "rdp" | "vnc" | "" for web
 	Data     []byte `json:"data"`
+	// Hold marks the chunk as part of a COPY of a recording that is still being
+	// made on another connector of the group (see RecStatRequest). The connector
+	// keeps its maintenance away from the recording until it is told the copy
+	// is complete (RecDone), so a repack can never run between two appends.
+	Hold bool `json:"hold,omitempty"`
 }
 
 // RecWriteResponse reports bytes committed so the caller can keep the central byte
@@ -91,4 +96,33 @@ type RecFetchRequest struct {
 type RecFetchResponse struct {
 	Error      string `json:"error,omitempty"`
 	TotalBytes int64  `json:"totalBytes,omitempty"`
+}
+
+// RecStatRequest asks what this connector holds of one recording, for copying
+// it to another connector of the group (dataplane/recreplicate.go). Kind is
+// "recstat". Sent to connectors from 2.84.0.
+type RecStatRequest struct {
+	Kind         string `json:"kind"` // "recstat"
+	TenantID     string `json:"tenantId"`
+	RecordingKey string `json:"recordingKey"`
+}
+
+// RecStatStream is one stream the connector holds: its plaintext length and
+// the sequence number the next appended chunk takes.
+type RecStatStream struct {
+	Format  string `json:"format"`
+	Bytes   int64  `json:"bytes"`
+	NextSeq int    `json:"nextSeq"`
+}
+
+// RecStatResponse says what is there and whether the connector is done with it.
+// Complete is the connector's own word: it was told the session ended (RecDone),
+// or nothing has been written to the recording for a long while.
+type RecStatResponse struct {
+	Streams  []RecStatStream `json:"streams"`
+	Protocol string          `json:"protocol,omitempty"`
+	Complete bool            `json:"complete"`
+	// QuietSeconds is how long since the newest chunk was written.
+	QuietSeconds int64  `json:"quietSeconds"`
+	Error        string `json:"error,omitempty"`
 }
