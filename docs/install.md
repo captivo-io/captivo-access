@@ -182,15 +182,20 @@ find a command.
 
 Four consequences, and none of them are optional reading:
 
-1. **Back up the connector's volume.** Nobody else has a copy — not us. If the volume
-   is lost the recordings are gone permanently.
+1. **Back up the connector's volume.** Nobody else has a copy — not us — unless the
+   connector's group keeps copies of recordings on its other members (see *Keeping
+   copies of recordings* in `how-it-works.md`), which protects against a member going
+   down, not against losing the site. If the volume
+   is lost and no copy exists, the recordings are gone permanently.
 2. **Back up `/data/recording.key` with it.** The recordings cannot be read without
    that file, and it cannot be reissued or recovered. See
    [backing up a connector](#backing-up-a-connector).
-3. **A recording is searchable and playable only while its connector is online.** When
+3. **A recording is searchable and playable only while its connector is online** (or,
+   when its group keeps copies, while a member holding a copy is). When
    a connector is offline the console says an answer is incomplete rather than
    pretending nothing matched.
-4. **An erasure completes when the connector next connects.** Asking the console to
+4. **An erasure completes when the connector next connects** (with copies, when every
+   connector holding one has). Asking the console to
    delete a recording records the request immediately; the content goes when the
    connector confirms, and the recording stays marked pending until then.
 
