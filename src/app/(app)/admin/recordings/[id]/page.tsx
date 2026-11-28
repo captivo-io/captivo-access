@@ -11,6 +11,7 @@ import { RecordingView } from "./recording-view";
 import { guestsOfRecording } from "@/lib/live/invites";
 import { connectorForRecording } from "@/lib/recording/connector-of";
 import { silentFor } from "@/lib/recording/unreachable";
+import { holderNotice } from "@/lib/recording/holder-notice";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recording" };
@@ -30,7 +31,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
   }
   const estimatedMs = rec.lastEventAt ? Math.max(0, rec.lastEventAt.getTime() - rec.startedAt.getTime()) : 0;
   const lengthMs = rec.durationMs ?? estimatedMs;
-  const [ws, user, site, retention, transfers, carrier, guests] = await Promise.all([
+  const [ws, user, site, retention, transfers, carrier, guests, copyRows] = await Promise.all([
     workspaceView().catch(() => ({ name: "", slug: null as string | null })),
     db.user.findUnique({ where: { id: rec.userId }, select: { name: true, email: true } }),
     db.site.findUnique({ where: { id: rec.siteId }, select: { name: true, connector: { select: { version: true } } } }),
@@ -50,7 +51,20 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     connectorForRecording(rec).then((cid) => (cid ? db.connector.findUnique({ where: { id: cid }, select: { name: true, status: true, lastSeenAt: true } }) : null)),
     // People invited into the session from outside while it ran.
     guestsOfRecording({ siteId: rec.siteId, userId: rec.userId, startedAt: rec.startedAt, endedAt: new Date(rec.startedAt.getTime() + lengthMs) }).catch(() => []),
+    // Copies on other members of the connector group that carried the session.
+    db.recordingReplica.findMany({
+      where: { recordingId: rec.id },
+      orderBy: { createdAt: "asc" },
+      select: { state: true, connector: { select: { name: true, status: true, lastSeenAt: true } } },
+    }),
   ]);
+  const copies = copyRows.map((c) => ({ name: c.connector.name, online: c.connector.status === "ONLINE", lastSeenAt: c.connector.lastSeenAt, complete: c.state === "COMPLETE" }));
+  const where = holderNotice(
+    { format: rec.format, videoReady: rec.videoReady, protocol: rec.protocol },
+    carrier ? { name: carrier.name, online: carrier.status === "ONLINE", lastSeenAt: carrier.lastSeenAt } : null,
+    copies,
+    new Date(),
+  );
   const startSec = Number(t);
   const view = {
     id: rec.id,
@@ -64,6 +78,7 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
     bytes: rec.bytes,
     host: rec.host,
     connector: carrier?.name ?? null,
+    copies: copyRows.map((c) => ({ name: c.connector.name, complete: c.state === "COMPLETE", online: c.connector.status === "ONLINE" })),
     guests,
     encrypted: rec.encrypted,
     purgePending: rec.purgePendingAt !== null,
@@ -75,10 +90,19 @@ async function RecordingPageImpl({ params, searchParams }: { params: Promise<{ i
   });
 
   // Said before the replay, so it does not read as the session ending there.
-  const notice = carrier && carrier.status !== "ONLINE" ? (
+  const notice = where.kind === "from_copy" ? (
         <div className="warn" role="status">
-          This recording is kept on the connector <b>{carrier.name}</b>, which is offline (last seen {silentFor(carrier.lastSeenAt, new Date())}).
-          Nothing is lost: it plays again as soon as that connector is back online.
+          The connector that carried this session, <b>{where.original}</b>, is offline (last seen {where.since}). This is playing from the
+          {where.complete ? " copy" : " copy still being made"} on <b>{where.copy}</b>
+          {where.complete ? "." : ": it plays as far as it got, and the rest follows when the original is back."}
+        </div>
+      ) : where.kind === "offline" ? (
+        <div className="warn" role="status">
+          This recording is kept on the connector <b>{where.original}</b>, which is offline (last seen {where.since}).
+          {where.copiesElsewhere.length > 0
+            ? ` A copy is on ${where.copiesElsewhere.join(", ")}, which is offline too.`
+            : ""}{" "}
+          Nothing is lost: it plays again as soon as {where.copiesElsewhere.length > 0 ? "one of them" : "that connector"} is back online.
         </div>
       ) : !carrier ? (
         <div className="warn" role="status">

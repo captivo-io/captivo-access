@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { can } from "@/lib/auth/roles";
 import { db } from "@/lib/db";
-import { currentTenantId } from "@/lib/tenant/context";
-import { connectorForRecording } from "@/lib/recording/connector-of";
-import { fetchFromConnector } from "@/lib/dataplane/recordings";
+import { fetchFromHolders, isFailure } from "@/lib/recording/holders";
 import { assembleEvents } from "@/lib/recording/assemble";
 import { withTenantRoute } from "@/lib/tenant/request";
 import { SLOW_SCOPE_BUDGET_MS } from "@/lib/tenant/scope";
@@ -32,26 +30,17 @@ export const GET = withTenantRoute(async (_req: Request, { params }: { params: P
   const rec = await db.sessionRecording.findUnique({ where: { id } });
   if (!rec) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const connectorId = await connectorForRecording(rec);
-  if (!connectorId) {
+  // The original holder first; a copy on another member of its group when the original cannot answer.
+  const fetched = await fetchFromHolders(rec, "rrweb");
+  if (isFailure(fetched)) {
     return NextResponse.json(
-      { error: "no_connector", detail: "this recording's site has no connector, so its bytes cannot be reached" },
+      fetched.error === "no_connector"
+        ? { error: "no_connector", detail: "this recording's site has no connector, so its bytes cannot be reached" }
+        : { error: "connector_offline", detail: "the connector holding this recording is offline; the recording is intact but unreachable" },
       { status: 503 }
     );
   }
-
-  const got = await fetchFromConnector({
-    format: "rrweb",
-    connectorId,
-    tenantId: currentTenantId(),
-    recordingKey: rec.recordingKey,
-  });
-  if (!got) {
-    return NextResponse.json(
-      { error: "connector_offline", detail: "the connector holding this recording is offline; the recording is intact but unreachable" },
-      { status: 503 }
-    );
-  }
+  const got = fetched.got;
 
   const raw = Buffer.from(await new Response(got.body).arrayBuffer());
   // The connector already decrypted and ordered the chunks, so what arrives is the

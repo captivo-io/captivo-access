@@ -150,13 +150,48 @@ choose the group on a resource instead of a single connector.
 - **Members must reach the same machines.** The health check probes a group
   resource through every online member. A member that cannot reach it while
   another can is left out of its sessions, and its card says so.
-- **Recordings stay where they were made.** A recording lives on the member that
-  carried the session and plays from it; while that member is offline the
-  recording cannot be opened.
+- **Recordings stay where they were made,** unless the group keeps copies of them
+  (next section). A recording lives on the member that carried the session and
+  plays from it; with no copy, it cannot be opened while that member is offline.
 - Native RDP and native SSH sessions go through members on 2.39.0 or later (recorded native SSH: 2.49.0, recorded native RDP: 2.52.0).
 - Revoking or deleting a member moves the group's resources onto another member;
   a group that still serves resources cannot be deleted.
 - Not yet covered: the directory (AD/LDAP) connection still uses one connector.
+
+### Keeping copies of recordings (connector groups, 2.84.0)
+
+Switch on **Keep a copy of every new recording on the other members** when you
+create or edit a group (Connectors → Connector groups). From then on, a
+recording made on one member is also copied to each of the others, so that a
+member going down does not take its recordings out of reach: they play from
+another member, and the recording page says which one.
+
+- **Only new recordings.** Recordings made before you turn it on are not copied.
+- **Disk.** Each recording takes up space on every member: with three members,
+  three times the disk. The group card shows how much the copies hold. Each
+  member compresses its own copy, as it does its own recordings.
+- **While the session is running.** The copy trails the session by a few seconds
+  and carries on from where it is after a member was offline, so a session cut
+  short by a connector going down is not lost up to that point. A copy that is
+  still being made plays as far as it got; the recording page says so.
+- **Remote desktop (RDP, VNC).** A graphical session is copied as the video its
+  connector makes of it, and its keystroke timeline, once the video exists. The
+  raw screen stream is hundreds of times larger and is deleted by its own
+  connector soon after; until the video exists, the group card says a copy is
+  waiting for it.
+- **Each member seals its copy with its own key.** The bytes pass through the
+  data plane on the way, in memory, as they do whenever a recording is made or
+  played; nothing is stored there. Back up each member's `recording.key` as
+  before: a copy is readable only with the key of the member that holds it.
+- **Members need 2.84.0 or later.** An older member is left out of the copies
+  and the group card says so.
+- **Playing.** The original is always asked first. A copy answers only when the
+  original cannot, and a copy of a remote-desktop session answers only once its
+  video is whole.
+- **Copies protect against a member going down, not against losing the site.**
+  If every member is in the same room, a fire takes them all. Keep your own
+  backups of each member's volume and key (see *Backing up a connector* in
+  `install.md`).
 
 ## Password rotation
 

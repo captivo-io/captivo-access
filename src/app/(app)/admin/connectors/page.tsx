@@ -21,6 +21,8 @@ import { isConnectorOutdated } from "@/lib/updates/semver";
 import { getConnectorTelemetry } from "@/lib/connector/telemetry";
 import { liveHostAction, remoteControl, storedHostAction, updateTarget } from "@/lib/connector/host-action";
 import { dayKey, summarizeUptime } from "@/lib/connector/history";
+import { summarizeReplicas } from "@/lib/recording/replica-summary";
+import { canHoldCopies } from "@/lib/recording/replica-version";
 import type { EventLevel } from "@/lib/connector/history";
 
 export const dynamic = "force-dynamic";
@@ -108,7 +110,7 @@ async function AdminConnectorsPageImpl() {
   const groupRows = await db.connectorGroup.findMany({
     orderBy: { name: "asc" },
     select: {
-      id: true, name: true,
+      id: true, name: true, replicateSince: true,
       members: { orderBy: [{ standby: "asc" }, { createdAt: "asc" }], select: { standby: true, connector: { select: { id: true, name: true, status: true, version: true, vaultPublicKey: true } } } },
       sites: { orderBy: { name: "asc" }, select: { name: true, accessMode: true, probeByConnector: true, vaultCredential: { select: { secret: true, sealedTo: true, extraSeals: true } } } },
     },
@@ -116,12 +118,30 @@ async function AdminConnectorsPageImpl() {
   // Sessions each member carries now, from the dataplane (fail-soft: unknown on error).
   const carried = groupRows.length ? await listActiveSessions().catch(() => null) : null;
   const sessionsOf = (id: string, status: string) => (carried && status === "ONLINE" ? carried.filter((x) => x.connectorId === id).length : null);
+  // What each group's copies of recordings amount to, from the copy rows of its members.
+  const copyRows = groupRows.some((g) => g.replicateSince)
+    ? await db.recordingReplica.groupBy({
+        by: ["connectorId", "state", "lastError"],
+        where: { connectorId: { in: groupRows.flatMap((g) => g.members.map((m) => m.connector.id)) } },
+        _count: true,
+        _sum: { bytes: true },
+      })
+    : [];
   const groups: GroupCard[] = groupRows.map((g) => ({
     id: g.id,
     name: g.name,
     resources: g.sites.map((s) => s.name),
+    replicateSince: g.replicateSince ? g.replicateSince.toISOString() : null,
+    copies: g.replicateSince
+      ? summarizeReplicas(
+          copyRows
+            .filter((r) => g.members.some((m) => m.connector.id === r.connectorId))
+            .map((r) => ({ state: r.state, lastError: r.lastError, _count: r._count, bytes: r._sum.bytes ?? 0 })),
+        )
+      : null,
     members: g.members.map(({ standby, connector: m }) => ({
       id: m.id, name: m.name, status: m.status, version: m.version, standby,
+      cannotCopy: !!g.replicateSince && m.status !== "REVOKED" && !canHoldCopies(m.version),
       sessions: sessionsOf(m.id, m.status),
       ...missingCopies(m, g),
       // As routing reads it: a member is short only where another member gets through;
