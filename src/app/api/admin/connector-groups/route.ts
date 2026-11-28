@@ -19,7 +19,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   if ("error" in input) return NextResponse.json({ error: input.error }, { status: 400 });
   let id: string;
   try {
-    id = await saveConnectorGroup(null, input.name, input.members);
+    id = await saveConnectorGroup(null, input.name, input.members, input.replicate);
   } catch (e) {
     if (e instanceof GroupSaveError) return NextResponse.json({ error: e.message }, { status: e.message === "name_taken" ? 409 : 400 });
     throw e;
@@ -27,7 +27,7 @@ export const POST = withTenantRoute(async (req: NextRequest) => {
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "connector.group_create", targetType: "connector_group", targetId: id,
-    summary: `Created connector group "${input.name}" with ${input.members.length} connector${input.members.length === 1 ? "" : "s"}`,
+    summary: `Created connector group "${input.name}" with ${input.members.length} connector${input.members.length === 1 ? "" : "s"}${input.replicate ? ", keeping a copy of recordings on each member" : ""}`,
     clientIp: clientIp(req.headers) ?? null,
   });
   // Members without a copy of a resource's saved password get one from a member that has it.

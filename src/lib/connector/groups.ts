@@ -15,7 +15,7 @@ export const GROUP_MEMBERS_MAX = 16;
 export type GroupMemberInput = { connectorId: string; standby: boolean };
 
 /** Validates a group's name and members from a request body. */
-export function parseGroupInput(body: unknown): { name: string; members: GroupMemberInput[] } | { error: string } {
+export function parseGroupInput(body: unknown): { name: string; members: GroupMemberInput[]; replicate?: boolean } | { error: string } {
   const b = (body ?? {}) as Record<string, unknown>;
   const name = typeof b.name === "string" ? b.name.trim() : "";
   if (!name || name.length > GROUP_NAME_MAX) return { error: "invalid_name" };
@@ -32,7 +32,8 @@ export function parseGroupInput(body: unknown): { name: string; members: GroupMe
   if (members.length === 0) return { error: "no_members" };
   if (members.length > GROUP_MEMBERS_MAX) return { error: "too_many_members" };
   if (members.every((m) => m.standby)) return { error: "no_active_member" };
-  return { name, members };
+  // Keep a copy of every recording on the group's other members; absent = leave as it is.
+  return { name, members, ...(typeof b.replicateRecordings === "boolean" ? { replicate: b.replicateRecordings } : {}) };
 }
 
 /** The member a group resource's Site.connectorId points at: the first active one still in service, else any. */

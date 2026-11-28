@@ -19,12 +19,12 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: Ctx) => {
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!can(admin.role, "configure")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { id } = await ctx.params;
-  const existing = await db.connectorGroup.findUnique({ where: { id }, select: { id: true } });
+  const existing = await db.connectorGroup.findUnique({ where: { id }, select: { id: true, replicateSince: true } });
   if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });
   const input = parseGroupInput(await req.json().catch(() => null));
   if ("error" in input) return NextResponse.json({ error: input.error }, { status: 400 });
   try {
-    await saveConnectorGroup(id, input.name, input.members);
+    await saveConnectorGroup(id, input.name, input.members, input.replicate);
   } catch (e) {
     if (e instanceof GroupSaveError) return NextResponse.json({ error: e.message }, { status: e.message === "name_taken" ? 409 : 400 });
     throw e;
@@ -33,7 +33,9 @@ export const PATCH = withTenantRoute(async (req: NextRequest, ctx: Ctx) => {
   await recordAdminAction({
     actor: { id: admin.id, email: admin.email },
     action: "connector.group_update", targetType: "connector_group", targetId: id,
-    summary: `Updated connector group "${input.name}": ${active} active, ${input.members.length - active} standby`,
+    summary: `Updated connector group "${input.name}": ${active} active, ${input.members.length - active} standby${
+      input.replicate === undefined || input.replicate === !!existing.replicateSince ? "" : input.replicate ? "; recording copies turned on" : "; recording copies turned off"
+    }`,
     clientIp: clientIp(req.headers) ?? null,
   });
   // A member that just joined gets copies of the saved passwords from one that has them.

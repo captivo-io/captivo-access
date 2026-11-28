@@ -133,10 +133,19 @@ func handleStream(st io.ReadWriteCloser, allow *TargetMatcher, store *recStore) 
 		handleRecSearch(cst, store, reqBytes)
 	case "recfetch":
 		handleRecFetch(cst, store, reqBytes)
+	case "recstat":
+		handleRecStat(cst, store, reqBytes)
 	case "recdone":
 		var d tunnel.RecDone
-		if json.Unmarshal(reqBytes, &d) == nil && recMaintenance != nil {
-			recMaintenance.markDone(d.TenantID, d.RecordingKey)
+		if json.Unmarshal(reqBytes, &d) == nil {
+			// The session ended: say so beside the recording (a copy being made
+			// elsewhere reads it), let go of a hold if this is a finished copy,
+			// and let maintenance start.
+			store.MarkComplete(d.TenantID, d.RecordingKey)
+			store.Release(d.TenantID, d.RecordingKey)
+			if recMaintenance != nil {
+				recMaintenance.markDone(d.TenantID, d.RecordingKey)
+			}
 		}
 	default:
 		handleDial(cst, allow, reqBytes)
