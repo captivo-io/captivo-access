@@ -114,10 +114,12 @@ describe("video recording player", () => {
     expect(clock()).toBe("0:00 / 1:35");
   });
 
-  it("says when the recording cannot be loaded", async () => {
+  it("says when the recording cannot be played, even if the server cannot be asked why", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
     await mount();
     await act(async () => { video().dispatchEvent(new Event("error")); });
-    expect(document.body.textContent).toContain("Couldn't load this recording");
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(document.body.textContent).toContain("Couldn't play this recording's video");
   });
 
   it("is playable when the metadata arrived before it was listening", async () => {
@@ -136,3 +138,32 @@ describe("video recording player", () => {
     }
   });
 });
+
+describe("video player: says why it failed", () => {
+  beforeEach(() => { document.body.innerHTML = "<div id=root></div>"; });
+  const failWith = async (response: Response | Error) => {
+    const spy = vi.fn(async () => { if (response instanceof Error) throw response; return response; });
+    vi.stubGlobal("fetch", spy);
+    const root = createRoot(document.getElementById("root")!);
+    await act(async () => root.render(<VideoRecordingPlayer id="r1" />));
+    await act(async () => { video().dispatchEvent(new Event("error")); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const text = document.body.textContent ?? "";
+    root.unmount();
+    return { text, spy };
+  };
+
+  it("an isolated-browser recording on an offline connector says so, and the probe asks for one byte only", async () => {
+    const { text, spy } = await failWith(new Response(JSON.stringify({ error: "connector_offline" }), { status: 503 }));
+    expect(text).toContain("connector is offline");
+    expect(text).toContain("plays as soon as the connector is back");
+    expect(spy).toHaveBeenCalledWith("/api/admin/recordings/r1/video", expect.objectContaining({ headers: { Range: "bytes=0-0" } }));
+  });
+
+  it("a video the server can reach but the browser cannot play is not blamed on the connector", async () => {
+    const { text } = await failWith(new Response("x", { status: 206 }));
+    expect(text).toContain("file may be damaged");
+    expect(text).not.toContain("offline");
+  });
+});
+

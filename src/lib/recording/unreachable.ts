@@ -23,10 +23,10 @@ export function unreachableMessage(status: number, reason: string | undefined, f
  * again and only its head is read; a stream that turns out to be fine is dropped
  * unread and the caller's own message stands.
  */
-export async function explainFailure(url: string, fallback: string, fetchImpl: typeof fetch = fetch): Promise<string> {
+export async function explainFailure(url: string, fallback: string, fetchImpl: typeof fetch = fetch, headers?: Record<string, string>): Promise<string> {
   const ctl = new AbortController();
   try {
-    const res = await fetchImpl(url, { signal: ctl.signal, cache: "no-store" });
+    const res = await fetchImpl(url, { signal: ctl.signal, cache: "no-store", ...(headers ? { headers } : {}) });
     if (res.ok) return fallback;
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
     return unreachableMessage(res.status, typeof body?.error === "string" ? body.error : undefined, fallback);
