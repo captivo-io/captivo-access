@@ -38,3 +38,7 @@
 .rf-group .rf-plug svg + svg{margin-left:-9px;opacity:.7;}
 .rf-group .rf-plug{display:flex;align-items:center;justify-content:center;}
 .rf-group .rf-plug svg{width:14px;height:14px;}
+.cg-copies{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:10px;background:rgba(var(--ok-rgb, 34,197,94),.08);border:1px solid rgba(var(--ok-rgb, 34,197,94),.25);font-size:12.5px;line-height:1.45;}
+.cg-copies .cg-issues{margin-top:6px;}
+.cg-replicate{padding:12px;border-radius:10px;border:1px solid var(--line, rgba(128,128,128,.25));}
+.cg-replicate-row{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--ink);}

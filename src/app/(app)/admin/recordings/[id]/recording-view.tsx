@@ -32,6 +32,8 @@ export interface RecordingInfo {
   host: string;
   /** The connector that carried the session and keeps the recording. */
   connector?: string | null;
+  /** Copies on other members of that connector's group. */
+  copies?: Array<{ name: string; complete: boolean; online: boolean }>;
   /** People an admin invited into the session while it ran. */
   guests?: { name: string; email: string; joinedAt: string; canControl: boolean; invitedBy: string | null }[];
   encrypted: boolean;
@@ -231,6 +233,9 @@ export function RecordingView({ rec, user, siteName, workspace, retentionDays, t
                   ["Resource", siteName],
                   ["Host", <span key="h" className="mono">{rec.host}</span>],
                   ...(rec.connector ? [["Connector", rec.connector] as [string, React.ReactNode]] : []),
+                  ...(rec.copies && rec.copies.length > 0
+                    ? [["Copies", rec.copies.map((c) => `${c.name}${c.complete ? "" : " (copying)"}${c.online ? "" : " · offline"}`).join(", ")] as [string, React.ReactNode]]
+                    : []),
                   ...(rec.guests && rec.guests.length > 0 ? [["Invited guests", (
                     <ul key="g" className="rv-guests">
                       {rec.guests.map((g) => (

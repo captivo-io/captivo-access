@@ -3,6 +3,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/app/(app)/_shell/modal";
 import { NavIcon } from "@/app/(app)/_shell/nav-icons";
+import { stalledText, type ReplicaSummary } from "@/lib/recording/replica-summary";
+import { humanBytes } from "@/lib/recording/format";
+import { REPLICA_MIN_VERSION } from "@/lib/recording/replica-version";
 
 // Connector groups on the Connectors page: several connectors that serve the
 // same resources. Sessions are spread over the online active members; standby
@@ -24,9 +27,19 @@ export type GroupMemberCard = {
   noSeal: string[];
   /** Resources the health probe last saw it fail to reach. */
   unreachable: string[];
+  /** The group keeps copies of recordings and this connector is too old to hold one. */
+  cannotCopy: boolean;
 };
 
-export type GroupCard = { id: string; name: string; members: GroupMemberCard[]; resources: string[] };
+export type GroupCard = {
+  id: string;
+  name: string;
+  members: GroupMemberCard[];
+  resources: string[];
+  /** When the group began keeping copies of new recordings; null: it does not. */
+  replicateSince: string | null;
+  copies: ReplicaSummary | null;
+};
 export type PickableConnector = { id: string; name: string; status: string };
 
 const ERRORS: Record<string, string> = {
@@ -82,7 +95,7 @@ function Group({ g, onEdit }: { g: GroupCard; onEdit: () => void }) {
   const online = g.members.filter((m) => m.status === "ONLINE");
   const activeUp = online.filter((m) => !m.standby).length;
   const state = online.length === 0 ? ["down", "No member online"] : activeUp === 0 ? ["warn", "Running on standby"] : online.length < g.members.length ? ["warn", `${online.length} of ${g.members.length} online`] : ["up", "All online"];
-  const issues = g.members.filter((m) => m.copying.length || m.waiting.length || m.noSeal.length || m.unreachable.length);
+  const issues = g.members.filter((m) => m.copying.length || m.waiting.length || m.noSeal.length || m.unreachable.length || m.cannotCopy);
   return (
     <article className="cg-card">
       <div className="cg-top">
@@ -103,10 +116,25 @@ function Group({ g, onEdit }: { g: GroupCard; onEdit: () => void }) {
           </li>
         ))}
       </ul>
+      {g.replicateSince && g.copies && (
+        <div className="cg-copies" role="status">
+          <b>Keeping a copy of recordings on every member</b>
+          <span className="cell-sub">
+            Since {new Date(g.replicateSince).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}: {g.copies.complete} complete{g.copies.copying > 0 ? `, ${g.copies.copying} still being copied` : ""}
+            {g.copies.bytes > 0 ? ` · ${humanBytes(g.copies.bytes)} held on the other members` : ""}.
+          </span>
+          {g.copies.stalled.length > 0 && (
+            <ul className="cg-issues">{g.copies.stalled.map((x) => <li key={x.code}><span>{stalledText(x.code, x.count)}.</span></li>)}</ul>
+          )}
+        </div>
+      )}
       {issues.length > 0 && (
         <ul className="cg-issues">
           {issues.map((m) => (
             <li key={m.id}>
+              {m.cannotCopy && (
+                <span><b>{m.name}</b> is on {m.version ?? "an unknown version"} and cannot hold a copy of a recording: update it to {REPLICA_MIN_VERSION} or later. Until then it is left out of the copies.</span>
+              )}
               {m.copying.length > 0 && (
                 <span><b>{m.name}</b> is getting the saved password{m.copying.length === 1 ? "" : "s"} of {list(m.copying)} from another member, within a few minutes. Until then {m.copying.length === 1 ? "its sessions go" : "their sessions go"} through the others.</span>
               )}
@@ -138,6 +166,7 @@ function GroupDialog({ group, connectors, onClose }: { group: GroupCard | null; 
   const [members, setMembers] = useState<Record<string, "active" | "standby">>(
     () => Object.fromEntries((group?.members ?? []).filter((m) => m.status !== "REVOKED").map((m) => [m.id, m.standby ? "standby" : "active"])),
   );
+  const [replicate, setReplicate] = useState(!!group?.replicateSince);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chosen = Object.entries(members);
@@ -151,7 +180,7 @@ function GroupDialog({ group, connectors, onClose }: { group: GroupCard | null; 
       const res = await fetch(url, {
         method,
         headers: { "content-type": "application/json" },
-        body: method === "DELETE" ? undefined : JSON.stringify({ name, members: chosen.map(([connectorId, role]) => ({ connectorId, standby: role === "standby" })) }),
+        body: method === "DELETE" ? undefined : JSON.stringify({ name, members: chosen.map(([connectorId, role]) => ({ connectorId, standby: role === "standby" })), replicateRecordings: replicate }),
       });
       const out = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -208,6 +237,18 @@ function GroupDialog({ group, connectors, onClose }: { group: GroupCard | null; 
           A member that joins later gets copies of the saved passwords from a member that has them, sealed to its own key.
         </p>
       </div>
+      <label className="cg-field cg-replicate">
+        <span className="cg-replicate-row">
+          <input type="checkbox" checked={replicate} disabled={chosen.length < 2} onChange={(e) => setReplicate(e.target.checked)} />
+          <b>Keep a copy of every new recording on the other members</b>
+        </span>
+        <span className="cell-sub cg-hint">
+          If a member goes down, its recordings still play from another. Each recording takes up space on every member
+          ({chosen.length > 1 ? `${chosen.length}×` : "N×"} the disk), and only recordings made after you turn this on are copied.
+          Remote-desktop sessions are copied as video once their connector has made it. Members older than {REPLICA_MIN_VERSION} are left out.
+          {chosen.length < 2 ? " Needs at least two members." : ""}
+        </span>
+      </label>
       {error && <p className="notice error" role="alert">{error}</p>}
       <div className="rq-foot">
         {group ? (
