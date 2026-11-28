@@ -190,3 +190,32 @@ describe("guac recording player: clock and bar", () => {
     root.unmount();
   });
 });
+
+describe("guac recording player: says why it failed", () => {
+  beforeEach(() => { document.body.innerHTML = "<div id=root></div>"; });
+
+  it("an offline connector is named as such, not as 'Service Unavailable'", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "connector_offline" }), { status: 503 })));
+    const root = createRoot(document.getElementById("root")!);
+    await act(async () => root.render(<GuacRecordingPlayer recordingId="r1" />));
+    await tick();
+    await act(async () => lib.state.rec!.onerror("Service Unavailable"));
+    await tick();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("connector is offline");
+    expect(text).toContain("plays as soon as the connector is back");
+    expect(text).not.toContain("Service Unavailable");
+    root.unmount();
+  });
+
+  it("keeps the library's own message when the server has nothing to add", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("bytes", { status: 200 })));
+    const root = createRoot(document.getElementById("root")!);
+    await act(async () => root.render(<GuacRecordingPlayer recordingId="r1" />));
+    await tick();
+    await act(async () => lib.state.rec!.onerror("Bad instruction"));
+    await tick();
+    expect(document.body.textContent).toContain("Couldn't play this recording. (Bad instruction)");
+    root.unmount();
+  });
+});

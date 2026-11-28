@@ -1,4 +1,5 @@
 "use client";
+import { explainFailure } from "@/lib/recording/unreachable";
 import { useEffect, useRef, useState } from "react";
 import { PlaybackBar, playerKeys, toggleFullscreen, type PlayerShell } from "./playback-bar";
 
@@ -169,14 +170,16 @@ export function GuacRecordingPlayer({ recordingId, estimatedMs = 0, onInteract, 
         };
         recording.onerror = (status: unknown) => {
           console.error("[guac-recording] onerror:", status);
-          setError(`Couldn't play this recording. (${typeof status === "string" ? status : JSON.stringify(status)})`);
+          const detail = `Couldn't play this recording. (${typeof status === "string" ? status : JSON.stringify(status)})`;
+          // The tunnel only says that it failed; the server says why (connector offline, no connector...).
+          void explainFailure(`/api/admin/recordings/${recordingId}/guac`, detail).then((m) => { if (!disposed) setError(m); });
         };
 
         tunnel.connect("");
       } catch (err) {
         console.error("[guac-recording] failed:", err);
         const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-        setError(`Couldn't play this recording. (${msg})`);
+        void explainFailure(`/api/admin/recordings/${recordingId}/guac`, `Couldn't play this recording. (${msg})`).then((m) => { if (!disposed) setError(m); });
       }
     })();
     return () => {

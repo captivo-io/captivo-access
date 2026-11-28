@@ -1,4 +1,5 @@
 "use client";
+import { unreachableMessage } from "@/lib/recording/unreachable";
 import { useEffect, useRef, useState } from "react";
 import type { eventWithTime } from "rrweb";
 import { hasFullSnapshot } from "@/lib/recording/snapshot";
@@ -72,7 +73,11 @@ export function RecordingPlayer({ id, shell = {} }: { id: string; shell?: Player
     (async () => {
       try {
         const res = await fetch(`/api/admin/recordings/${id}/events`);
-        if (!res.ok) { setError("Couldn't load this recording. Its connector may be offline; try again in a moment."); return; }
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+          setError(unreachableMessage(res.status, typeof body?.error === "string" ? body.error : undefined, "Couldn't load this recording"));
+          return;
+        }
         const body = await res.json();
         const events: unknown[] = Array.isArray(body.events) ? body.events : [];
         if (events.length < 2) { setEmpty(true); return; }
